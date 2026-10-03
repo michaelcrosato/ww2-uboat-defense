@@ -1,0 +1,24 @@
+{
+  "name": "ww2-uboat-defense",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Wolfpack & Escort: a WWII top-down pixel-art naval combat prototype with GPU water simulation, Rapier 3D physics, dynamic lights and occluder shadows.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "node tools/smoke.mjs",
+    "shot": "node tools/shot.mjs"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "0.21.0"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1",
+    "typescript": "7.0.2",
+    "vite": "8.3.2"
+  }
+}
