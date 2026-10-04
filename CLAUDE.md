@@ -26,7 +26,8 @@ This project is built milestone by milestone, with a context clear between miles
 ```bash
 npm install                 # once (deps are pinned exactly; do not bump versions)
 npm run dev                 # Vite dev server on :5173
-npm run typecheck           # tsc --noEmit (TypeScript 7, strict) — must pass before every commit
+npm run typecheck           # tsc --noEmit (TypeScript 7, strict) — must pass before every commit (*.test.ts excluded)
+npm test                    # node --test src/meta/meta.test.ts (meta layer unit tests)
 npm run build               # typecheck + production build to dist/
 npm run probe:gpu           # confirms headless Chromium exposes WebGPU (it does, via SwiftShader)
 node tools/compare.mjs --hour 13      # WebGPU vs WebGL2 parity on the look-dev scene (exit 1 on mismatch, ~2 min)
@@ -66,7 +67,7 @@ shows CPU ms, sim steps and per-pass GPU ms (timestamp queries) above the FPS. R
 | Art | `src/art/voxel.ts` (VoxelModel, SliceAtlas), `shipBuilder.ts`, `ships.ts` | procedural voxel ships → horizontal slices → sprite stacking |
 | Physics | `src/physics/physics.ts` (Rapier world, groups, queries), `hydro.ts` (buoyancy columns, drag, thrust, rudder, ballast) | `@dimforge/rapier3d-compat` **0.21.0 pinned** |
 | Game | `src/game/world.ts` (hub + event bus), `vessel.ts`, `vesselClasses.ts`, `weapons.ts`, `effects.ts`, `sensors.ts`, `convoy.ts`, `ai/escort.ts`, `ai/uboat.ts`, `aircraft.ts`, `mission.ts`, `player.ts`, `abilities.ts`, `environment.ts`, `theaters.ts` | AI and HUD read only the side's contact picture (fog of war) |
-| Meta | `src/meta/stats.ts` (STAT_KEYS + StatBlock), `types.ts` (Item, Contract, MissionResult, CaptainState…), `abilities.ts` (all 25 ability defs + `resolveAbility`) | remaining meta modules = milestone M7 |
+| Meta | `src/meta/stats.ts` (STAT_KEYS + StatBlock), `types.ts` (Item, Contract, MissionResult, CaptainState…), `abilities.ts` (25 abilities + `resolveAbility`), `items.ts` (bases, affix tiers, powers, uniques, `rollItem`, `rerollAffix`), `loot.ts` (`rollDrops`), `tree.ts` (both 85-node trees), `economy.ts` (vessels, components, XP), `contracts.ts` (mutators, `generateContracts`, `evaluateContract`, `ARENA_SPEC`), `profile.ts` (captain ops, save/load), `index.ts` | pure logic, Node-runnable; tests `npm test` (`src/meta/meta.test.ts`) |
 | UI | `src/ui/hud.ts` (pixel HUD on a 2D canvas), `pixelFont.ts` (5×7 font from my-3d2dge), `style.css` | DOM menus = milestones M9/M10 |
 | Input | `src/input/input.ts` | actions + rebindable bindings, gamepad (PS5 glyphs), rumble |
 | Audio | `src/audio/dsp.ts`, `mixer.ts` (partial) | engine completion = milestone M8 |

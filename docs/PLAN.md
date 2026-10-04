@@ -19,7 +19,7 @@ WebGPU additionally runs the water simulations as compute shaders.
 | M4 | WebGPU sprite stacks, particles, dynamic lights + occluder shadows | DONE | [M04](milestones/M04-webgpu-stacks-particles-lights.md) |
 | M5 | WebGPU water sims as compute shaders | DONE | [M05](milestones/M05-webgpu-compute-sims.md) |
 | M6 | Backend parity, regression test, WebGPU as default | DONE | [M06](milestones/M06-parity-and-default.md) |
-| M7 | Meta layer: items, loot, skill trees, economy, contracts, profile | TODO | [M07](milestones/M07-meta-layer.md) |
+| M7 | Meta layer: items, loot, skill trees, economy, contracts, profile | DONE | [M07](milestones/M07-meta-layer.md) |
 | M8 | Procedural audio engine + game integration | TODO | [M08](milestones/M08-audio.md) |
 | M9 | Menus & UI shell: title, arena setup, dev settings, pause, controls, touch | TODO | [M09](milestones/M09-menus-ui-shell.md) |
 | M10 | Port & progression UI, contracts → missions, loot drops, save/load | TODO | [M10](milestones/M10-port-progression.md) |
@@ -90,6 +90,8 @@ on any failure or later device loss. The active backend shows in the FPS overlay
 - Water swell bands look streaky at some sea states (tone dominated by long swell). → M12
 - Islands use metal material; should be land with its own look. → M11/M12
 - Many dev settings are declared but not wired (audit table in M11).
+- Legendary powers with no gameplay hook yet: pow_flare_aura, pow_ram_shield, pow_convoy_heal, pow_silent_crit,
+  pow_ghost_decoy, pow_hunter_reload; keystone flag ks_shepherd is stat-only. → M11
 - Camera does not snap after `fastForward` (tests only; `?freeze=1` frames do settle it). → M11
 - Debug perf lines (`debug.perf`) overlap the ability bar on narrow screens (debug only). → M9
 - Burning hulls leak "burning oil" over their whole force-raster quad, giving a rectangular fire slick
