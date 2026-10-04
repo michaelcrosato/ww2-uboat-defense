@@ -15,7 +15,7 @@ import { arena } from './game/arenaConfig';
 import { DEG, clamp, damp } from './core/math';
 import type { AbilityId, AbilityState } from './meta/types';
 import { StatBlock } from './meta/stats';
-import { buildLookdev } from './game/lookdev';
+import { buildFleet, buildLookdev } from './game/lookdev';
 import { audio } from './audio/audio';
 import { AudioBridge } from './game/audioBridge';
 
@@ -142,6 +142,18 @@ export class App {
     this.lookdev = { left: frames, dt };
   }
 
+  /** art review (`?scene=fleet`): one of every class lined up, AI frozen, camera fixed on the grid */
+  startFleet(overrides: Record<string, number | string | boolean> = {}) {
+    dev.set('ai.freeze', true, false);
+    this.startMission({ 'arena.timeFlow': 0, 'arena.convoy': 0, 'arena.escorts': 0, 'arena.uboats': 0, 'arena.aircraft': 'none', 'arena.seaState': 2, ...overrides }, { spectator: true });
+    const c = buildFleet(this.mission!.world);
+    this.cam.x = c.x; this.cam.y = c.y;
+    this.cam.zoom = this.cam.targetZoom = dev.num('camera.zoom');
+    this.fixedCam = true;
+  }
+  /** keep the camera where a test scene put it */
+  fixedCam = false;
+
   /** stats that change vessel numbers at spawn (hull, ammo) */
   private applyStats(s: StatBlock, v: import('./game/vessel').Vessel) {
     v.maxHp = (v.cls.hp + s.get('hull_hp')) * s.mul('hull_hp_pct');
@@ -230,7 +242,7 @@ export class App {
       // camera (frozen test frames settle it at once so shots don't depend on the frame count)
       const camDt = this.frozen ? 60 : dt;
       if (pc) pc.updateCamera(camDt);
-      else if (m.spectator) this.attractCamera(m, dt);
+      else if (m.spectator && !this.fixedCam) this.attractCamera(m, dt);
       this.cam.update(camDt, dev.num('camera.shake'));
       this.shipSway(m, camDt);
       // render

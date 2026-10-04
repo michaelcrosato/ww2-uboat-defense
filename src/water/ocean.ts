@@ -7,6 +7,8 @@ import { Rng, TAU } from '../core/math';
 
 export const G = 9.81;
 export const MAX_WAVES = 16;
+/** shortest Gerstner wavelength drawn/simulated (rad/m): 6 m */
+const K_MAX = TAU / 6;
 
 export interface WaveComp {
   dx: number; dy: number;   // unit travel direction
@@ -70,13 +72,17 @@ export class Ocean {
     for (let i = 0; i < nWind; i++) {
       const t0 = i / nWind, t1 = (i + 1) / nWind;
       const wa = w0 * Math.pow(w1 / w0, t0), wb = w0 * Math.pow(w1 / w0, t1);
-      const w = Math.sqrt(wa * wb) * (1 + rng.range(-0.08, 0.08));
+      let w = Math.sqrt(wa * wb) * (1 + rng.range(-0.08, 0.08));
       const S = (alpha * G * G) / Math.pow(w, 5) * Math.exp(-1.25 * Math.pow(wp / w, 4));
       let A = Math.sqrt(2 * S * (wb - wa));
       if (U < 1.5) A = Math.max(A, 0.02 + 0.03 * rng.next()); // glassy calm still has tiny ripples
       A *= P.ampScale;
+      let k = (w * w) / G;
+      // the ~1 m pixel grid cannot show waves much shorter than ~6 m: they alias into per-pixel noise
+      // (light airs put the whole wind sea there). Fold them onto the shortest drawable wavelength with
+      // a gentle steepness; the shader's capillary detail stands in for the real ripples.
+      if (k > K_MAX) { k = K_MAX * (0.75 + 0.25 * ((i * 0.618) % 1)); w = Math.sqrt(G * k); A = Math.min(A, 0.12 / k); }
       m0 += (A * A) / 2;
-      const k = (w * w) / G;
       // directional spreading widens for short waves
       const spread = (0.35 + 0.65 * t0) * 1.05;
       const dir = P.windDir + rng.gauss(0, spread * 0.6) + (i % 2 ? 1 : -1) * spread * 0.25;

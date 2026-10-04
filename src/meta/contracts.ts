@@ -22,7 +22,7 @@ const Sel = (def: string, options: string[]): Spec => ({ type: 'select', def, op
 const Bo = (def: boolean): Spec => ({ type: 'bool', def });
 export const ARENA_SPEC: Record<string, Spec> = {
   'arena.side': Sel('escort', ['escort', 'uboat']),
-  'arena.escortClass': Sel('destroyer', ['destroyer', 'corvette', 'frigate']),
+  'arena.escortClass': Sel('destroyer', ['destroyer', 'corvette', 'frigate', 'sloop', 'trawler']),
   'arena.uboatClass': Sel('type7', ['type7', 'type9', 'type21']),
   'arena.year': R(1942, 1939, 1945, 1),
   'arena.difficulty': R(1, 0.5, 2, 0.1),

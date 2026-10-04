@@ -80,6 +80,7 @@ void main() {
 
   vec3 light = uAmbient * uAmbientFill * (0.62 + 0.38 * n.z);
   light += vec3(0.75, 0.8, 1.0) * uLightning;
+  vec3 base = light;
   vec3 spec = vec3(0.0);
   vec3 haze = vec3(0.0);
   int csteps = max(4, uSteps / 2);
@@ -94,7 +95,11 @@ void main() {
     float ndl = clamp((dot(n, uMoonDir) + 0.15) / 1.15, 0.0, 1.0);
     float sh = uCelShadows == 1 && uShadows == 1 ? shadowDir(P + n * 0.2, uMoonDir, 70.0, jitter, csteps) : 1.0;
     light += uMoonCol * ndl * sh;
-    if (glossy) spec += uMoonCol * blinn(n, uMoonDir, V, shininess * 1.3) * specK * sh * 6.0;
+    // an orthographic view has one view vector, so a reflection could never form a glitter path:
+    // moon glints use a virtual observer mirrored from the moon, which lays a patch of glitter around
+    // the view centre stretched toward the moon (low moons give long paths)
+    if (water) spec += uMoonCol * blinn(n, uMoonDir, normalize(vec3(-uMoonDir.xy, uMoonDir.z) * 420.0 - P), 900.0) * sh * 3.0;
+    else if (glossy) spec += uMoonCol * blinn(n, uMoonDir, V, shininess * 1.3) * specK * sh * 6.0;
   }
   // ---- dynamic lights
   if (uLightsOn == 1) {
@@ -150,12 +155,14 @@ void main() {
       if (glossy) spec += c * blinn(n, Ld, V, shininess) * specK * 3.0;
     }
   }
-  // ---- pixel-art quantization of irradiance
+  // ---- pixel-art quantization of the direct light; the flat ambient base stays smooth so dark
+  // scenes don't break up into dither speckle where everything sits below the first band
   vec3 lq = light;
   if (uBands > 0.5) {
-    float lum = max(lq.r, max(lq.g, lq.b));
+    vec3 dl = light - base;
+    float lum = max(dl.r, max(dl.g, dl.b));
     float q = floor(lum * uBands + mix(0.5, dth, uDitherAmt)) / uBands;
-    lq *= q / max(lum, 1e-4);
+    lq = base + dl * (q / max(lum, 1e-4));
   }
   vec3 col = A.rgb * lq;
   // water: glints as hard sparkles + sky reflection

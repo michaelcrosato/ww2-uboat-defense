@@ -105,7 +105,7 @@ export class World {
     return a;
   }
 
-  spawn(cls: VesselClass, x: number, y: number, heading: number, opts: { name?: string; submerged?: number } = {}): Vessel {
+  spawn(cls: VesselClass, x: number, y: number, heading: number, opts: { name?: string; submerged?: number; fragment?: [number, number] } = {}): Vessel {
     const v = new Vessel(this, cls, x, y, heading, opts);
     this.vessels.push(v);
     return v;
@@ -174,7 +174,8 @@ export class World {
     // remove long-sunk wrecks
     for (let i = this.vessels.length - 1; i >= 0; i--) {
       const v = this.vessels[i];
-      if (!v.alive && this.time > v.removeAt) {
+      // only once under water (a wreck still showing a bow must not vanish), with a hard cap
+      if (!v.alive && this.time > v.removeAt && (v.hydro.submergedAll || this.time > v.removeAt + 120)) {
         this.physics.remove(v.body);
         this.vessels.splice(i, 1);
       }

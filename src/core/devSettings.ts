@@ -109,6 +109,7 @@ export const DEV_DEFS: SettingDef[] = [
   { key: 'game.god', group: 'Gameplay', label: 'Invulnerable', type: 'bool', def: false },
   { key: 'game.infiniteAmmo', group: 'Gameplay', label: 'Unlimited ammo', type: 'bool', def: false },
   { key: 'game.noCooldowns', group: 'Gameplay', label: 'No ability cooldowns', type: 'bool', def: false },
+  { key: 'game.breakup', group: 'Gameplay', label: 'Ships break in two', type: 'bool', def: true, help: 'A hull pounded far past zero while still afloat splits into two sinking halves.' },
   { key: 'game.lootRate', group: 'Gameplay', label: 'Loot drop rate', type: 'range', def: 1, min: 0, max: 5, step: 0.1, fmt: pct },
   { key: 'game.maxCompression', group: 'Gameplay', label: 'Max time compression', type: 'select', def: '8', options: opts(['1', 'None'], ['4', '4x'], ['8', '8x'], ['16', '16x']) },
 

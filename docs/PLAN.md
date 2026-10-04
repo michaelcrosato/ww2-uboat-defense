@@ -24,7 +24,7 @@ WebGPU additionally runs the water simulations as compute shaders.
 | M9 | Menus & UI shell: title, arena setup, dev settings, pause, controls, touch | DONE | [M09](milestones/M09-menus-ui-shell.md) |
 | M10 | Port & progression UI, contracts → missions, loot drops, save/load | DONE | [M10](milestones/M10-port-progression.md) |
 | M11 | Gameplay completion & tuning, dev-settings wiring audit, weather visuals | DONE | [M11](milestones/M11-gameplay-tuning.md) |
-| M12 | Visual polish, ship art expansion, performance | TODO | [M12](milestones/M12-visual-polish.md) |
+| M12 | Visual polish, ship art expansion, performance | IN PROGRESS | [M12](milestones/M12-visual-polish.md) |
 | M13 | Final QA, README, PR ready for review | TODO | [M13](milestones/M13-qa-release.md) |
 
 Order matters for M1→M6 (renderer). M7 and M8 are independent of the renderer and may be done

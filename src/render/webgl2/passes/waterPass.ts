@@ -66,12 +66,16 @@ void main() {
     vec2 g = vec2(r - l, u - d) / (2.0 * uSimCell) * sw * uRippleScale;
     n = normalize(n + vec3(-g * 1.6, 0.0));
   }
+  // cat's paws: large drifting patches where gusts roughen the surface; light airs leave the rest glassy
+  float ws = length(uWind);
+  float paws = smoothstep(0.35, 0.75, fbm(p * 0.006 + uWind * uTime * 0.0035 + vec2(11.0, 3.0)));
+  float rough = mix(0.2, 1.0, smoothstep(1.0, 7.0, ws)) * mix(0.55, 1.45, paws);
   // capillary detail: wind-driven value noise slopes
   if (uDetail > 0.0) {
     vec2 q = p * 0.31 + uWind * uTime * 0.045;
     float e = 0.6;
     float a = fbm(q), bx = fbm(q + vec2(e, 0.0)), by = fbm(q + vec2(0.0, e));
-    n = normalize(n + vec3(-(bx - a), -(by - a), 0.0) * uDetail * 0.9);
+    n = normalize(n + vec3(-(bx - a), -(by - a), 0.0) * uDetail * 0.9 * rough);
   }
   float h = hs + rh;
   vec4 dye = vec4(0.0);
@@ -82,7 +86,10 @@ void main() {
   // ---- palette tone
   float dth = ditherHere();
   float tone = 0.5;
-  tone += clamp(hs / max(uHs * 0.55, 0.25), -1.6, 1.6) * 0.17 * uContrast;
+  // height only as a soft, compressed undulation: raw swell height made broad light/dark bands
+  float hn = hs / max(uHs * 0.8, 0.3);
+  tone += hn / (1.0 + abs(hn)) * 0.09 * uContrast;
+  tone += (paws - 0.5) * 0.06 * uContrast;
   tone += rh * 0.45 * uContrast;
   tone += (n.y * 0.65 + n.x * 0.2) * uContrast;
   tone += (1.0 - clamp(jac, 0.0, 1.0)) * 0.35 * uContrast;
@@ -144,11 +151,15 @@ void main() {
 
   // ---- pack ice (Arctic)
   if (uIce > 0.0) {
-    float floe = cellular(p * 0.018 + 3.1);
-    float ice = smoothstep(0.42 - uIce * 0.25, 0.38 - uIce * 0.25, floe) * smoothstep(0.2, 0.6, fbm(p * 0.004 + 7.0) + uIce * 0.3);
+    // domain-warped cells with roughened rims: angular, irregular floes separated by dark leads
+    vec2 q = p * 0.018 + 3.1 + (vec2(fbm(p * 0.031), fbm(p * 0.031 + 5.2)) - 0.5) * 0.9;
+    float floe = cellular(q) + (fbm(p * 0.21) - 0.5) * 0.12;
+    float edge = 0.22 + uIce * 0.16;
+    float ice = step(floe, edge) * smoothstep(0.2, 0.6, fbm(p * 0.004 + 7.0) + uIce * 0.3);
     if (ice > 0.5) {
       float sh = fbm(p * 0.2);
       alb = mix(vec3(0.72, 0.8, 0.86), vec3(0.93, 0.96, 0.98), step(dth, sh));
+      alb = mix(alb, vec3(0.55, 0.64, 0.7), smoothstep(edge - 0.035, edge, floe) * 0.8);
       n = normalize(vec3(0.0, 0.0, 1.0) + vec3(sh - 0.5, 0.0, 0.0) * 0.3);
       mat = MAT_ICE;
       h += 0.5;

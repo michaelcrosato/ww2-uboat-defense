@@ -128,10 +128,15 @@ export class Aircraft {
   submit() {
     const w = this.w, R = w.scene;
     const q = quatFromEuler(this.bank, 0, this.heading);
-    R.stacks.push({ model: this.model, x: this.x, y: this.y, z: this.z, q, flags: 1 });
-    // ground shadow
-    const sx = this.x - w.env.sunDir.x * 0, sy = this.y;
-    R.stacks.push({ model: this.model, x: sx, y: sy, z: w.ocean.height(sx, sy) + 0.1, q: quatFromEuler(0, 0, this.heading), flags: 4 | 8 });
+    R.stacks.push({ model: this.model, x: this.x, y: this.y, z: this.z, q, flags: 1 | 16 });
+    // a shadow on the sea, cast along the sun (or a bright moon), as long as it falls nearby
+    const env = w.env;
+    const L = env.sunIntensity > 0.05 ? env.sunDir : env.moonIntensity > 0.12 ? env.moonDir : null;
+    if (L && L.z > 0.15) {
+      const k = this.z / L.z;
+      const sx = this.x - L.x * k, sy = this.y - L.y * k;
+      if (Math.hypot(sx - this.x, sy - this.y) < 600) R.stacks.push({ model: this.model, x: sx, y: sy, z: w.ocean.height(sx, sy) + 0.1, q: quatFromEuler(0, 0, this.heading), flags: 4 | 8 | 16 });
+    }
     if (this.leighLight) {
       const dx = Math.cos(this.heading), dy = Math.sin(this.heading);
       w.lights.add({ x: this.x + dx * 4, y: this.y + dy * 4, z: this.z - 1, reach: Math.max(400, this.z * 3.5), r: 0.95, g: 0.97, b: 1, intensity: 3, dx: dx * 0.6, dy: dy * 0.6, dz: -0.8, cosOuter: Math.cos(0.12), shadow: true, beam: 1.2, size: 0.8, priority: 3 });

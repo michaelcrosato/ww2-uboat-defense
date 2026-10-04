@@ -3,10 +3,10 @@
 
 import type { StatBlock } from '../meta/stats';
 import { World } from './world';
-import { Convoy, MerchantAI } from './convoy';
+import { Convoy, MerchantAI, RescueAI } from './convoy';
 import { EscortAI } from './ai/escort';
 import { UboatAI, Wolfpack } from './ai/uboat';
-import { VESSELS, MERCHANT_CLASSES, MERCHANT_NAMES, ESCORT_NAMES, UBOAT_NAMES } from './vesselClasses';
+import { VESSELS, MERCHANT_NAMES, ESCORT_NAMES, UBOAT_NAMES, escortPool, merchantPool } from './vesselClasses';
 import type { Side } from './vesselClasses';
 import { Projectiles } from './weapons';
 import { Sensors } from './sensors';
@@ -40,6 +40,9 @@ export class Mission {
   world: World;
   convoy: Convoy;
   pack = new Wolfpack();
+  /** the convoy's escort carrier (arena.aircraft = carrier, 1941+) */
+  carrier: Vessel | null = null;
+  private carrierLostSaid = false;
   private reinforced = 0;
   /** seconds to the next scheduled air patrol (first one after a short delay) */
   private airT = 60;
@@ -100,9 +103,10 @@ export class Mission {
     const nM = num('arena.convoy');
     const rows = Math.ceil(nM / conv.columns);
     const names = [...MERCHANT_NAMES].sort(() => rng.next() - 0.5);
+    const pool = merchantPool(w.year);
     for (let i = 0; i < nM; i++) {
       const col = i % conv.columns, row = Math.floor(i / conv.columns);
-      const cls = VESSELS[MERCHANT_CLASSES[rng.int(0, MERCHANT_CLASSES.length - 1)]];
+      const cls = VESSELS[pool[rng.int(0, pool.length - 1)]];
       const sp = conv.slotPos(col, row);
       const m = w.spawn(cls, sp.x + rng.range(-30, 30), sp.y + rng.range(-30, 30), conv.heading, { name: names[i % names.length] });
       m.slot = { col, row };
@@ -111,8 +115,28 @@ export class Mission {
       conv.merchants.push(m);
       this.tonnageTotal += m.grt;
     }
-    void rows;
-    this.merchantsTotal = nM;
+    // the escort carrier sails astern of the centre column and flies the convoy's Swordfish patrols
+    // (from 1941); a rescue ship trails the convoy to pick up survivors
+    const astern = { col: (conv.columns - 1) / 2, row: rows };
+    if (String(cfg['arena.aircraft']) === 'carrier' && w.year >= 1941) {
+      const sp = conv.slotPos(astern.col, astern.row);
+      const cv = w.spawn(VESSELS.escortcarrier, sp.x, sp.y, conv.heading, { name: 'HMS ' + rng.pick(CARRIER_NAMES) });
+      cv.slot = { ...astern };
+      cv.ai = new MerchantAI(cv, conv);
+      cv.thrust = 0.3;
+      this.carrier = cv;
+    }
+    if (nM >= 6) {
+      const slot = this.carrier && conv.columns < 2 ? { col: astern.col, row: rows + 1 } : { col: this.carrier ? 0 : astern.col, row: rows };
+      const sp = conv.slotPos(slot.col, slot.row);
+      const rs = w.spawn(VESSELS.rescue, sp.x, sp.y, conv.heading, { name: 'SS ' + rng.pick(RESCUE_NAMES) });
+      rs.slot = slot;
+      rs.ai = new RescueAI(w, rs, conv);
+      rs.thrust = 0.3;
+      conv.merchants.push(rs);
+      this.tonnageTotal += rs.grt;
+    }
+    this.merchantsTotal = conv.merchants.length;
 
     // ---- escorts (AI) + the player escort
     const stations = [
@@ -121,7 +145,7 @@ export class Mission {
     ];
     const escNames = [...ESCORT_NAMES].sort(() => rng.next() - 0.5);
     const nE = num('arena.escorts');
-    const escortClasses = ['corvette', 'destroyer', 'frigate', 'corvette'];
+    const escortClasses = escortPool(w.year);
     let si = 0;
     if (this.side === 'allied' && !this.spectator) {
       const cls = VESSELS[str('arena.escortClass')] ?? VESSELS.destroyer;
@@ -306,6 +330,12 @@ export class Mission {
       return { x: x / a.length, y: y / a.length };
     };
     const announce = () => w.emit('message', { text: this.side === 'allied' ? 'Air patrol overhead the convoy.' : 'Aircraft! Patrol plane over the convoy.', kind: this.side === 'allied' ? 'info' : 'alert' });
+    // carrier patrols fly off the escort carrier's deck, and end with her
+    const cv = this.carrier;
+    if (mode === 'carrier' && cv && !cv.alive) {
+      if (!this.carrierLostSaid) { this.carrierLostSaid = true; w.emit('message', { text: `${cv.name} is lost: no more air cover.`, side: 'allied', kind: 'radio', important: true }); }
+      return;
+    }
     const kind = (): 'swordfish' | 'catalina' | 'liberator' => mode === 'carrier' ? 'swordfish' : w.year >= 1943 && w.rng.chance(0.4) ? 'liberator' : 'catalina';
     if (mode === 'heavy') {
       if (!pr.aircraft.some((a) => a.alive && a.mode !== 'leave')) { pr.airPatrol(kind(), 180, anchor); if (this.airT <= 0) { announce(); this.airT = 600; } }
@@ -314,7 +344,7 @@ export class Mission {
     if (this.airT > 0) return;
     const p = this.convoy.progress;
     if (mode === 'gap' && p > 0.33 && p < 0.66) { this.airT = 20; return; }
-    pr.airPatrol(kind(), 90, anchor);
+    pr.airPatrol(kind(), 90, anchor, mode === 'carrier' && cv ? { x: cv.pos.x, y: cv.pos.y, z: 14 } : undefined);
     announce();
     this.airT = mode === 'carrier' ? w.rng.range(100, 140) : w.rng.range(200, 280);
   }
@@ -358,6 +388,9 @@ export class Mission {
 
   dispose() { this.world.dispose(); }
 }
+
+const CARRIER_NAMES = ['Activity', 'Biter', 'Archer', 'Nairana', 'Vindex', 'Tracker'];
+const RESCUE_NAMES = ['Rathlin', 'Zamalek', 'Toward', 'Copeland', 'Perth', 'Stockport'];
 
 function cfgBool(cfg: Record<string, number | string | boolean>, k: string) { return cfg[k] === true || cfg[k] === 'true' || cfg[k] === 1; }
 void DEG;

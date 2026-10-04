@@ -67,6 +67,30 @@ export class Convoy {
   }
 }
 
+/**
+ * Convoy rescue ship: keeps station astern like a merchant, but turns back for lifeboats in the water
+ * (dropping out of the convoy's station-keeping while away) and comes alongside dead slow.
+ */
+export class RescueAI {
+  debug = '';
+  private station: MerchantAI;
+  constructor(private w: World, private v: Vessel, c: Convoy) { this.station = new MerchantAI(v, c); }
+  update(dt: number) {
+    const v = this.v;
+    let best: { x: number; y: number } | null = null, bd = 2500;
+    for (const b of this.w.projectiles.boats) {
+      if (b.side !== v.side || b.life <= 0) continue;
+      const d = Math.hypot(b.x - v.pos.x, b.y - v.pos.y);
+      if (d < bd) { bd = d; best = b; }
+    }
+    if (!best || v.hpFrac < 0.45) { v.straggler = v.hpFrac < 0.45; this.station.update(dt); this.debug = 'station'; return; }
+    v.straggler = true;
+    v.course = Math.atan2(best.y - v.pos.y, best.x - v.pos.x);
+    v.speedCmd = clamp((bd > 400 ? 12 : bd > 120 ? 5 : 2) * KNOT / Math.max(0.5, v.maxSpeed), 0, 1);
+    this.debug = `rescue ${Math.round(bd)}m`;
+  }
+}
+
 /** station keeping AI for a merchant */
 export class MerchantAI {
   debug = '';

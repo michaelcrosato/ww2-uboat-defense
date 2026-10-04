@@ -8,7 +8,7 @@ import type { StackInstance } from './scene';
 import type { HullInput, SplatInput } from '../water/simInputs';
 
 /** floats per sprite-stack slice instance: pos+sliceZ, quat, rect, atlas uv, misc */
-export const STACK_FLOATS = 20;
+export const STACK_FLOATS = 24;
 /** floats per particle: pos+size, rgba, material/emissive/up/smoke */
 export const PARTICLE_FLOATS = 12;
 /** floats per force-raster instance (hull or splat) */
@@ -38,6 +38,8 @@ export function packStacks(stacks: StackInstance[], ox: number, oy: number, out:
       d[o + 8] = s.x0; d[o + 9] = s.y0; d[o + 10] = s.w; d[o + 11] = s.h;
       d[o + 12] = s.u0; d[o + 13] = s.v0; d[o + 14] = s.u1; d[o + 15] = s.v1;
       d[o + 16] = it.damage ?? 0; d[o + 17] = it.flags ?? 0; d[o + 18] = it.clipX0 ?? -1e4; d[o + 19] = it.clipX1 ?? 1e4;
+      const hs = it.hits;
+      d[o + 20] = hs ? hs[0] : 0; d[o + 21] = hs ? hs[1] : 0; d[o + 22] = hs ? hs[2] : 0; d[o + 23] = hs ? hs[3] : 0;
       o += STACK_FLOATS;
     }
   }

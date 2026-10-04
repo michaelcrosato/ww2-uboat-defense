@@ -25,6 +25,8 @@ export interface VesselClass {
   id: string;
   name: string;
   kind: VesselKind;
+  /** special duties: an escort carrier launches the convoy's air patrols, a rescue ship picks up survivors */
+  role?: 'carrier' | 'rescue';
   side: Side;
   art: () => ShipArt;
   length: number; beam: number; draft: number; freeboard: number;
@@ -54,6 +56,8 @@ const deg = Math.PI / 180;
 
 const g47 = (mount: string, arc: [number, number]): GunSpec => ({ mount, caliber: 120, arc, traverse: 22 * deg, reload: 4.2, velocity: 520, range: 2600, damage: 85, spread: 0.008 });
 const g4 = (mount: string, arc: [number, number]): GunSpec => ({ mount, caliber: 102, arc, traverse: 26 * deg, reload: 3.6, velocity: 480, range: 2200, damage: 70, spread: 0.009 });
+/** twin 4-inch high-angle mount: two barrels, so half the interval between rounds */
+const g4t = (mount: string, arc: [number, number]): GunSpec => ({ ...g4(mount, arc), reload: 2.1 });
 const pom = (mount: string, arc: [number, number]): GunSpec => ({ mount, caliber: 40, arc, traverse: 50 * deg, reload: 0.55, velocity: 420, range: 1100, damage: 16, spread: 0.02 });
 
 export const VESSELS: Record<string, VesselClass> = {
@@ -78,6 +82,26 @@ export const VESSELS: Record<string, VesselClass> = {
     guns: [g4('gunA', [-150 * deg, 150 * deg]), g4('gunX', [30 * deg, 330 * deg])],
     dc: { capacity: 60, rails: 2, kguns: 4, reload: 2.0 }, hedgehog: { salvos: 10, minYear: 1942 },
   },
+  sloop: {
+    id: 'sloop', name: 'Black Swan-class sloop', kind: 'escort', side: 'allied', art: art.sloopArt,
+    length: 91, beam: 11.4, draft: 3.4, freeboard: 3.8, displacement: 1300, maxSpeedKn: 19.75, accelTime: 48, turnRadius: 290,
+    hp: 1100, noise: 129, sensors: { asdic: 1400, hydrophone: 1000, radar: 3000, lookout: 2600, hfdf: true },
+    guns: [g4t('gunA', [-150 * deg, 150 * deg]), g4t('gunB', [-140 * deg, 140 * deg]), g4t('gunX', [30 * deg, 330 * deg])],
+    dc: { capacity: 110, rails: 2, kguns: 8, reload: 1.8 }, hedgehog: { salvos: 10, minYear: 1942 },
+  },
+  trawler: {
+    id: 'trawler', name: 'Armed trawler', kind: 'escort', side: 'allied', art: art.trawlerArt,
+    length: 50, beam: 8.5, draft: 3.6, freeboard: 2.8, displacement: 545, maxSpeedKn: 12, accelTime: 35, turnRadius: 150,
+    hp: 620, noise: 126, sensors: { asdic: 1000, hydrophone: 850, lookout: 2000 },
+    guns: [g4('gunA', [-150 * deg, 150 * deg])],
+    dc: { capacity: 30, rails: 1, kguns: 2, reload: 2.8 },
+  },
+  escortcarrier: {
+    id: 'escortcarrier', name: 'Escort carrier', kind: 'escort', side: 'allied', art: art.escortCarrierArt, role: 'carrier',
+    length: 150, beam: 21, draft: 7.6, freeboard: 13, displacement: 11400, grt: 10000, maxSpeedKn: 18, accelTime: 110, turnRadius: 620,
+    hp: 2100, noise: 138, sensors: { hydrophone: 0, radar: 3200, lookout: 2800 },
+    guns: [pom('gunA', [-170 * deg, -10 * deg])],
+  },
   freighter: {
     id: 'freighter', name: 'Freighter', kind: 'merchant', side: 'allied', art: () => art.freighterArt(0),
     length: 128, beam: 17.3, draft: 7.6, freeboard: 3.4, displacement: 9800, grt: 5600, maxSpeedKn: 10, accelTime: 120, turnRadius: 520,
@@ -97,6 +121,21 @@ export const VESSELS: Record<string, VesselClass> = {
     id: 'tanker', name: 'Tanker', kind: 'merchant', side: 'allied', art: art.tankerArt,
     length: 140, beam: 19, draft: 8.4, freeboard: 2.6, displacement: 14000, grt: 8900, maxSpeedKn: 11, accelTime: 130, turnRadius: 600,
     hp: 1400, noise: 140, sensors: { hydrophone: 0, lookout: 1800 }, guns: [],
+  },
+  liberty: {
+    id: 'liberty', name: 'Liberty ship', kind: 'merchant', side: 'allied', art: art.libertyArt,
+    length: 135, beam: 17.4, draft: 8.4, freeboard: 3.6, displacement: 14245, grt: 7176, maxSpeedKn: 11, accelTime: 130, turnRadius: 560,
+    hp: 1650, noise: 141, sensors: { hydrophone: 0, lookout: 1800 }, guns: [],
+  },
+  orecarrier: {
+    id: 'orecarrier', name: 'Ore carrier', kind: 'merchant', side: 'allied', art: art.oreCarrierArt,
+    length: 128, beam: 17, draft: 8.2, freeboard: 2.4, displacement: 12500, grt: 6100, maxSpeedKn: 9.5, accelTime: 140, turnRadius: 580,
+    hp: 1150, noise: 142, sensors: { hydrophone: 0, lookout: 1700 }, guns: [],
+  },
+  rescue: {
+    id: 'rescue', name: 'Convoy rescue ship', kind: 'merchant', side: 'allied', art: art.rescueShipArt, role: 'rescue',
+    length: 80, beam: 12, draft: 4.5, freeboard: 3.4, displacement: 2400, grt: 1600, maxSpeedKn: 14, accelTime: 70, turnRadius: 300,
+    hp: 900, noise: 134, sensors: { hydrophone: 0, lookout: 2000 }, guns: [],
   },
   type7: {
     id: 'type7', name: 'Type VIIC', kind: 'uboat', side: 'axis', art: art.type7Art,
@@ -125,7 +164,20 @@ export const VESSELS: Record<string, VesselClass> = {
 };
 
 export const knots = (kn: number) => kn * KNOT;
-export const MERCHANT_CLASSES = ['freighter', 'freighter2', 'freighter3', 'tanker'];
+export const MERCHANT_CLASSES = ['freighter', 'freighter2', 'freighter3', 'tanker', 'orecarrier', 'liberty'];
+
+/** convoy merchants by year: Liberty ships join the convoys from 1942 */
+export function merchantPool(year: number): string[] {
+  return ['freighter', 'freighter2', 'freighter3', 'tanker', 'orecarrier', ...(year >= 1942 ? ['liberty', 'liberty'] : [])];
+}
+/** AI escort classes by year, in assignment order (armed trawlers early, sloops and frigates later) */
+export function escortPool(year: number): string[] {
+  const p = ['corvette', 'destroyer', 'corvette'];
+  if (year <= 1941) p.push('trawler');
+  if (year >= 1942) p.push('sloop');
+  if (year >= 1943) p.push('frigate');
+  return p;
+}
 
 /** fictional merchant names in period style */
 export const MERCHANT_NAMES = [

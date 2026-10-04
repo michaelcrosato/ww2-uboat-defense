@@ -37,6 +37,7 @@ async function boot() {
     }
     const menu = params.get('menu') as MenuId | null;
     if (params.get('scene') === 'lookdev') app.startLookdev(overrides, Number(params.get('frames')) || 40);
+    else if (params.get('scene') === 'fleet') app.startFleet(overrides);
     else {
       const shell = new Shell(app);
       const inMission = Object.keys(overrides).length > 0 || menu === 'pause' || menu === 'end';

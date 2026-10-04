@@ -12,8 +12,10 @@ export interface StackInstance {
   x: number; y: number; z: number;
   q: Quat;
   damage?: number;
-  flags?: number;      // 1 lamps on, 2 x-ray silhouette, 4 shadow decal (G-buffer only), 8 flatten
+  flags?: number;      // 1 lamps on, 2 x-ray silhouette, 4 shadow decal (G-buffer only), 8 flatten, 16 airborne (no occluder)
   clipX0?: number; clipX1?: number;
+  /** two damage centres in model x: (x, radius, x, radius); radius 0 = none */
+  hits?: [number, number, number, number];
 }
 
 export class RenderScene {

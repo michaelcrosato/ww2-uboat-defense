@@ -102,6 +102,7 @@ fn blinn(n: vec3f, L: vec3f, V: vec3f, k: f32) -> f32 {
 
   var light = U.ambient.rgb * ambientFill * (0.62 + 0.38 * n.z);
   light += vec3f(0.75, 0.8, 1.0) * lightning;
+  let base = light;
   var spec = vec3f(0.0);
   var haze = vec3f(0.0);
   let csteps = max(4, steps / 2);
@@ -120,7 +121,11 @@ fn blinn(n: vec3f, L: vec3f, V: vec3f, k: f32) -> f32 {
     var sh = 1.0;
     if (celShadows && shadows) { sh = shadowDir(P + n * 0.2, moonDir, 70.0, jitter, csteps); }
     light += moonCol * ndl * sh;
-    if (glossy) { spec += moonCol * blinn(n, moonDir, V, shininess * 1.3) * specK * sh * 6.0; }
+    // an orthographic view has one view vector, so a reflection could never form a glitter path:
+    // moon glints use a virtual observer mirrored from the moon, which lays a patch of glitter around
+    // the view centre stretched toward the moon (low moons give long paths)
+    if (water) { spec += moonCol * blinn(n, moonDir, normalize(vec3f(-moonDir.xy, moonDir.z) * 420.0 - P), 900.0) * sh * 3.0; }
+    else if (glossy) { spec += moonCol * blinn(n, moonDir, V, shininess * 1.3) * specK * sh * 6.0; }
   }
   // ---- dynamic lights
   if (lightsOn) {
@@ -178,12 +183,14 @@ fn blinn(n: vec3f, L: vec3f, V: vec3f, k: f32) -> f32 {
       if (glossy) { spec += c * blinn(n, Ld, V, shininess) * specK * 3.0; }
     }
   }
-  // ---- pixel-art quantization of irradiance
+  // ---- pixel-art quantization of the direct light; the flat ambient base stays smooth so dark
+  // scenes don't break up into dither speckle where everything sits below the first band
   var lq = light;
   if (bands > 0.5) {
-    let lum = max(lq.r, max(lq.g, lq.b));
+    let dl = light - base;
+    let lum = max(dl.r, max(dl.g, dl.b));
     let q = floor(lum * bands + mix(0.5, dth, ditherAmt)) / bands;
-    lq *= q / max(lum, 1e-4);
+    lq = base + dl * (q / max(lum, 1e-4));
   }
   var col = A.rgb * lq;
   // water: glints as hard sparkles + sky reflection

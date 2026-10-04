@@ -228,9 +228,10 @@ export class Projectiles {
     }
   }
   /** a scheduled maritime patrol orbiting a moving point (the convoy) */
-  airPatrol(kind: 'swordfish' | 'catalina' | 'liberator', duration: number, anchor: () => { x: number; y: number }) {
+  airPatrol(kind: 'swordfish' | 'catalina' | 'liberator', duration: number, anchor: () => { x: number; y: number }, from?: { x: number; y: number; z: number }) {
     const c = anchor(), a = fx.next() * Math.PI * 2;
-    const ac = new Aircraft(this.w, kind, c.x + Math.cos(a) * 3000, c.y + Math.sin(a) * 3000, c.x, c.y, duration);
+    const ac = new Aircraft(this.w, kind, from ? from.x : c.x + Math.cos(a) * 3000, from ? from.y : c.y + Math.sin(a) * 3000, c.x, c.y, duration);
+    if (from) ac.z = from.z;   // flown off a carrier deck: climbs to patrol height
     ac.anchor = anchor;
     this.aircraft.push(ac);
     return ac;
@@ -437,7 +438,7 @@ export class Projectiles {
     for (const b of this.boats) {
       b.life -= dt;
       for (const v of w.vessels) {
-        if (!v.alive || v.kind !== 'escort' || v.side !== b.side) continue;
+        if (!v.alive || (v.kind !== 'escort' && v.cls.role !== 'rescue') || v.side !== b.side) continue;
         const d = Math.hypot(v.pos.x - b.x, v.pos.y - b.y);
         if (d < v.cls.length * 0.6 && Math.abs(v.hydro.fwdSpeed) < 2.2) {
           b.life = -1;
@@ -494,9 +495,15 @@ export class Projectiles {
   submit(dt: number) {
     const w = this.w, R = w.scene, P = R.particles;
     // tracers live one frame: none while paused (zero-life particles would never be removed)
+    // a short glowing streak behind each shell (about 0.05 s of flight), hot at the head; dots about
+    // every 1.6 m so the streak reads as a line rather than a dotted trail at normal zoom
     for (const s of dt > 0 ? this.shells : []) {
-      P.spawn(PK.TRACER, s.x, s.y, s.z, 0, 0, 0, dt * 1.5, s.caliber > 80 ? 0.9 : 0.6, [1, 0.8, 0.45]);
-      P.spawn(PK.TRACER, s.x - s.vx * dt * 0.5, s.y - s.vy * dt * 0.5, s.z - s.vz * dt * 0.5, 0, 0, 0, dt * 1.5, 0.5, [1, 0.6, 0.3]);
+      const big = s.caliber > 80, sp = Math.hypot(s.vx, s.vy, s.vz);
+      const n = Math.min(big ? 28 : 20, Math.max(4, Math.round((sp * 0.05) / 1.6)));
+      for (let i = 0; i < n; i++) {
+        const t = (i / n) * 0.05;
+        P.spawn(PK.TRACER, s.x - s.vx * t, s.y - s.vy * t, s.z - s.vz * t, 0, 0, 0, dt * 1.5, (big ? 1.0 : 0.7) * (1 - i / n * 0.55), i < 2 ? [1, 0.9, 0.6] : [1, 0.6, 0.28]);
+      }
     }
     for (const c of this.charges) {
       if (c.t < 0) continue;

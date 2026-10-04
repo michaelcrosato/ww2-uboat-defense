@@ -9,6 +9,7 @@ export interface VesselOffer { id: string; faction: Faction; name: string; price
 export const VESSEL_OFFERS: VesselOffer[] = [
   { id: 'corvette', faction: 'escort', name: 'Flower-class corvette', price: 0, minLevel: 1, starter: true, desc: 'Rolls on wet grass, but tough and nimble. Every escort captain starts here.' },
   { id: 'destroyer', faction: 'escort', name: 'V&W-class destroyer', price: 14000, minLevel: 6, desc: 'Old fleet destroyer refitted for convoy work: fast, gun-heavy, Hedgehog.' },
+  { id: 'sloop', faction: 'escort', name: 'Black Swan-class sloop', price: 24000, minLevel: 10, desc: 'A dedicated U-boat hunter: three twin 4-inch mounts, a huge depth-charge outfit, superb ASDIC.' },
   { id: 'frigate', faction: 'escort', name: 'River-class frigate', price: 32000, minLevel: 14, desc: 'Purpose-built hunter with long legs, the best ASDIC and Squid.' },
   { id: 'type7', faction: 'uboat', name: 'Type VIIC', price: 0, minLevel: 1, starter: true, desc: 'The workhorse of the wolfpacks: cramped, wet, dependable.' },
   { id: 'type9', faction: 'uboat', name: 'Type IXC', price: 16000, minLevel: 6, desc: 'Long-range boat with six tubes and room for more eels.' },

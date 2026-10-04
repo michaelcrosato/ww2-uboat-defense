@@ -56,6 +56,7 @@ struct SIn {
   @location(2) rect: vec4f,   // slice x0, y0, w, h (model meters)
   @location(3) uv: vec4f,     // atlas rect
   @location(4) misc: vec4f,   // damage, flags, clip x0, clip x1
+  @location(5) hits: vec4f,   // damage centres: local x, radius, local x, radius
 };
 struct SOut {
   @builtin(position) pos: vec4f,
@@ -64,6 +65,7 @@ struct SOut {
   @location(2) local: vec3f,
   @location(3) @interpolate(flat) rot: vec4f,
   @location(4) @interpolate(flat) misc: vec4f,
+  @location(5) @interpolate(flat) hits: vec4f,
 };
 
 fn stackVert(vi: u32, s: SIn) -> SOut {
@@ -72,7 +74,7 @@ fn stackVert(vi: u32, s: SIn) -> SOut {
   if ((u32(s.misc.y + 0.5) & 8u) != 0u) { local.z = 0.0; }   // flatten (ground shadows)
   let w = s.pos.xyz + qrot(s.rot, local);
   var o: SOut;
-  o.world = w; o.local = local; o.rot = s.rot; o.misc = s.misc;
+  o.world = w; o.local = local; o.rot = s.rot; o.misc = s.misc; o.hits = s.hits;
   o.uv = mix(s.uv.xy, s.uv.zw, q);
   o.pos = worldToClip(w);
   return o;
@@ -106,19 +108,28 @@ fn stackVert(vi: u32, s: SIn) -> SOut {
   var mat = floor(nm.a * 255.0 + 0.5);
   var alb = c.rgb;
   var emis = 0.0;
-  // battle damage: scorched, blackened plating in a stable pattern
+  // battle damage: scorched, blackened plating clustered around the hits (light grime elsewhere),
+  // shell holes at the centres, charred broken edges where a hull split in two
   let dmg = i.misc.x;
-  if (dmg > 0.0) {
-    let hsh = hash12(floor(i.local.xy * 2.0) + floor(i.local.z * 2.0) * 7.3);
-    if (hsh < dmg * 0.6) { alb *= 0.32 + 0.3 * hsh; }
-    else if (hsh < dmg * 0.8) { alb = mix(alb, vec3f(0.32, 0.17, 0.09), 0.6); }
+  var nearHit = 0.0;
+  if (i.hits.y > 0.0) { nearHit = max(nearHit, 1.0 - smoothstep(i.hits.y * 0.3, i.hits.y, abs(i.local.x - i.hits.x))); }
+  if (i.hits.w > 0.0) { nearHit = max(nearHit, 1.0 - smoothstep(i.hits.w * 0.3, i.hits.w, abs(i.local.x - i.hits.z))); }
+  let dk = max(dmg * 0.35, nearHit * clamp(0.35 + dmg, 0.0, 1.0));
+  if (dk > 0.0) {
+    let hsh = hash12(floor(i.local.xy) + floor(i.local.z) * 7.3);
+    if (nearHit > 0.7 && hsh < 0.18 * dk) { alb = vec3f(0.02); }
+    else if (hsh < dk * 0.6) { alb *= 0.32 + 0.3 * hsh; }
+    else if (hsh < dk * 0.8) { alb = mix(alb, vec3f(0.32, 0.17, 0.09), 0.6); }
   }
+  let cut = min(abs(i.local.x - i.misc.z), abs(i.local.x - i.misc.w));
+  if (cut < 1.5) { alb *= 0.12 + 0.4 * (cut / 1.5) * hash12(floor(i.local.yz * 2.0)); }
   if (mat == MAT_LAMP) { emis = select(0.0, 2.2, (flags & 1u) == 1u); if (emis == 0.0) { alb *= 0.5; } }
   // waterline: churned white water where the hull meets the sea
+  // (only on the hull sides: a low deck lapped by the sea, like a U-boat casing, just looks wet)
   if (SU.p.x > 0.5 && i.world.z < wh + 0.32) {
     let d = ditherHere(i.pos.xy);
     let fz = hash12(floor(i.world.xy * 1.5) + floor(SU.p.y * 8.0));
-    if (fz > 0.35 + d * 0.3) { alb = SU.foamCol.rgb; mat = MAT_FOAM; n = vec3f(0.0, 0.0, 1.0); }
+    if (n.z < 0.6 && fz > 0.35 + d * 0.3) { alb = SU.foamCol.rgb; mat = MAT_FOAM; n = vec3f(0.0, 0.0, 1.0); }
     else { alb *= 0.75; }
   }
   o.albedo = vec4f(alb, mat / 255.0);
@@ -149,14 +160,15 @@ struct UOut { @location(0) col: vec4f, @location(1) depth: vec4f, @builtin(frag_
 @fragment fn fsStackOcc(i: SOut) -> @location(0) vec4f {
   if (i.local.x < i.misc.z || i.local.x > i.misc.w) { discard; }
   let c = textureSampleLevel(atlasTex, near, i.uv, 0.0);
-  if (c.a < 0.5 || (u32(i.misc.y + 0.5) & 4u) != 0u) { discard; }
+  // shadow decals and things in flight (the heightmap would turn them into towers) cast no occluder
+  if (c.a < 0.5 || (u32(i.misc.y + 0.5) & 20u) != 0u) { discard; }
   return vec4f(i.world.z, 0.0, 0.0, 0.0);
 }
 `;
 
 const INSTANCE_LAYOUT: GPUVertexBufferLayout = {
   arrayStride: STACK_FLOATS * 4, stepMode: 'instance',
-  attributes: [0, 1, 2, 3, 4].map((i) => ({ shaderLocation: i, offset: i * 16, format: 'float32x4' as const })),
+  attributes: [0, 1, 2, 3, 4, 5].map((i) => ({ shaderLocation: i, offset: i * 16, format: 'float32x4' as const })),
 };
 
 /** MAX on height (r), ADD on smoke density (a) — `max` requires factors 'one' */
