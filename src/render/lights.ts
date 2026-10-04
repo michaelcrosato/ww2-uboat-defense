@@ -32,7 +32,7 @@ export interface ViewRect { x0: number; y0: number; x1: number; y1: number }
 
 /** cull to the view, sort by importance, pack relative to the render origin (MAX_LIGHTS rows of 16 floats) */
 export function packLights(lights: LightList, ox: number, oy: number, view: ViewRect, max: number, reachMul: number,
-  out = new Float32Array(MAX_LIGHTS * LIGHT_FLOATS)): { data: Float32Array; count: number } {
+  out: Float32Array<ArrayBuffer> = new Float32Array(MAX_LIGHTS * LIGHT_FLOATS)): { data: Float32Array<ArrayBuffer>; count: number } {
   const cand: { l: Light; score: number }[] = [];
   const cx = (view.x0 + view.x1) / 2, cy = (view.y0 + view.y1) / 2;
   for (const l of lights.list) {

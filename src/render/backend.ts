@@ -17,13 +17,15 @@ export interface BackendOpts {
   gpuFail?: boolean;
   /** test hook (`?gpupresent=readback`): present WebGPU frames through a 2D canvas (headless) */
   gpuReadback?: boolean;
+  /** debug (`?testpattern=1`): WebGPU draws the world-anchored test pattern instead of the scene */
+  testPattern?: boolean;
 }
 
 export async function createBackend(screen: Screen, pref: BackendPref, opts: BackendOpts = {}): Promise<RenderBackend> {
   const tryGpu = pref === 'webgpu' || (pref === 'auto' && WEBGPU_DEFAULT);
   if (tryGpu) {
     try {
-      const b = await WebGPUBackend.create(screen, { fail: opts.gpuFail, present: opts.gpuReadback ? 'readback' : 'canvas' });
+      const b = await WebGPUBackend.create(screen, { fail: opts.gpuFail, present: opts.gpuReadback ? 'readback' : 'canvas' }, { testPattern: opts.testPattern });
       console.info(`renderer: WebGPU (${b.info.adapter})`);
       return b;
     } catch (e) {

@@ -5,6 +5,7 @@
 //  * world positions are relative to the render origin (snapped camera center).
 
 import type { Camera } from '../../camera';
+import { MAT } from '../../materials';
 
 /** fullscreen triangle; `uv` is 0..1 with v down (matches buffer rows) */
 export const FULLSCREEN_WGSL = /* wgsl */ `
@@ -51,12 +52,60 @@ export const MATH_WGSL = /* wgsl */ `
 // GLSL mod (floored); WGSL % truncates toward zero
 fn fmod(x: f32, y: f32) -> f32 { return x - y * floor(x / y); }
 fn fmod2(x: vec2f, y: f32) -> vec2f { return x - y * floor(x / y); }
+`;
+
+export const NOISE_WGSL = /* wgsl */ `
 fn hash12(p: vec2f) -> f32 {
-  var p3 = fract(vec3f(p.x, p.y, p.x) * 0.1031);
+  var p3 = fract(p.xyx * 0.1031);
   p3 += dot(p3, p3.yzx + 33.33);
   return fract((p3.x + p3.y) * p3.z);
 }
+fn hash22(p: vec2f) -> vec2f {
+  var p3 = fract(p.xyx * vec3f(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.xx + p3.yz) * p3.zy);
+}
+fn vnoise(p: vec2f) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let u = f * f * (3.0 - 2.0 * f);
+  let a = hash12(i);
+  let b = hash12(i + vec2f(1.0, 0.0));
+  let c = hash12(i + vec2f(0.0, 1.0));
+  let d = hash12(i + vec2f(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+fn fbm(p0: vec2f) -> f32 {
+  var p = p0;
+  var s = 0.0;
+  var a = 0.5;
+  for (var i = 0; i < 4; i++) { s += a * vnoise(p); p = p * 2.03 + vec2f(17.1, 9.7); a *= 0.5; }
+  return s;
+}
+// distance to nearest cell point (cellular / worley), for foam lace
+fn cellular(p: vec2f) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  var d = 8.0;
+  for (var y = -1; y <= 1; y++) {
+    for (var x = -1; x <= 1; x++) {
+      let g = vec2f(f32(x), f32(y));
+      let o = hash22(i + g);
+      let r = g + o - f;
+      d = min(d, dot(r, r));
+    }
+  }
+  return sqrt(d);
+}
 `;
+
+/** G-buffer outputs: RT0 rgb albedo + material/255, RT1 normal.xy, world height z, emissive */
+export const GBUF_WGSL = /* wgsl */ `
+struct GOut { @location(0) albedo: vec4f, @location(1) normal: vec4f };
+`;
+
+/** MAT_* constants generated from render/materials.ts (the GLSL #defines must match) */
+export const MAT_WGSL = Object.entries(MAT).filter(([k]) => k !== 'NONE').map(([k, v]) => `const MAT_${k} = ${v}.0;`).join('\n') + '\n';
 
 /** needs CAMERA_WGSL (F.pixOff) and MATH_WGSL */
 export const DITHER_WGSL = /* wgsl */ `

@@ -19,9 +19,9 @@ import { WaveSim } from './water/waveSim';
 import { FluidSim } from './water/fluidSim';
 import type { SliceAtlas } from '../../art/voxel';
 import { dev } from '../../core/devSettings';
-import { hex01 } from '../../core/math';
 import { CAMERA_GLSL } from './glsl/common';
 import { postParams } from '../common/post';
+import { lightParams, occluderRect, occluderRes, waterParams } from '../common/frameUniforms';
 
 const DEBUG_FS = /* glsl */ `#version 300 es
 precision highp float;
@@ -138,7 +138,7 @@ export class WebGL2Backend implements RenderBackend {
     O.x = cam.ix / cam.zoom; O.y = cam.iy / (cam.zoom * cam.cosT);
     const bw = cam.bw, bh = cam.bh;
     this.gbuf.resize(bw, bh); this.under.resize(bw, bh); this.lit.resize(bw, bh); this.post.resize(bw, bh);
-    const occRes = parseInt(dev.str('light.shadowRes')) || 1024;
+    const occRes = occluderRes();
     this.occ.resize(occRes, occRes);
     if (this.atlas !== scene.atlas) { this.atlas = scene.atlas; this.atlas.dirty = true; }
     this.stacks.uploadAtlas(scene.atlas);
@@ -173,12 +173,8 @@ export class WebGL2Backend implements RenderBackend {
     }
 
     // ---- occluder heightmap (world aligned, snapped to texels so shadows do not shimmer)
-    const view = cam.viewRect(0);
-    const span = Math.max(view.x1 - view.x0, view.y1 - view.y0) + 360;
-    const texel = span / occRes;
-    const ocx = Math.floor(((view.x0 + view.x1) / 2 - span / 2) / texel) * texel;
-    const ocy = Math.floor(((view.y0 + view.y1) / 2 - span / 2) / texel) * texel;
-    this.occRect = { x: ocx, y: ocy, s: span };
+    this.occRect = occluderRect(cam, occRes);
+    const { x: ocx, y: ocy, s: span } = this.occRect;
     const occRel: [number, number, number, number] = [ocx - O.x, ocy - O.y, span, span];
     this.occ.bind();
     gl.clearColor(-50, 0, 0, 0);
@@ -224,21 +220,21 @@ export class WebGL2Backend implements RenderBackend {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.ALWAYS);
-    const T = f.theater;
+    const W = waterParams(f);
     const pw = this.water.prog.use();
     this.setCam(pw, cam); this.setOcean(pw); this.setSim(pw, 0);
     const ramp = new Float32Array(24);
-    T.ramp.forEach((h, i) => ramp.set(hex01(h), i * 3));
+    W.ramp.forEach((c, i) => ramp.set(c, i * 3));
     pw.v3a('uRamp', ramp);
-    const fc = hex01(T.foam), fs = hex01(T.foamShade), mc = hex01(T.murk);
-    pw.f3('uFoamCol', fc[0], fc[1], fc[2]).f3('uFoamShade', fs[0], fs[1], fs[2]).f3('uMurk', mc[0], mc[1], mc[2]);
-    pw.f1('uClarity', T.clarity * dev.num('water.clarity')).f1('uHs', Math.max(0.3, f.ocean.hs + f.ocean.params.swellHeight * 0.5))
-      .f1('uContrast', dev.num('water.contrast')).f1('uDetail', dev.num('water.detail')).f1('uCrestFoam', dev.num('water.crestFoam'))
-      .f1('uTime', f.time).f2('uWind', f.ocean.params.seaState > 0 ? Math.cos(f.ocean.params.windDir) * f.ocean.windSpeed : 0, Math.sin(f.ocean.params.windDir) * f.ocean.windSpeed)
-      .i1('uParallax', dev.bool('water.parallax') ? 1 : 0)
+    const fc = W.foamCol;
+    pw.f3('uFoamCol', ...W.foamCol).f3('uFoamShade', ...W.foamShade).f3('uMurk', ...W.murk);
+    pw.f1('uClarity', W.clarity).f1('uHs', W.hs)
+      .f1('uContrast', W.contrast).f1('uDetail', W.detail).f1('uCrestFoam', W.crestFoam)
+      .f1('uTime', W.time).f2('uWind', W.wind[0], W.wind[1])
+      .i1('uParallax', W.parallax ? 1 : 0)
       .tex('uDye', 1, this.fluid.dyeTex).f1('uSimCell', this.wave.win.cell)
       .tex('uUnder', 2, this.under.tex[0]).tex('uUnderD', 3, this.under.tex[1])
-      .f1('uBio', f.bio).f1('uIce', f.ice);
+      .f1('uBio', W.bio).f1('uIce', W.ice);
     if (!(this.simsOk && dev.bool('water.fluid'))) pw.tex('uDye', 1, null);
     this.water.draw(gl);
     gl.depthFunc(gl.LESS);
@@ -254,9 +250,8 @@ export class WebGL2Backend implements RenderBackend {
     gl.disable(gl.DEPTH_TEST);
 
     // ---- lighting
-    const env = f.env;
-    const reach = dev.num('light.reach');
-    const lp = packLights(scene.lights, O.x, O.y, cam.viewRect(40), dev.num('light.maxLights'), reach, this.lightData);
+    const L = lightParams(f);
+    const lp = packLights(scene.lights, O.x, O.y, cam.viewRect(40), dev.num('light.maxLights'), L.reach, this.lightData);
     this.lightCount = lp.count;
     gl.bindTexture(gl.TEXTURE_2D, this.lightTex);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 4, MAX_LIGHTS, gl.RGBA, gl.FLOAT, lp.data);
@@ -266,19 +261,14 @@ export class WebGL2Backend implements RenderBackend {
     this.setCam(pl, cam);
     pl.tex('uAlbedo', 0, this.gbuf.tex[0]).tex('uNormal', 1, this.gbuf.tex[1]).tex('uOcc', 2, this.occ.t).tex('uLights', 3, this.lightTex)
       .i1('uLightCount', this.lightCount).f4('uOccRect', ...occRel)
-      .f3('uAmbient', ...env.ambient).f3('uSky', ...env.sky).f3('uFogCol', ...env.fogColor)
-      .f3('uSunDir', env.sunDir.x, env.sunDir.y, env.sunDir.z)
-      .f3('uSunCol', env.sunColor[0] * env.sunIntensity, env.sunColor[1] * env.sunIntensity, env.sunColor[2] * env.sunIntensity)
-      .f3('uMoonDir', env.moonDir.x, env.moonDir.y, env.moonDir.z)
-      .f3('uMoonCol', env.moonColor[0] * env.moonIntensity, env.moonColor[1] * env.moonIntensity, env.moonColor[2] * env.moonIntensity)
-      .f1('uReach', reach).f1('uStrength', dev.num('light.strength')).f1('uAmbientFill', dev.num('light.ambient'))
-      .f1('uSoft', dev.num('light.softness')).f1('uBands', dev.num('light.bands')).f1('uDitherAmt', dev.num('light.dither'))
-      .f1('uBeams', dev.num('light.beams')).f1('uSpec', dev.num('light.specular')).f1('uReflect', dev.num('water.reflection'))
-      .f1('uFog', Math.min(0.85, env.fogDensity * dev.num('light.fog') * 0.55)).f1('uLightning', env.lightning * 0.35)
-      .f1('uHaze', 0.35 + env.fogDensity * 2.2)
-      .i1('uSteps', dev.num('light.shadowSteps')).i1('uShadows', dev.bool('light.shadows') ? 1 : 0)
-      .i1('uCelShadows', dev.bool('light.celestialShadows') ? 1 : 0).i1('uLightsOn', dev.bool('light.enabled') ? 1 : 0)
-      .i1('uView', ({ albedo: 1, normal: 2, height: 3, light: 4 } as Record<string, number>)[dev.str('debug.view')] ?? 0);
+      .f3('uAmbient', ...L.ambient).f3('uSky', ...L.sky).f3('uFogCol', ...L.fogCol)
+      .f3('uSunDir', ...L.sunDir).f3('uSunCol', ...L.sunCol).f3('uMoonDir', ...L.moonDir).f3('uMoonCol', ...L.moonCol)
+      .f1('uReach', L.reach).f1('uStrength', L.strength).f1('uAmbientFill', L.ambientFill)
+      .f1('uSoft', L.soft).f1('uBands', L.bands).f1('uDitherAmt', L.ditherAmt)
+      .f1('uBeams', L.beams).f1('uSpec', L.spec).f1('uReflect', L.reflect)
+      .f1('uFog', L.fog).f1('uLightning', L.lightning).f1('uHaze', L.haze)
+      .i1('uSteps', L.steps).i1('uShadows', L.shadows ? 1 : 0)
+      .i1('uCelShadows', L.celShadows ? 1 : 0).i1('uLightsOn', L.lightsOn ? 1 : 0).i1('uView', L.view);
     this.lighting.draw(gl);
 
     // debug texture views drawn straight into the lit buffer

@@ -56,3 +56,28 @@ Ships, particles and dynamic lights come in M4.
 `WebGPU: water G-buffer, deferred lighting and post at parity with WebGL2`
 
 ## Notes (fill in when done)
+Done. With sims off and `?freeze=1&fxseed=1&seed=7`, WebGPU vs WebGL2 open water is **pixel-identical**
+at hour 13, 23 and 7, tilt 0 and 45, fog + sea state 6, arctic night, and in the albedo / normal / height
+debug views. Every differing pixel is inside the player ship (and a few particle pixels), which WebGPU
+doesn't draw until M4 (e.g. hour 13: 8384 px, bbox = the destroyer). Comparison images were made with
+the scratch diff script; the WebGPU shots are in `check-output/m3-*.png`.
+
+What changed
+- `src/render/common/frameUniforms.ts`: `waterParams`, `lightParams`, `occluderRect`, `occluderRes`,
+  `DEBUG_VIEWS`. The WebGL2 backend now uses them too (its frozen shots are still pixel-identical to M1).
+- WGSL: `wgsl/common.ts` gained `NOISE_WGSL` (hash12/22, vnoise, fbm, cellular), `GBUF_WGSL`, `MAT_WGSL`
+  (generated from `MAT`); `wgsl/ocean.ts` (`Ocean` UBO at group 0 binding 1, `oceanSample` → `OceanOut`,
+  `oceanHeight`, `ringHeight`, shared `gerstnerQ`; `writeOcean`).
+- `passes/water.ts` (`WaterPassGPU`, 64-float `Water` UBO, `frag_depth`, depth `always`) and
+  `passes/lighting.ts` (`LightingPassGPU`, 52-float UBO, lights in a read-only storage buffer of
+  `MAX_LIGHTS × 4` vec4). Offsets are documented above each struct.
+- `WebGPUBackend.render`: occluder (cleared to -50), underwater (cleared), G-buffer (water), lighting,
+  post. Dynamic lights are already uploaded and lit (searchlight haze works); `?testpattern=1` keeps the M2
+  pattern. Wave/dye inputs are a 1×1 zero texture until M5.
+
+Decisions
+- Uniform structs use only vec4f/vec2f/f32; ints and bools travel as floats (`i32(x + 0.5)`, `> 0.5`).
+- `layout: 'auto'` is still fine (every binding is used by its entry point); M4's stack pipelines share
+  bind groups across three pipelines and should use explicit layouts.
+
+Follow-ups: see the two new Known issues (unbound dye in WebGL2, WebGPU texture debug views).

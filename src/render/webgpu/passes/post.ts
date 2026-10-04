@@ -5,7 +5,7 @@
 
 import { shaderModule, validated, type GpuContext } from '../device';
 import { resizeTarget, Ubo, type GpuTarget, type Samplers } from '../targets';
-import { FULLSCREEN_WGSL, MATH_WGSL } from '../wgsl/common';
+import { FULLSCREEN_WGSL, MATH_WGSL, NOISE_WGSL } from '../wgsl/common';
 import type { PostParams } from '../../common/post';
 
 // bright / blur uniforms: 0 texel (x, y) · 2 dir (x, y)
@@ -41,6 +41,7 @@ const PRESENT_FLOATS = 20;
 const PRESENT_WGSL = /* wgsl */ `
 ${FULLSCREEN_WGSL}
 ${MATH_WGSL}
+${NOISE_WGSL}
 struct P {
   device: vec2f, shift: vec2f, buf: vec2f, S: f32, bloomAmt: f32,
   vignette: f32, grain: f32, scan: f32, time: f32, flash: f32, grade: f32, pad: vec2f,
