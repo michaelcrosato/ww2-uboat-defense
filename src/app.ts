@@ -5,6 +5,7 @@ import { Screen } from './render/screen';
 import { Camera } from './render/camera';
 import { RenderScene } from './render/scene';
 import type { RenderBackend } from './render/types';
+import { fallbackToWebGL2 } from './render/backend';
 import { Input } from './input/input';
 import { Hud } from './ui/hud';
 import { Mission } from './game/mission';
@@ -114,8 +115,19 @@ export class App {
     requestAnimationFrame(loop);
   }
 
+  /** runtime fallback: the WebGPU device was lost or errored → WebGL2 on a fresh canvas */
+  private switchToWebGL2(reason: string) {
+    console.warn(`renderer: ${reason}; switching to WebGL2`);
+    try { this.backend.dispose(); } catch { /* already gone */ }
+    this.backend = fallbackToWebGL2(this.screen);
+    this.hud.backend = this.backend;
+    this.backend.resetSims();
+    this.mission?.world.emit('message', { text: 'Renderer switched to WebGL2', kind: 'alert' });
+  }
+
   private frame(dt: number) {
     this.realTime += dt;
+    if (this.backend.lost) this.switchToWebGL2(this.backend.lost);
     this.input.update();
     for (const f of this.onFrame) f(dt);
     const m = this.mission;

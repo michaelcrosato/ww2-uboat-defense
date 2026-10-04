@@ -21,6 +21,7 @@ import type { SliceAtlas } from '../../art/voxel';
 import { dev } from '../../core/devSettings';
 import { hex01 } from '../../core/math';
 import { CAMERA_GLSL } from './glsl/common';
+import { postParams } from '../common/post';
 
 const DEBUG_FS = /* glsl */ `#version 300 es
 precision highp float;
@@ -293,13 +294,8 @@ export class WebGL2Backend implements RenderBackend {
     }
 
     // ---- post
-    const bloom = dev.num('light.bloom');
-    this.post.bloom(this.lit.t, bloom);
-    const grade = ({ theater: 0, neutral: 1, newsreel: 2, technicolor: 3, uboat: 4, mono: 5 } as Record<string, number>)[dev.str('display.grade')] ?? 0;
-    this.post.present({
-      lit: this.lit.t, pw: sc.pw, ph: sc.ph, S: sc.S, shiftX: Math.round(cam.fx * sc.S), shiftY: Math.round(cam.fy * sc.S), bw, bh,
-      bloom, vignette: dev.num('display.vignette'), grain: dev.num('display.grain'), scan: dev.num('display.scanlines'),
-      time: f.time, grade, flash: f.flash, flashCol: f.flashCol,
-    });
+    const post = postParams(sc, cam, f);
+    this.post.bloom(this.lit.t, post.bloom);
+    this.post.present({ lit: this.lit.t, ...post });
   }
 }

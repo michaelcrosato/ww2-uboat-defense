@@ -88,10 +88,15 @@ Keep the same chunk structure as GLSL so diffs stay readable: `CAMERA`, `DITHER`
   WebGL2 at the next frame (re-create the backend, reset sims). Never leave a black screen.
 - Keep at most 2 frames in flight (`queue.onSubmittedWorkDone()` counter); skip a frame otherwise.
 - Use `timestamp-query` when available for the perf overlay (M6), never required.
+- TypeScript's DOM lib has the WebGPU interfaces but not the `GPUTextureUsage` / `GPUBufferUsage` /
+  `GPUMapMode` constant objects and no `getContext('webgpu')` overload: use `TU` / `BU` from
+  `webgpu/targets.ts` and cast the context (`as GPUCanvasContext`).
 
 ## 6. Headless verification
 - `npm run probe:gpu` confirms the adapter. `tools/shot.mjs` already passes `--enable-unsafe-webgpu`.
 - WebGPU needs a secure context: always test through the Vite server (http://localhost), never `file://`.
+- Headless canvas present loses the device: screenshot WebGPU with `?renderer=webgpu&gpupresent=readback`.
+  Check the console for `renderer: WebGPU (...)`; a warning means it fell back to WebGL2.
 - Compare backends: `?renderer=webgpu` vs `?renderer=webgl2`; M6 adds a deterministic scene
   (`?scene=lookdev`) and `tools/compare.mjs` for numeric diffs.
 

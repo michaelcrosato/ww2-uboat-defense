@@ -22,7 +22,8 @@ async function boot() {
     if (params.has('fxseed')) fx.reseed(Number(params.get('fxseed')) || params.get('fxseed')!);
     for (const [k, v] of params) if (k.startsWith('dev.')) dev.set(k.slice(4), urlValue(v), false);
     const screen = new Screen(document.getElementById('stage')!, dev);
-    const backend = await createBackend(screen, parseBackendPref(params.get('renderer') ?? dev.str('display.renderer')));
+    const backend = await createBackend(screen, parseBackendPref(params.get('renderer') ?? dev.str('display.renderer')),
+      { gpuFail: params.get('gpufail') === '1', gpuReadback: params.get('gpupresent') === 'readback' });
     const app = new App(screen, backend);
     app.frozen = params.get('freeze') === '1';
     const overrides: Record<string, number | string | boolean> = {};

@@ -61,3 +61,36 @@ handles resize and device loss. The real scene arrives in M3–M5.
 `Add WebGPU backend bootstrap with WebGL2 fallback and WGSL post chain`
 
 ## Notes (fill in when done)
+Done. `?renderer=webgpu&gpupresent=readback` renders the world-anchored test pattern through the WGSL
+post chain (`check-output/m2-webgpu.png`): 10 m checker, 100 m grid (120 × 110 internal px at zoom 1.2 /
+tilt 24°), bloomed HDR crossings, vignette + grain, crisp 2×2 game pixels, HUD on top, FPS text
+`10 fps WebGPU (SwiftShader)`. A frozen shot puts a grid crossing exactly where `cam.toScreen` predicts
+(±0.5 device px). 900×600 also crisp. `?gpufail=1` and plain `?renderer=webgpu` (headless present probe
+fails) both fall back to the full WebGL2 game with a console warning. Simulated runtime loss
+(`__app.backend.g.lost = '…'`) swaps to WebGL2 mid-mission with the HUD message. WebGL2 frozen shots are
+still pixel-identical to the M1 baselines.
+
+What changed
+- `src/render/webgpu/`: `device.ts` (`initGpu`: optional features, `lost` from `device.lost` +
+  `uncapturederror`, present probe; `shaderModule` throws on the first WGSL error with the source line;
+  `validated` wraps pipeline creation in a validation error scope), `targets.ts` (`createTarget`,
+  `resizeTarget`, samplers, `Ubo`, `TU`/`BU` usage constants), `wgsl/common.ts` (`FULLSCREEN_WGSL`,
+  `CAMERA_WGSL` with `Frame` at group 0 binding 0 + `writeFrame`, `MATH_WGSL` (`fmod`, `hash12`),
+  `DITHER_WGSL`), `passes/post.ts` (`PostPassGPU`: bright, blur H/V with separate UBOs, present),
+  `passes/testPattern.ts`, `renderer.ts` (`WebGPUBackend`, ≤ 2 frames in flight, lazy lit target).
+- `src/render/common/post.ts`: `postParams()` used by both backends (grade map, shift, settings).
+- `backend.ts`: fallback chain, `fallbackToWebGL2`, `backendLabel`, `WEBGPU_DEFAULT`. `RenderBackend.lost`.
+- `App` checks `backend.lost` every frame and swaps to WebGL2 (`resetSims`, HUD alert message).
+
+Decisions / deviations
+- `auto` → WebGL2 until M6 (the acceptance line "auto → WebGPU" is deferred to M6 step 5): during M2–M5
+  WebGPU draws an incomplete scene and must not become the default.
+- Headless present is broken in this Chromium build (see PLAN decisions log) → present probe at init +
+  `?gpupresent=readback` test path (renders into an `rgba8unorm` texture, `copyTextureToBuffer`, maps,
+  `putImageData`; at most one readback in flight).
+- Bind groups use `layout: 'auto'`; fine while every binding is statically used by its entry point. M3+
+  passes that share layouts across pipelines should switch to explicit layouts.
+
+Follow-ups
+- M3: replace `TestPatternPass` with water G-buffer + lighting; keep `Frame` at group 0 binding 0.
+- M6: flip `WEBGPU_DEFAULT`; GPU timing via `timestamp-query` (`g.hasTimestamps`).

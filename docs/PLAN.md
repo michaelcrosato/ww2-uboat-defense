@@ -14,7 +14,7 @@ WebGPU additionally runs the water simulations as compute shaders.
 |---|---|---|---|
 | M0 | WebGL2 prototype + handoff docs (baseline) | DONE | — |
 | M1 | Render abstraction refactor (backend-agnostic scene, WebGL2 behind an interface) | DONE | [M01](milestones/M01-render-abstraction.md) |
-| M2 | WebGPU bootstrap: device, canvas, fallback chain, present pass | TODO | [M02](milestones/M02-webgpu-bootstrap.md) |
+| M2 | WebGPU bootstrap: device, canvas, fallback chain, present pass | DONE | [M02](milestones/M02-webgpu-bootstrap.md) |
 | M3 | WebGPU water G-buffer, lighting (sun/moon/ambient) and post | TODO | [M03](milestones/M03-webgpu-water-lighting-post.md) |
 | M4 | WebGPU sprite stacks, particles, dynamic lights + occluder shadows | TODO | [M04](milestones/M04-webgpu-stacks-particles-lights.md) |
 | M5 | WebGPU water sims as compute shaders | TODO | [M05](milestones/M05-webgpu-compute-sims.md) |
@@ -72,6 +72,12 @@ on any failure or later device loss. The active backend shows in the FPS overlay
 - 2026-10: WebGPU particles are instanced quads (WebGPU has no point size); WebGL2 keeps gl_PointSize.
 - 2026-10: Headless WebGPU verified: Chromium 1194 + `--enable-unsafe-webgpu` on an http://localhost
   page exposes a SwiftShader adapter with compute, float32-filterable, float32-blendable, timestamps.
+- 2026-10 (M2): but **presenting to a canvas** (`getCurrentTexture`) loses the device headless ("A valid
+  external Instance reference no longer exists"), with every flag set tried. WebGPU init runs a one-frame
+  present probe and falls back to WebGL2 if it fails; headless tests use `?gpupresent=readback`
+  (frame copied to a 2D canvas). Real browsers use the normal canvas path.
+- 2026-10 (M2): `auto` stays on WebGL2 (`WEBGPU_DEFAULT = false` in `src/render/backend.ts`) until the
+  WebGPU backend renders the full scene; M6 flips it. `?renderer=webgpu` opts in.
 
 ## Known issues (keep this list current)
 - U-boat AI cannot get ahead of the convoy while submerged (transit aims at a point that runs away). → M11

@@ -42,6 +42,8 @@ export interface FrameParams {
 export interface RenderBackend {
   readonly info: BackendInfo;
   readonly stats: BackendStats;
+  /** set when the backend can no longer render (WebGPU device lost / error): the App swaps to WebGL2 */
+  readonly lost?: string | null;
   resize(): void;
   /** whole frame incl. present */
   render(scene: RenderScene, f: FrameParams): void;

@@ -43,7 +43,10 @@ URL parameters override any arena setting for testing: `/?side=uboat&hour=2&weat
 (keys from `src/game/arenaConfig.ts` without the `arena.` prefix). Test hooks: `?dev.<key>=<v>` sets a
 dev setting without persisting it (e.g. `?dev.water.sim=false&dev.display.showFps=false`),
 `?fxseed=1` seeds the cosmetic RNG, `?freeze=1` renders without ever stepping world/sims/particles
-(camera settles at once), `?renderer=webgpu|webgl2|auto` picks the backend. Reproducible shot:
+(camera settles at once), `?renderer=webgpu|webgl2|auto` picks the backend (`auto` = WebGL2 until M6).
+**Headless WebGPU needs `&gpupresent=readback`**: presenting to a canvas loses the device in headless
+SwiftShader, so without it WebGPU init fails its present probe and falls back to WebGL2. `?gpufail=1`
+forces the WebGPU init to fail (fallback test). Reproducible shot:
 `/?freeze=1&fxseed=1&seed=7&hour=13&dev.display.showFps=false` (pixel-identical across runs).
 
 ## Architecture (file map)
@@ -54,7 +57,8 @@ dev setting without persisting it (e.g. `?dev.water.sim=false&dev.display.showFp
 | Config | `src/core/config.ts`, `src/core/devSettings.ts`, `src/game/arenaConfig.ts` | Schema-driven stores (`dev.num/bool/str`, `dev.on(key, fn)`); every knob persists and will auto-generate UI |
 | Math/events | `src/core/math.ts`, `src/core/events.ts` | world space: x east, y south, z up (m); heading: forward=(cos h, sin h), grows clockwise; `Rng` seeded; `fx` cosmetic RNG |
 | Render API | `src/render/types.ts` (`RenderBackend`, `FrameParams`), `scene.ts` (`RenderScene`, `StackInstance`), `backend.ts` (`createBackend`), `camera.ts`, `screen.ts`, `lights.ts` (`LightList`, `packLights`), `particles.ts` (CPU `ParticleSystem`), `pack.ts` (stack/particle/force packers), `materials.ts` (`MAT`, `PK`) | game code fills `RenderScene` only; never imports a backend |
-| WebGL2 backend | `src/render/webgl2/renderer.ts` (`WebGL2Backend`), `gl.ts`, `spriteStack.ts`, `particlesGL.ts`, `passes/*`, `glsl/{common,ocean}.ts`, `water/{waveSim,fluidSim}.ts` | see "Render pipeline" below; WebGPU backend = milestones M2–M6 |
+| WebGL2 backend | `src/render/webgl2/renderer.ts` (`WebGL2Backend`), `gl.ts`, `spriteStack.ts`, `particlesGL.ts`, `passes/*`, `glsl/{common,ocean}.ts`, `water/{waveSim,fluidSim}.ts` | see "Render pipeline" below |
+| WebGPU backend | `src/render/webgpu/renderer.ts` (`WebGPUBackend`), `device.ts` (init, present probe, `shaderModule`, `validated`), `targets.ts` (`TU`/`BU` usage flags, targets, samplers, `Ubo`), `wgsl/common.ts`, `passes/post.ts`, `passes/testPattern.ts` | M2: test pattern + post; real scene = M3–M5. Shared post params: `src/render/common/post.ts` |
 | Water | `src/water/ocean.ts` (CPU Gerstner; GLSL twin in `render/webgl2/glsl/ocean.ts`), `simWindow.ts`, `simInputs.ts` (`HullInput`/`SplatInput` types) | CPU `Ocean.height()` drives buoyancy; GPU sims are cosmetic |
 | Art | `src/art/voxel.ts` (VoxelModel, SliceAtlas), `shipBuilder.ts`, `ships.ts` | procedural voxel ships → horizontal slices → sprite stacking |
 | Physics | `src/physics/physics.ts` (Rapier world, groups, queries), `hydro.ts` (buoyancy columns, drag, thrust, rudder, ballast) | `@dimforge/rapier3d-compat` **0.21.0 pinned** |
