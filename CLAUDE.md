@@ -17,7 +17,9 @@ This project is built milestone by milestone, with a context clear between miles
 4. Set it to `DONE` in `docs/PLAN.md`, write the milestone's "Notes" (what changed, decisions,
    follow-ups), update "Known issues" in PLAN.md, commit, push, and stop. One milestone per session.
 5. Branch: `claude/cool-bell-er7u0y` (push with `git push -u origin claude/cool-bell-er7u0y`).
-   A draft PR exists; keep pushing to the same branch.
+   The repo started empty, so this branch is currently the remote's only (default) branch and no PR
+   exists yet. Don't create other branches unless the user asks; if a `main` base branch appears
+   later, open a draft PR from this branch and keep pushing to it.
 
 ## Commands
 
