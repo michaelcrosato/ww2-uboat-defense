@@ -21,6 +21,8 @@ export class Camera {
   private shakeAmt = 0;
   private shakeT = 0;
   shakeX = 0; shakeY = 0;
+  /** ship-motion sway in world metres (camera.roll), added like shake */
+  bobX = 0; bobY = 0;
 
   setTilt(t: number) { this.tilt = t; this.cosT = Math.cos(t); this.sinT = Math.sin(t); }
   setViewport(W: number, H: number) { this.W = W; this.H = H; this.bw = W + 2; this.bh = H + 2; }
@@ -47,7 +49,7 @@ export class Camera {
 
   /** compute pixel-snapped center for this frame */
   snap() {
-    const px = this.x * this.zoom + this.shakeX, py = this.y * this.cosT * this.zoom + this.shakeY;
+    const px = (this.x + this.bobX) * this.zoom + this.shakeX, py = (this.y + this.bobY) * this.cosT * this.zoom + this.shakeY;
     this.ix = Math.floor(px); this.iy = Math.floor(py);
     this.fx = px - this.ix; this.fy = py - this.iy;
   }

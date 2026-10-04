@@ -32,6 +32,8 @@ export class Aircraft {
   private dropped = 0;
   private orbitA = fx.next() * 6.28;
   model: StackModel;
+  /** patrols orbit something that moves (the convoy); called each update */
+  anchor: (() => { x: number; y: number }) | null = null;
   constructor(private w: World, public kind: Kind, x: number, y: number, public cx: number, public cy: number, public life: number, bombs?: number) {
     this.x = x; this.y = y;
     const s = SPEC[kind];
@@ -47,6 +49,7 @@ export class Aircraft {
     const w = this.w, s = SPEC[this.kind];
     this.life -= dt;
     if (this.life <= 0 && this.mode !== 'leave') this.mode = 'leave';
+    if (this.anchor) { const a = this.anchor(); this.cx = a.x; this.cy = a.y; }
     let tx = this.cx, ty = this.cy;
     if (this.mode === 'patrol') {
       this.orbitA += dt * s.speed / 700;

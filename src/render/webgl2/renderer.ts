@@ -66,6 +66,7 @@ export class WebGL2Backend implements RenderBackend {
   occRect = { x: 0, y: 0, s: 1 };
   stats: BackendStats = { stackInstances: 0, particles: 0, lights: 0, gpuMs: 0 };
   simsOk: boolean;
+  private zeroTex: WebGLTexture;
   private unsub: (() => void)[] = [];
 
   constructor(readonly screen: Screen) {
@@ -73,6 +74,11 @@ export class WebGL2Backend implements RenderBackend {
     this.gl = gl; this.caps = caps;
     this.info = { kind: 'webgl2', adapter: caps.renderer, computeSims: false, features: [caps.floatRT ? 'float-rt' : 'no-float-rt', ...(caps.floatLinear ? ['float-linear'] : [])] };
     this.simsOk = caps.floatRT;
+    // bound in place of the dye when the fluid sim is off (an unbound sampler reads (0,0,0,1) = burning oil)
+    this.zeroTex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, this.zeroTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);   // no mips: must not be mip-filtered
     this.gbuf = new Target(gl, ['rgba8', 'rgba16f'], { depth: true });
     this.under = new Target(gl, ['rgba8', 'rgba16f'], { depth: true });
     this.occ = new Target(gl, ['rgba16f'], { filter: gl.LINEAR });
@@ -233,7 +239,7 @@ export class WebGL2Backend implements RenderBackend {
       .tex('uDye', 1, this.fluid.dyeTex).f1('uSimCell', this.wave.win.cell)
       .tex('uUnder', 2, this.under.tex[0]).tex('uUnderD', 3, this.under.tex[1])
       .f1('uBio', W.bio).f1('uIce', W.ice);
-    if (!(this.simsOk && dev.bool('water.fluid'))) pw.tex('uDye', 1, null);
+    if (!(this.simsOk && dev.bool('water.fluid'))) pw.tex('uDye', 1, this.zeroTex);
     this.water.draw(gl);
     gl.depthFunc(gl.LESS);
     const pg = this.stacks.pGbuf.use();

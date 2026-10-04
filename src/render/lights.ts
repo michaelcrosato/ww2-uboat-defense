@@ -24,6 +24,11 @@ export interface Light {
 
 export class LightList {
   list: Light[] = [];
+  /** global beam-haze multiplier (searchlight shafts fade out in daylight) */
+  beamScale = 1;
+  /** fog spreads light: beam width and light reach multipliers */
+  sizeScale = 1;
+  reachScale = 1;
   clear() { this.list.length = 0; }
   add(l: Light) { this.list.push(l); return l; }
 }
@@ -36,7 +41,7 @@ export function packLights(lights: LightList, ox: number, oy: number, view: View
   const cand: { l: Light; score: number }[] = [];
   const cx = (view.x0 + view.x1) / 2, cy = (view.y0 + view.y1) / 2;
   for (const l of lights.list) {
-    const R = l.reach * reachMul;
+    const R = l.reach * reachMul * lights.reachScale;
     // spotlights and beams reach further on screen than their radius suggests
     const ext = R + (l.beam ? R * 0.2 : 0);
     if (l.x + ext < view.x0 || l.x - ext > view.x1 || l.y + ext < view.y0 - 30 || l.y - ext > view.y1 + 30) continue;
@@ -50,16 +55,16 @@ export function packLights(lights: LightList, ox: number, oy: number, view: View
   D.fill(0);
   for (let i = 0; i < n; i++) {
     const l = cand[i].l, b = i * LIGHT_FLOATS;
-    D[b] = l.x - ox; D[b + 1] = l.y - oy; D[b + 2] = l.z; D[b + 3] = l.reach;
+    D[b] = l.x - ox; D[b + 1] = l.y - oy; D[b + 2] = l.z; D[b + 3] = l.reach * lights.reachScale;
     D[b + 4] = l.r; D[b + 5] = l.g; D[b + 6] = l.b; D[b + 7] = l.intensity;
     const spot = l.cosOuter !== undefined;
     if (spot) {
       const len = Math.hypot(l.dx ?? 1, l.dy ?? 0, l.dz ?? 0) || 1;
       D[b + 8] = (l.dx ?? 1) / len; D[b + 9] = (l.dy ?? 0) / len; D[b + 10] = (l.dz ?? 0) / len; D[b + 11] = l.cosOuter!;
     } else { D[b + 11] = -2; }
-    D[b + 12] = l.shadow ? 1 : 0; D[b + 13] = l.beam ?? 0;
+    D[b + 12] = l.shadow ? 1 : 0; D[b + 13] = (l.beam ?? 0) * lights.beamScale;
     D[b + 14] = spot ? (l.cosInner ?? Math.min(0.9999, l.cosOuter! + (1 - l.cosOuter!) * 0.5)) : 0;
-    D[b + 15] = l.size ?? 0.6;
+    D[b + 15] = (l.size ?? 0.6) * lights.sizeScale;
   }
   return { data: D, count: n };
 }

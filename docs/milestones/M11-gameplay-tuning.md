@@ -49,12 +49,12 @@ These keys are declared in `DEV_DEFS` but nothing reads them yet; wire each one:
 | `debug.buoyancy` | HUD dots at buoyancy columns colored by submerged fraction |
 | `debug.sensors` | HUD circles: ASDIC/hydrophone/lookout ranges for the player, ASDIC beam wedges for all escorts |
 
-Audit script (paste into a shell to list unwired keys):
+Audit script (paste into a shell to list unwired keys; the settings screen's key list does not count as wiring):
 ```bash
 python3 - <<'EOF'
 import re,os
 keys=re.findall(r"key: '([a-z]+\.[A-Za-z]+)'",open('src/core/devSettings.ts').read())
-blob=''.join(open(os.path.join(r,f)).read() for r,_,fs in os.walk('src') for f in fs if f.endswith('.ts') and f!='devSettings.ts')
+blob=''.join(open(os.path.join(r,f)).read() for r,_,fs in os.walk('src') for f in fs if f.endswith('.ts') and f not in ('devSettings.ts','settings.ts'))
 print([k for k in keys if "'"+k+"'" not in blob])
 EOF
 ```
@@ -83,3 +83,68 @@ table in Notes; typecheck passes; 0 page errors.
 `Gameplay completion: AI fixes, air patrols, reinforcements, settings wiring, weather visuals`
 
 ## Notes (fill in when done)
+**Done.** Audit script (now excluding the settings screen's key list) prints `[]`.
+
+A. Known issues
+- U-boat transit (`UboatAI.doTransit`): the shared convoy estimate is dead-reckoned to now; along/cross-track
+  modes `station` (ahead: creep to a flank station |c| = 850 m at periscope depth), `end-around` (abeam/astern,
+  dark or unescorted: surface run to 2.2 km ahead / 1.5 km out), `wait` (pinned: periscope depth, take what
+  passes), surface recharge below 35 % battery when no escort within 3 km. Only escorts pinging from < 1.6 km
+  count as "danger" (pings carry for km and kept every boat in `evade` forever). AI boats hold fire while an
+  escort is on the firing line. Debug string shows mode, quiet time, nearest escort, pings heard.
+- Escort AI: contacts with error > 1200 m are dropped back to station, reacquire times out after 75 s / 150 s
+  since the last fix; `ai.screen` (new, default 1) escorts never leave the screen; `ai.rescue` (new, default on)
+  lets idle escorts stop for lifeboats; friendly-hull avoidance in `steer` (they were ramming merchants);
+  attack runs close at 18 kn and slow to attack speed inside 600 m, lead capped at 4 m/s, timeout 150 s.
+  Depth estimate: firm contact → true keel depth + N(0, 12 + 35·(1−skill)) m once per run; otherwise
+  30 + 0.5 m/s × time since first contact, bracketed (0, +30, −25, +55, −40 m) over successive runs.
+- Sensors: contact velocity smoothed harder for subs (kv 0.15, min dt 2 s), capped at 9 m/s (subs) / 18 m/s
+  (surface) instead of 25, and decays when a sub contact has no fix for > 5 s — dead reckoning used to fling
+  sub contacts kilometres away, so attack runs chased phantom points and never dropped.
+- Reinforcements: `reinforce` spawns boats 3–4.2 km ahead of the convoy; radio message for the axis side.
+- Air patrols from `arena.aircraft` (`Mission.airCover`): gap = every 200–280 s for 90 s except over the middle
+  third of the route, carrier = Swordfish every 100–140 s, heavy = always one up; aircraft orbit a moving
+  anchor (convoy centroid) via `Aircraft.anchor` / `Projectiles.airPatrol`.
+- Light beams: `LightList.beamScale` = smoothstep(0.15, 0.6, darkness) (fog keeps up to 0.5) — no daytime shafts.
+- Islands: `VM.LAND` material (no specular) and real static colliders (`Physics.addLand`; they had none) with
+  grounding damage + "run aground" alert.
+- `fastForward` snaps the camera to the player.
+- Powers/keystones now hooked: pow_flare_aura, pow_ram_shield (`ramShieldT`), pow_convoy_heal
+  (`Mission.convoyRepair`), pow_silent_crit, pow_ghost_decoy (stronger decoy echo), pow_hunter_reload;
+  `convoy_aura_pct` (Shepherd keystone + gear) reduces damage to merchants within 600 m of the player.
+- Renderer: burning oil falls off past bow/stern too (no rectangle; GLSL + WGSL identical); WebGL2 binds a
+  complete 1×1 zero texture when the fluid sim is off. Parity test still passes (mean 0.18/255).
+- Spawn separation for U-boats (two boats spawned in one spot sank each other at t = 21 s); friendly
+  collisions do 0.1× ram damage.
+- U-boat depth keeping: trim authority up to +0.2 (was +0.05, rate 0.12/s) and linear heave damping 0.02 (was
+  0.05): ~0.6 m/s down / 0.5 m/s up at creep speed (was ~0.15 m/s and stalled near 33 m).
+
+B. Settings wired: `phys.waveForces/handling/heel` live via `Vessel.retuneHydro` (World listens to dev changes),
+`phys.buoyancy` = columns at spawn (6×2 / 8×3 / 12×4), `display.hudScale` (HUD buffer 1/k size, world overlays
+via `Hud.ts()`), `camera.roll` (camera `bobX/Y` sway from roll/pitch), `debug.colliders` (deck outline from
+`hullPoints`), `debug.buoyancy` (column dots coloured by wetted fraction), `debug.sensors` (lookout/hydrophone/
+radar rings for the player, ASDIC wedges for every escort). New: `display.weather`, `ai.rescue`, `ai.screen`.
+
+C. Weather & theaters (`src/game/weatherFx.ts`, `check-output/m11/w-*.png`): rain = HUD streaks slanted by the
+wind + tiny ripple splats on the wave sim; snow = lit `PK.SNOW` particles around the view; fog = wider beams and
+longer light reach (`sizeScale`, `reachScale`); storm = existing lightning + new `thunder` sound (delayed after
+each flash, AudioBridge). Arctic ice stays visual-only (documented). US East Coast: chunked 3 m voxel coastline
+(`coastArt`, ragged shore, dunes, town blocks with lit windows) 1.3–1.6 km north of the route, static colliders
+and warm night lights. `arena.lighthouse`: rock + striped tower (`lighthouseArt`) with a sweeping spot beam.
+
+D. Balance (player ship on AI autopilot as a competent-player proxy, defaults: 9 merchants, 3 escorts,
+3 U-boats, hour 23, 30 min fast-forward; `scratchpad balance2.sh`):
+
+| Side | Seed | Outcome | Merchants lost | U-boats sunk | Escorts lost | Player |
+|---|---|---|---|---|---|---|
+| Escort | 11 | victory | 4/9 | 1 | 0 | alive |
+| Escort | 22 | victory | 3/9 | 0 | 0 | alive |
+| Escort | 33 | victory | 2/9 | 0 | 0 | alive |
+| U-boat | 11 | withdrew | 3/9 (0 by player) | 0 | 0 | alive |
+| U-boat | 22 | victory | 3/9 (1 by player, 4,800 GRT) | 0 | 0 | alive |
+| U-boat | 33 | sunk at 18 min | 1/9 | 0 | 0 | hunted down |
+
+Before the fixes the same runs lost 5/1/4 merchants with all three escorts sunk by merchant collisions, and
+U-boats never left `evade`. Changed numbers: DC damage 400 → 500, DC blast reach 3.3 → 4 × lethal radius,
+friendly ram damage × 0.1, sub trim/heave as above, sensor velocity caps as above. AI skill/aggression defaults
+unchanged (0.6).

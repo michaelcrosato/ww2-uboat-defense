@@ -12,7 +12,7 @@ import { Mission } from './game/mission';
 import { PlayerControl } from './game/player';
 import { dev } from './core/devSettings';
 import { arena } from './game/arenaConfig';
-import { DEG, clamp } from './core/math';
+import { DEG, clamp, damp } from './core/math';
 import type { AbilityId, AbilityState } from './meta/types';
 import { StatBlock } from './meta/stats';
 import { buildLookdev } from './game/lookdev';
@@ -232,8 +232,10 @@ export class App {
       if (pc) pc.updateCamera(camDt);
       else if (m.spectator) this.attractCamera(m, dt);
       this.cam.update(camDt, dev.num('camera.shake'));
+      this.shipSway(m, camDt);
       // render
       m.world.submit(halted ? 0 : dt * tempo);
+      this.hud.weather.update(m.world, this.cam, halted ? 0 : dt * tempo);
       const ps = this.scene.particles;
       ps.wind.x = Math.cos(m.world.ocean.params.windDir) * m.world.ocean.windSpeed * 0.5;
       ps.wind.y = Math.sin(m.world.ocean.params.windDir) * m.world.ocean.windSpeed * 0.5;
@@ -248,6 +250,7 @@ export class App {
       m.world.flash *= Math.exp(-dt * 6);
       this.audioBridge?.update(dt);
       if (pc) this.hud.draw(m, pc, dt);
+      else this.hud.ambient(m, halted ? 0 : dt);
       if (m.over && !this.endFired) { this.endFired = true; setTimeout(() => this.hooks.onEnd?.(m), 2500); }
       if (!m.over) this.endFired = false;
     }
@@ -255,6 +258,19 @@ export class App {
     this.perf.cpuMs = this.perf.cpuMs * 0.9 + (performance.now() - t0) * 0.1;
   }
   private endFired = false;
+
+  /** camera.roll: the view sways with the player's roll and pitch (seasickness option) */
+  private shipSway(m: Mission, dt: number) {
+    const p = m.world.player, cam = this.cam;
+    let tx = 0, ty = 0;
+    if (dev.bool('camera.roll') && p && p.alive) {
+      const { roll, pitch } = p.attitude(), f = p.fwd();
+      const k = 45;   // metres of sway per radian
+      tx = (-f.y * roll + f.x * pitch) * k; ty = (f.x * roll + f.y * pitch) * k;
+    }
+    const a = damp(6, dt);
+    cam.bobX += (tx - cam.bobX) * a; cam.bobY += (ty - cam.bobY) * a;
+  }
   private attractT = 0;
 
   /** slow drift around the convoy's centre, a little ahead of it */
@@ -277,6 +293,9 @@ export class App {
     const step = 1 / hz;
     for (let t = 0; t < seconds && !m.over; t += step) { m.world.step(step); m.update(step); this.scene.splats.length = 0; this.scene.hulls.length = 0; }
     off();
+    // the camera follows smoothly, so after a jump in time put it back on the player at once
+    const p = m.world.player;
+    if (p) { this.cam.x = p.pos.x; this.cam.y = p.pos.y; }
     return log;
   }
 

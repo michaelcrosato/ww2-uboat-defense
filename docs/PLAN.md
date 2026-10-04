@@ -23,7 +23,7 @@ WebGPU additionally runs the water simulations as compute shaders.
 | M8 | Procedural audio engine + game integration | DONE | [M08](milestones/M08-audio.md) |
 | M9 | Menus & UI shell: title, arena setup, dev settings, pause, controls, touch | DONE | [M09](milestones/M09-menus-ui-shell.md) |
 | M10 | Port & progression UI, contracts → missions, loot drops, save/load | DONE | [M10](milestones/M10-port-progression.md) |
-| M11 | Gameplay completion & tuning, dev-settings wiring audit, weather visuals | TODO | [M11](milestones/M11-gameplay-tuning.md) |
+| M11 | Gameplay completion & tuning, dev-settings wiring audit, weather visuals | DONE | [M11](milestones/M11-gameplay-tuning.md) |
 | M12 | Visual polish, ship art expansion, performance | TODO | [M12](milestones/M12-visual-polish.md) |
 | M13 | Final QA, README, PR ready for review | TODO | [M13](milestones/M13-qa-release.md) |
 
@@ -81,31 +81,21 @@ on any failure or later device loss. The active backend shows in the FPS overlay
   0.12–0.27/255 and 0.04–0.20 % of pixels over 24/255 at hours 13/7/23 (thresholds 3/255 and 4 %).
 
 ## Known issues (keep this list current)
-- U-boat AI cannot get ahead of the convoy while submerged (transit aims at a point that runs away). → M11
-- Escort AI lingers in `reacquire` on stale, large-error hydrophone contacts. → M11
-- `reinforce` world event (Wolfpack Signal) is emitted but Mission does not spawn boats. → M11
-- Air patrol scheduling from `arena.aircraft` not implemented (only the Air Support ability). → M11
-- Searchlight beam haze is visible in daylight (scale haze by darkness). → M11
 - Water swell bands look streaky at some sea states (tone dominated by long swell). → M12
-- Islands use metal material; should be land with its own look. → M11/M12
-- Many dev settings are declared but not wired (audit table in M11).
-- Legendary powers with no gameplay hook yet: pow_flare_aura, pow_ram_shield, pow_convoy_heal, pow_silent_crit,
-  pow_ghost_decoy, pow_hunter_reload; keystone flag ks_shepherd is stat-only. → M11
-- Camera does not snap after `fastForward` (tests only; `?freeze=1` frames do settle it). → M11
-- Burning hulls leak "burning oil" over their whole force-raster quad, giving a rectangular fire slick
-  around the ship (both backends; `fire` term in the force FS needs a footprint-shaped falloff). → M11
-- WebGL2: with `water.sim` on and `water.fluid` off the water pass samples an unbound dye texture (GL returns
-  (0,0,0,1) → dye.a = 1 = "burning oil" inside the sim window). WebGPU binds a zero texture. → M11 (verify + fix)
+- Arctic pack ice is visual only (no drag on ships) and reads as round polka dots; floes need ragged shapes. → M12
+- US East Coast town lighting shows light-band dither speckle on the coarse 3 m coast voxels. → M12
+- `display.hudScale = 2` is cramped below ~900 px tall (panels overlap the ability bar). → M12
+- AI decisions draw from the cosmetic `fx` RNG, so missions are not reproducible run to run (balance numbers
+  are averages over a few seeds); a seeded AI RNG would make replays/tests deterministic. → M13
+- U-boat kills by AI escorts are still rare (1 in 6 autopilot patrols); fine historically, revisit after playtests.
 - Headless runs simulate only ~2–5 s of game time per 15 s real time (WebGPU gets further than WebGL2), so
   live screenshots differ in particle counts / wake age; use `?scene=lookdev` / `tools/compare.mjs` for parity.
 - Menus: gamepad navigation is code-complete but untested on hardware (headless cannot simulate pads); the
   touch overlay was only checked visually with `?dev.controls.touch=on` (no real touch device). → M13
 - The headline font (`--font-head`: Impact/Haettenschweiler…) is not installed headless, so screenshots show the
   sans fallback; a bundled stencil webfont would need the user's OK (asset). → M12
-- Contract balance: AI escorts get sunk by the wolfpack in long fast-forwards (2 of 3 lost in a 35 min escort
-  run) and an idle U-boat player is found and sunk within ~10 min; tune with M11's AI work.
 - Crates still afloat when a contract ends are recovered automatically if the ship survived (keeps
-  fast-forward tests and short sessions rewarding); revisit if pickup should matter more. → M11
+  fast-forward tests and short sessions rewarding); revisit if pickup should matter more.
 - The skill tree canvas has no minimap/legend and nodes are small at 800×600. → M12
 - Touch overlay duplicates the HUD ability bar (both visible on touch devices). → M12
 - Key taps shorter than one frame can merge in slow headless runs (two taps → one press); real browsers are fine.

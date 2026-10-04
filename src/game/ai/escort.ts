@@ -10,7 +10,10 @@ import type { Contact } from '../sensors';
 import { angleDiff, clamp, fx, KNOT, wrapAngle } from '../../core/math';
 import { dev } from '../../core/devSettings';
 
-type State = 'station' | 'investigate' | 'attack' | 'opening' | 'reacquire' | 'surface' ;
+type State = 'station' | 'investigate' | 'attack' | 'opening' | 'reacquire' | 'surface' | 'rescue';
+
+/** a contact this vague is not worth leaving the screen for */
+const MAX_HUNT_ERR = 1200;
 
 export class EscortAI {
   state: State = 'station';
@@ -25,6 +28,10 @@ export class EscortAI {
   private openAt = { x: 0, y: 0 };
   private flareT = 0;
   private weave = fx.range(0, 6);
+  /** attack-run geometry for the debug overlay */
+  private atk = '';
+  private depthRun = -1;
+  private depthEst = 60;
 
   constructor(private w: World, private v: Vessel, private c: Convoy, public station: { ahead: number; side: number }) {
     w.bus.on('sunk', (e) => {
@@ -75,7 +82,7 @@ export class EscortAI {
       const near = contacts
         .filter((c) => w.time - c.last < 45 && c.err < 500 && Math.hypot(c.x - v.pos.x, c.y - v.pos.y) < 2600 * (0.6 + aggro * 0.6))
         .sort((a, b) => Math.hypot(a.x - v.pos.x, a.y - v.pos.y) - Math.hypot(b.x - v.pos.x, b.y - v.pos.y))[0];
-      if (near && this.hunters(near) < 2) { this.target = near; this.state = 'investigate'; this.stateT = 0; }
+      if (near && this.hunters(near) < 2 && this.mayLeaveScreen()) { this.target = near; this.state = 'investigate'; this.stateT = 0; }
     }
     switch (this.state) {
       case 'station': this.doStation(dt); break;
@@ -84,12 +91,20 @@ export class EscortAI {
       case 'opening': this.doOpening(); break;
       case 'reacquire': this.doReacquire(dt); break;
       case 'surface': this.doSurface(dt); break;
+      case 'rescue': this.doRescue(); break;
     }
     // night searchlight on surfaced contacts in range
     const tgt = this.target?.truth;
     v.searchlightOn = !!(w.env.darkness > 0.55 && this.state === 'surface' && tgt && Math.hypot(tgt.pos.x - v.pos.x, tgt.pos.y - v.pos.y) < 700) && !v.stats.has('ks_star_gazer');
     if (v.searchlightOn && tgt) v.searchlightYaw = wrapAngle(Math.atan2(tgt.pos.y - v.pos.y, tgt.pos.x - v.pos.x) - v.heading);
-    this.debug = `${this.state}${this.target ? ' err ' + Math.round(this.target.err) : ''}`;
+    this.debug = `${this.state}${this.target ? ' err ' + Math.round(this.target.err) : ''}${this.state === 'attack' ? ' ' + this.atk : ''}`;
+  }
+
+  /** keep `ai.screen` AI escorts on station (only when there are enough escorts to spare one) */
+  private mayLeaveScreen(): boolean {
+    const others = this.w.vessels.filter((o) => o !== this.v && o.alive && o.ai instanceof EscortAI);
+    const screening = others.filter((o) => (o.ai as EscortAI).state === 'station' || (o.ai as EscortAI).state === 'rescue').length;
+    return screening >= Math.min(dev.num('ai.screen'), others.length);
   }
 
   private hunters(c: Contact) {
@@ -100,8 +115,26 @@ export class EscortAI {
 
   private steer(x: number, y: number, kn: number) {
     const v = this.v;
-    v.course = Math.atan2(y - v.pos.y, x - v.pos.x);
+    v.course = this.avoid(Math.atan2(y - v.pos.y, x - v.pos.x));
     v.speedCmd = clamp((kn * KNOT) / v.maxSpeed, 0, 1);
+  }
+
+  /** bend the course around friendly hulls ahead (escorts weave through the convoy columns) */
+  private avoid(course: number): number {
+    const v = this.v, c = Math.cos(course), s = Math.sin(course);
+    const look = 150 + Math.abs(v.speed) * 22;
+    let turn = 0;
+    for (const o of this.w.vessels) {
+      if (o === v || !o.alive || o.side !== v.side || (o.sub && o.submerged)) continue;
+      const dx = o.pos.x - v.pos.x, dy = o.pos.y - v.pos.y, d = Math.hypot(dx, dy);
+      if (d > look + o.cls.length) continue;
+      const ahead = dx * c + dy * s;
+      if (ahead <= 0) continue;
+      const lat = -dx * s + dy * c;   // > 0: the other hull is to starboard
+      const clear = (o.cls.beam + v.cls.beam) / 2 + o.cls.length * 0.55 + 30;
+      if (Math.abs(lat) < clear) turn += (lat > 0 ? -1 : 1) * 0.7 * (1 - d / (look + o.cls.length));
+    }
+    return wrapAngle(course + clamp(turn, -1.2, 1.2));
   }
 
   private sweepPing(centerBearing: number | null) {
@@ -129,11 +162,38 @@ export class EscortAI {
     const d = Math.hypot(tx - v.pos.x, ty - v.pos.y);
     this.steer(tx + cs * 200, ty + sn * 200, d > 600 ? 16 : (c.speed / KNOT) + 3);
     this.sweepPing(null);
+    // quiet water and lifeboats close by: stop for survivors
+    if (dev.bool('ai.rescue') && this.stateT > 20 && this.boat() && !this.contactNear(3000)) { this.state = 'rescue'; this.stateT = 0; }
+  }
+
+  private boat() {
+    const v = this.v;
+    let best: { x: number; y: number } | null = null, bd = 1500;
+    for (const b of this.w.projectiles.boats) {
+      if (b.side !== v.side || b.life <= 0) continue;
+      const d = Math.hypot(b.x - v.pos.x, b.y - v.pos.y);
+      if (d < bd) { bd = d; best = b; }
+    }
+    return best;
+  }
+  private contactNear(r: number) {
+    const v = this.v, w = this.w;
+    return w.sensors.list(v.side).some((c) => c.kind === 'sub' && w.time - c.last < 60 && Math.hypot(c.x - v.pos.x, c.y - v.pos.y) < r);
+  }
+
+  private doRescue() {
+    const v = this.v, b = this.boat();
+    if (!b || this.contactNear(2500) || this.stateT > 150) { this.state = 'station'; this.stateT = 0; return; }
+    const d = Math.hypot(b.x - v.pos.x, b.y - v.pos.y);
+    // come alongside dead slow (the pickup needs < 2.2 m/s)
+    this.steer(b.x, b.y, d > 400 ? 14 : d > 120 ? 6 : 2.5);
+    this.sweepPing(null);
   }
 
   private doInvestigate(dt: number, skill: number) {
     const t = this.target!, v = this.v, w = this.w;
-    if (!t || (t.truth && !t.truth.alive) || this.stateT > 160 || w.time - t.last > 70) { this.state = 'reacquire'; this.stateT = 0; return; }
+    if (!t || (t.truth && !t.truth.alive) || t.err > MAX_HUNT_ERR) { this.state = 'station'; this.target = null; this.stateT = 0; return; }
+    if (this.stateT > 160 || w.time - t.last > 70) { this.state = 'reacquire'; this.stateT = 0; return; }
     const d = Math.hypot(t.x - v.pos.x, t.y - v.pos.y);
     this.steer(t.x, t.y, d > 1200 ? 18 : 13);
     this.sweepPing(Math.atan2(t.y - v.pos.y, t.x - v.pos.x));
@@ -144,8 +204,18 @@ export class EscortAI {
   private depthGuess() {
     const t = this.target!;
     if (t.depth !== null) return clamp(t.depth, 25, 220);
-    const plan = [45, 90, 140, 70, 180];
-    return plan[this.runs % plan.length];
+    // a firm contact: an experienced team judges depth from the range at which the echo was lost
+    // under the bow (noise shrinks with ai.skill); drawn once per run so the pattern is consistent
+    const tr = t.truth;
+    if (tr && tr.alive && this.w.time - t.last < 10) {
+      if (this.depthRun !== this.runs) { this.depthRun = this.runs; this.depthEst = tr.keelDepth + fx.gauss(0, 12 + (1 - dev.num('ai.skill')) * 35); }
+      return clamp(this.depthEst, 25, 220);
+    }
+    // no depth from the set (pre-1944): assume the boat has been going down at ~0.5 m/s since it was
+    // found, and bracket around that guess on successive runs
+    const est = clamp(30 + (this.w.time - t.firstSeen) * 0.5, 40, 160);
+    const bracket = [0, 30, -25, 55, -40];
+    return clamp(est + bracket[this.runs % bracket.length], 25, 220);
   }
 
   private doAttack(dt: number, skill: number) {
@@ -158,7 +228,9 @@ export class EscortAI {
     // predicted position when the charges reach depth
     const d0 = Math.hypot(t.x - v.pos.x, t.y - v.pos.y);
     const tArr = d0 / spd;
-    const px = t.x + t.vx * (tArr + sinkT), py = t.y + t.vy * (tArr + sinkT);
+    // lead the target, but never by more than a submerged boat could plausibly run (~8 kn)
+    const tv = Math.hypot(t.vx, t.vy), vk = tv > 4 ? 4 / tv : 1;
+    const px = t.x + t.vx * vk * (tArr + sinkT), py = t.y + t.vy * vk * (tArr + sinkT);
     const dist = Math.hypot(px - v.pos.x, py - v.pos.y);
     // hedgehog: fire ahead while the contact is still firm
     const brg = Math.atan2(t.y - v.pos.y, t.x - v.pos.x);
@@ -167,10 +239,12 @@ export class EscortAI {
       this.state = 'opening'; this.openAt = { x: v.pos.x + Math.cos(v.heading) * 500, y: v.pos.y + Math.sin(v.heading) * 500 }; this.runs++;
       return;
     }
-    this.steer(px, py, atkKn);
+    // close fast, slow to attack speed for the final run (ASDIC needs the quieter water)
+    this.steer(px, py, dist > 600 ? 18 : atkKn);
     this.sweepPing(brg);
     // drop when the stern is about to pass over the predicted point
     const along = (px - v.pos.x) * Math.cos(v.heading) + (py - v.pos.y) * Math.sin(v.heading);
+    this.atk = `a${Math.round(along)} r${Math.round(dist)} age${Math.round(w.time - t.last)} e${Math.round(t.err)}`;
     if (!this.dropped && along < v.cls.length * 0.5 + 40 && dist < 160 + (1 - skill) * 60) {
       const n = v.dcLeft >= 10 ? 10 : Math.max(1, Math.min(5, v.dcLeft));
       if (v.dcLeft > 0) w.projectiles.dcPattern(v, n, 90, depth);
@@ -179,7 +253,7 @@ export class EscortAI {
       this.state = 'opening';
       this.openAt = { x: v.pos.x + Math.cos(v.heading) * 650, y: v.pos.y + Math.sin(v.heading) * 650 };
     }
-    if (this.stateT > 90) { this.state = 'reacquire'; this.stateT = 0; }
+    if (this.stateT > 150) { this.state = 'reacquire'; this.stateT = 0; }
   }
 
   private doOpening() {
@@ -190,7 +264,7 @@ export class EscortAI {
 
   private doReacquire(dt: number) {
     const v = this.v, t = this.target;
-    if (!t || this.stateT > 120) { this.state = 'station'; this.target = null; this.runs = 0; return; }
+    if (!t || this.stateT > 75 || t.err > MAX_HUNT_ERR || this.w.time - t.last > 150) { this.state = 'station'; this.target = null; this.runs = 0; return; }
     // circle the last known position pinging around
     const a = this.stateT * 0.07;
     this.steer(t.x + Math.cos(a) * 600, t.y + Math.sin(a) * 600, 12);

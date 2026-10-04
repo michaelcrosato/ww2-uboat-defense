@@ -111,7 +111,9 @@ void main() {
     foam = stern * smoothstep(1.0, 4.0, speed) * exp(-depth / 6.0) * 0.4 * foamK;
   }
   float oil = vD.y * s * 0.8;
-  float fire = vD.z * (s > 0.0 ? 0.0 : exp(-pow(max(abs(l.y) - 1.0, 0.0) * 1.5, 2.0))) * 0.6;
+  // burning oil hugs the hull: falls off beyond the sides (beam units) and past bow/stern (length units)
+  float fdy = max(abs(l.y) - 1.0, 0.0) * 1.5, fdx = max(abs(l.x) - 1.0, 0.0) * 6.0;
+  float fire = vD.z * (s > 0.0 ? 0.0 : exp(-(fdy * fdy + fdx * fdx))) * 0.6;
   oF1 = vec4(foam, foam * 0.9, oil, fire);
 }`;
 

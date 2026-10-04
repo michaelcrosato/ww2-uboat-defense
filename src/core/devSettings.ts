@@ -20,6 +20,7 @@ export const DEV_DEFS: SettingDef[] = [
   { key: 'display.renderer', group: 'Display', label: 'Renderer', type: 'select', def: 'auto',
     options: opts(['auto', 'Auto'], ['webgpu', 'WebGPU'], ['webgl2', 'WebGL2']),
     help: 'WebGPU with WebGL2 fallback; change needs reload.' },
+  { key: 'display.weather', group: 'Display', label: 'Rain & snow effects', type: 'bool', def: true },
   { key: 'display.hudScale', group: 'Display', label: 'HUD text size', type: 'select', def: '1', options: opts(['1', 'Normal'], ['2', 'Large']) },
 
   // ---------------------------------------------------------------- Camera
@@ -116,6 +117,8 @@ export const DEV_DEFS: SettingDef[] = [
   { key: 'ai.escortAggro', group: 'AI', label: 'Escort aggression', type: 'range', def: 0.6, min: 0, max: 1, step: 0.05, fmt: pct },
   { key: 'ai.uboatAggro', group: 'AI', label: 'U-boat aggression', type: 'range', def: 0.6, min: 0, max: 1, step: 0.05, fmt: pct },
   { key: 'ai.freeze', group: 'AI', label: 'Freeze AI', type: 'bool', def: false },
+  { key: 'ai.rescue', group: 'AI', label: 'AI escorts rescue survivors', type: 'bool', def: true, help: 'Idle escorts with no contact nearby stop for lifeboats.' },
+  { key: 'ai.screen', group: 'AI', label: 'Escorts kept screening', type: 'range', def: 1, min: 0, max: 3, step: 1, help: 'AI escorts that never leave the convoy to hunt.' },
 
   // ---------------------------------------------------------------- Audio
   { key: 'audio.master', group: 'Audio', label: 'Master volume', type: 'range', def: 0.7, min: 0, max: 1, step: 0.05, fmt: pct },

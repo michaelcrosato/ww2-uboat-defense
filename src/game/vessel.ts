@@ -14,6 +14,15 @@ import { StatBlock } from '../meta/stats';
 import { PK } from '../render/materials';
 import { dev } from '../core/devSettings';
 
+/** `phys.buoyancy` → buoyancy columns along × across the hull */
+const BUOYANCY_COLUMNS: Record<string, { columnsX: number; columnsY: number }> = {
+  coarse: { columnsX: 6, columnsY: 2 }, normal: { columnsX: 8, columnsY: 3 }, fine: { columnsX: 12, columnsY: 4 },
+};
+/** `phys.handling` → acceleration / turn multipliers */
+const HANDLING: Record<string, { accel: number; turn: number }> = {
+  authentic: { accel: 1, turn: 1 }, arcade: { accel: 2, turn: 1.8 }, twitchy: { accel: 3, turn: 3 },
+};
+
 export const TELEGRAPH = [
   { name: 'Full astern', frac: -0.55 }, { name: 'Half astern', frac: -0.3 }, { name: 'Stop', frac: 0 },
   { name: 'Slow ahead', frac: 0.28 }, { name: 'Half ahead', frac: 0.52 }, { name: 'Full ahead', frac: 0.78 }, { name: 'Flank', frac: 1 },
@@ -125,10 +134,10 @@ export class Vessel {
       comZ: isSub ? -cls.draft + (cls.sub!.hullHeight * 0.42) : -cls.draft * 0.28,
       maxSpeed: cls.maxSpeedKn * KNOT, reverseFrac: 0.45, accelTime: cls.accelTime, turnRadius: cls.turnRadius,
       bowTaper: cls.kind === 'merchant' ? 0.55 : 0.35,
-      columnsX: 8, columnsY: 3, compartments: 5,
+      ...BUOYANCY_COLUMNS[dev.str('phys.buoyancy')] ?? BUOYANCY_COLUMNS.normal, compartments: 5,
       sub: isSub ? { reserveFrac: 0.13, hullHeight: cls.sub!.hullHeight } : undefined,
     });
-    this.applyBuoyancyDetail();
+    this.retuneHydro();
     const mp = this.hydro.massProps();
     const depth = opts.submerged ?? 0;
     const desc = R.RigidBodyDesc.dynamic()
@@ -173,7 +182,11 @@ export class Vessel {
   }
 
   /** refine buoyancy for subs: casing/tower add little volume */
-  private applyBuoyancyDetail() { /* columns already calibrated */ }
+  /** live physics settings: wave forces, handling preset and heel (column count is fixed at spawn) */
+  retuneHydro() {
+    const h = HANDLING[dev.str('phys.handling')] ?? HANDLING.arcade;
+    this.hydro.retune({ waves: dev.bool('phys.waveForces'), accelMul: h.accel, turnMul: h.turn, heelMul: dev.num('phys.heel'), speedMul: 1 });
+  }
 
   // ------------------------------------------------------------------ state accessors
   get pos() { return this.body.translation(); }
@@ -240,6 +253,7 @@ export class Vessel {
   /** reload timers for guns, tubes and racks */
   private updateWeapons(dt: number) {
     for (const g of this.guns) if (g.reload > 0) g.reload -= dt;
+    if (this.ramShieldT > 0) this.ramShieldT -= dt;
     const spec = this.cls.torpedoes;
     if (spec) {
       // one tube reloads at a time (torpedo crews), only while submerged or on the surface at low speed
@@ -266,6 +280,8 @@ export class Vessel {
   flankBoost = 0;
   collisionCooldown = 0;
   ramBrace = 0;
+  /** pow_ram_shield seconds left after a ram */
+  ramShieldT = 0;
   ramBraceMult = 1;
   ramBraceReduction = 0;
   /** deck gun barrage ability */
@@ -312,8 +328,9 @@ export class Vessel {
         const sp = Math.abs(this.hydro.fwdSpeed);
         // planes do the work at speed; trim tanks at low speed
         s.planes = clamp(-vzErr * 0.9, -1, 1) * (sp > 0.8 ? 1 : 0.3);
-        const trimTarget = 1.0 + clamp(vzErr * 0.03, -0.035, 0.05) * (sp > 1.5 ? 0.4 : 1) + (s.crash > 0 ? 0.08 : 0);
-        s.ballast = approach(s.ballast, trimTarget, dt * 0.05);
+        // trim tanks: enough authority to make ~1 m/s at creep speed (a hunted boat must be able to go deep)
+        const trimTarget = 1.0 + clamp(vzErr * 0.12, -0.12, 0.2) * (sp > 1.5 ? 0.6 : 1) + (s.crash > 0 ? 0.08 : 0);
+        s.ballast = approach(s.ballast, trimTarget, dt * 0.12);
       }
     }
     // hull stress below test depth
@@ -351,14 +368,34 @@ export class Vessel {
 
   // ------------------------------------------------------------------ damage
   /** damage at a world point. kind decides flooding/fire behaviour */
+  /**
+   * Escort-player auras on merchants: convoy_aura_pct (Shepherd keystone and gear) within 600 m of
+   * the player, pow_flare_aura while a star shell burns within 900 m.
+   */
+  private protection(): number {
+    const p = this.world.player;
+    if (this.kind !== 'merchant' || !p || !p.alive || p.side !== this.side) return 1;
+    let k = 1;
+    const aura = p.stats.get('convoy_aura_pct');
+    if (aura && Math.hypot(p.pos.x - this.pos.x, p.pos.y - this.pos.y) < 600) k *= 1 - clamp(aura, 0, 60) / 100;
+    const fa = p.stats.power('pow_flare_aura');
+    if (fa && this.world.projectiles.flares.some((f) => Math.hypot(f.x - this.pos.x, f.y - this.pos.y) < 900)) k *= 1 - clamp(fa, 0, 60) / 100;
+    return k;
+  }
+
   damage(amount: number, wx: number, wy: number, wz: number, kind: 'torpedo' | 'shell' | 'dc' | 'hedgehog' | 'ram' | 'fire' | 'crush' | 'explosion', from: Vessel | null) {
     if (!this.alive) return 0;
     if (this.isPlayer && dev.bool('game.god')) return 0;
     let mult = this.stats.mul('damage_taken_pct') * (this.isPlayer ? dev.num('game.playerDamage') : 1);
     if (from?.isPlayer) mult *= dev.num('game.enemyDamage');
+    mult *= this.protection();
+    // pow_ram_shield: braced after a ram
+    if (this.ramShieldT > 0) mult *= 1 - clamp(this.stats.power('pow_ram_shield'), 0, 80) / 100;
     let crit = false;
     if (from && (kind === 'shell' || kind === 'torpedo' || kind === 'hedgehog')) {
-      const cc = (5 + from.stats.get('crit_chance')) / 100;
+      // pow_silent_crit: a silent-running boat picks its moment
+      const silentCrit = from.sub && from.sub.silent > 0 ? from.stats.power('pow_silent_crit') : 0;
+      const cc = (5 + from.stats.get('crit_chance') + silentCrit) / 100;
       if (fx.next() < cc) { crit = true; mult *= 2 * from.stats.mul('crit_damage_pct'); }
     }
     const dmg = amount * mult;
@@ -577,7 +614,7 @@ export function quatMul(a: Quat, b: Quat): Quat {
 }
 
 /** convex hull points of a ship-shaped prism from keel to deck */
-function hullPoints(L: number, B: number, z0: number, z1: number): Float32Array {
+export function hullPoints(L: number, B: number, z0: number, z1: number): Float32Array {
   const pts: number[] = [];
   const outline: [number, number][] = [];
   for (let i = 0; i <= 10; i++) {

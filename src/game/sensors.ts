@@ -169,6 +169,8 @@ export class Sensors {
         const age = w.time - c.last;
         c.x += c.vx * step; c.y += c.vy * step;
         c.err += step * (2 + Math.hypot(c.vx, c.vy) * 0.6);
+        // without fresh fixes a submerged contact's course is a guess: stop extrapolating it
+        if (c.kind === 'sub' && age > 5) { const k = Math.exp(-step / 15); c.vx *= k; c.vy *= k; }
         c.lines = c.lines.filter((l) => w.time - l.t < 25);
         if (age > 110 || (c.truth && !c.truth.alive && age > 4)) this.contacts[side].delete(k);
       }
@@ -221,11 +223,15 @@ export class Sensors {
     const k1 = clamp(c.err / (c.err + err), 0.3, 1);
     const nx = c.x + (x - c.x) * k1, ny = c.y + (y - c.y) * k1;
     if (dt < 40 && src !== SRC.HYDRO) {
-      const kv = 0.35;
-      c.vx += ((nx - c.x) / dt - c.vx) * kv;
-      c.vy += ((ny - c.y) / dt - c.vy) * kv;
+      // noisy fixes a few seconds apart make a noisy velocity: smooth hard for submarines and cap at
+      // what the contact type can actually do (dead reckoning integrates this between fixes)
+      const sub = c.kind === 'sub';
+      const kv = sub ? 0.15 : 0.35, vmax = sub ? 9 : 18;
+      const vdt = Math.max(dt, 2);
+      c.vx += ((nx - c.x) / vdt - c.vx) * kv;
+      c.vy += ((ny - c.y) / vdt - c.vy) * kv;
       const sp = Math.hypot(c.vx, c.vy);
-      if (sp > 25) { c.vx *= 25 / sp; c.vy *= 25 / sp; }
+      if (sp > vmax) { c.vx *= vmax / sp; c.vy *= vmax / sp; }
     }
     c.x = nx; c.y = ny;
     c.err = Math.min(c.err, err) * 0.7 + err * 0.3;
@@ -319,7 +325,8 @@ export class Sensors {
       const dd = Math.hypot(t.pos.x - v.pos.x, t.pos.y - v.pos.y);
       if (dd < R * 2.6) this.pingsHeard.push({ by: v, t: w.time, bearingFrom: Math.atan2(v.pos.y - t.pos.y, v.pos.x - t.pos.x), target: t });
     }
-    for (const d of w.projectiles?.decoys ?? []) if (d.kind === 'bold' && d.owner.side !== v.side) consider(d.x, d.y, d.depth, null, true, 1);
+    // pow_ghost_decoy: the owner's decoys return a stronger, more boat-like echo
+    for (const d of w.projectiles?.decoys ?? []) if (d.kind === 'bold' && d.owner.side !== v.side) consider(d.x, d.y, d.depth, null, true, 1 + d.owner.stats.power('pow_ghost_decoy') / 100);
     // auto-marking legendary: pinged targets take extra damage
     const mark = v.stats.power('pow_echo_marks');
     if (mark) for (const e of out) if (e.target) { e.target.pinned = 6; e.target.pinnedBonus = mark / 100; }

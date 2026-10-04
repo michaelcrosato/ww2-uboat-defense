@@ -6,7 +6,7 @@
 import { hexToRgb } from '../core/math';
 
 export const VM = {
-  METAL: 2, WOOD: 3, LAMP: 7, GLASS: 7, RUST: 2, CANVAS: 3, BLACK: 2,
+  METAL: 2, WOOD: 3, LAMP: 7, GLASS: 7, RUST: 2, CANVAS: 3, BLACK: 2, LAND: 11,
 } as const;
 
 export class VoxelModel {

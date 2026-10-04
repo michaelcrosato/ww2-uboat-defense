@@ -41,7 +41,7 @@ export function intercept(x: number, y: number, tx: number, ty: number, vx: numb
 export class UboatAI {
   state: State = 'transit';
   debug = '';
-  private side = fx.sign();
+  private side: 1 | -1 = fx.sign() as 1 | -1;
   private stateT = 0;
   private lastReport = -999;
   private lastDecoy = -999;
@@ -49,6 +49,8 @@ export class UboatAI {
   private evadeHeading = 0;
   private fired = 0;
   private reacq = 0;
+  /** transit sub-mode (debug overlay) */
+  private mode = '';
 
   constructor(private w: World, private v: Vessel, private pack: Wolfpack) { pack.boats.push(this); }
 
@@ -75,7 +77,8 @@ export class UboatAI {
       if (w.time - this.lastReport > 150 && aggro > 0.2) { this.lastReport = w.time; w.sensors.transmit(v); }
     }
     const conv = this.pack.convoy;
-    const heard = w.sensors.pingsHeard.filter((p) => p.target === v);
+    // pings carry for kilometres; only an escort pinging from close by is hunting *us*
+    const heard = w.sensors.pingsHeard.filter((p) => p.target === v && Math.hypot(p.by.pos.x - v.pos.x, p.by.pos.y - v.pos.y) < 1600);
     const danger = heard.length > 0 || this.nearestEscort() < 700;
     if (danger) this.quietT = 0; else this.quietT += dt;
     // ---- damage response
@@ -89,7 +92,7 @@ export class UboatAI {
       case 'flee': this.doFlee(conv); break;
     }
     if (s.battery < 0.12 && this.state !== 'evade' && this.state !== 'flee' && this.nearestEscort() > 2500) s.orderedDepth = 0;
-    this.debug = `${this.state} d${Math.round(v.keelDepth)}→${Math.round(s.orderedDepth)} bat ${Math.round(s.battery * 100)}%`;
+    this.debug = `${this.state}${this.state === 'transit' ? ':' + this.mode : ''} q${Math.round(this.quietT)} t${Math.round(this.stateT)} e${Math.round(this.nearestEscort())} h${heard.length} d${Math.round(v.keelDepth)}→${Math.round(s.orderedDepth)} bat ${Math.round(s.battery * 100)}%`;
   }
 
   private nearestEscort(): number {
@@ -104,25 +107,63 @@ export class UboatAI {
     v.speedCmd = clamp((kn * KNOT) / Math.max(0.5, v.maxSpeed), 0, 1);
   }
 
+  /** the shared convoy estimate dead-reckoned to now */
+  private convoyNow(conv: ConvoyEstimate) {
+    const dt = Math.min(600, this.w.time - conv.t);
+    return { x: conv.x + conv.vx * dt, y: conv.y + conv.vy * dt, err: conv.err + dt * 0.5 };
+  }
+
+  /**
+   * Get into the convoy's path. Ahead of it (along-track a > 300 m) the boat creeps to a flank station
+   * (|cross-track| ≈ 850 m) at periscope depth and lets the convoy come to it. Abeam or astern it runs an
+   * "end-around" on the surface when dark or unescorted, otherwise it waits submerged and takes what
+   * passes. A low battery is recharged on the surface whenever no escort is near.
+   */
   private doTransit(conv: ConvoyEstimate | null, danger: boolean, aggro: number) {
     const v = this.v, s = v.sub!, w = this.w;
     if (!conv) { v.speedCmd = 0.3; s.orderedDepth = 13; return; }
+    const now = this.convoyNow(conv);
     const sp = Math.max(0.5, Math.hypot(conv.vx, conv.vy));
-    const fx_ = conv.vx / sp, fy_ = conv.vy / sp;
-    // attack position: ahead and abeam of the convoy's track
-    const lead = 1500, abeam = 900 * this.side;
-    const tx = conv.x + fx_ * lead - fy_ * abeam, ty = conv.y + fy_ * lead + fx_ * abeam;
-    const d = Math.hypot(tx - v.pos.x, ty - v.pos.y);
+    const fx_ = conv.vx / sp, fy_ = conv.vy / sp, nx = -fy_, ny = fx_;
+    const rx = v.pos.x - now.x, ry = v.pos.y - now.y;
+    const a = rx * fx_ + ry * fy_, c = rx * nx + ry * ny;
     const escortD = this.nearestEscort();
     const dark = w.env.darkness > 0.6;
-    const surface = !danger && escortD > (dark ? 1200 : 3200) && (dark || d > 4000) && s.battery > 0.05;
+    const at = (along: number, cross: number) => ({ x: now.x + fx_ * along + nx * cross, y: now.y + fy_ * along + ny * cross });
+    // pick the flank we are already on (cheaper than crossing the convoy's bow)
+    if (Math.abs(c) > 400) this.side = Math.sign(c) as 1 | -1;
+    const recharge = s.battery < 0.35 && escortD > 3000 && !danger;
+    let surface = false, target: { x: number; y: number }, kn: number;
+    if (a > 300) {
+      // ahead: flank station, slow and quiet; the convoy closes on its own
+      target = at(Math.min(a, 2600), 850 * this.side);
+      const d = Math.hypot(target.x - v.pos.x, target.y - v.pos.y);
+      surface = recharge || (!danger && escortD > (dark ? 1500 : 3500) && d > 1500 && s.battery > 0.05);
+      kn = surface ? 12 : d > 600 ? 4 : 1.5;
+      this.mode = 'station';
+    } else {
+      const endAround = !danger && (dark || escortD > 2500) && s.battery > 0.05;
+      if (endAround) {
+        // overtake well out on the flank, then cut in ahead
+        target = at(Math.max(a + 900, 2200), 1500 * this.side);
+        surface = true;
+        kn = 18;
+        this.mode = 'end-around';
+      } else {
+        // pinned abeam/astern: wait at periscope depth for whatever passes
+        target = at(a, Math.max(700, Math.abs(c)) * this.side);
+        kn = 2;
+        surface = recharge;
+        this.mode = 'wait';
+      }
+    }
     s.orderedDepth = surface ? 0 : 13;
-    const knots = surface ? 16 : d > 1500 ? 6.5 : 4;
-    this.steer(tx, ty, knots);
-    s.periscopeUp = !surface && d < 2500;
+    s.periscopeUp = !surface;
+    this.steer(target.x, target.y, kn);
     // night surface attack: penetrate on the surface if it is very dark
-    if (dark && aggro > 0.55 && w.env.moonIntensity < 0.15 && escortD > 900 && d < 900) { this.state = 'attack'; this.stateT = 0; return; }
-    if (d < 500 || (this.targetInRange() && d < 1500)) { this.state = 'setup'; this.stateT = 0; }
+    const dc = Math.hypot(now.x - v.pos.x, now.y - v.pos.y);
+    if (dark && aggro > 0.55 && w.env.moonIntensity < 0.15 && escortD > 900 && dc < 1300) { this.state = 'attack'; this.stateT = 0; return; }
+    if (this.targetInRange() && !recharge) { this.state = 'setup'; this.stateT = 0; }
   }
 
   private targetInRange(): Contact | null {
@@ -167,7 +208,7 @@ export class UboatAI {
     const rel = angleDiff(v.heading, sol.heading);
     const bowOk = Math.abs(rel) < 1.4, sternOk = Math.abs(angleDiff(v.heading + Math.PI, sol.heading)) < 0.7;
     const skill = dev.num('ai.skill');
-    if (this.stateT > 2.5 - skill * 1.5) {
+    if (this.stateT > 2.5 - skill * 1.5 && !this.escortInLine(sol.heading, Math.hypot(t.x - v.pos.x, t.y - v.pos.y))) {
       const err = fx.gauss(0, (1 - skill) * 0.05 + t.err / 4000);
       const n = Math.min(3, v.tubes.filter((tb) => tb.loaded && !tb.stern).length);
       let shot = 0;
@@ -187,6 +228,17 @@ export class UboatAI {
     v.course = sol.heading;
     v.speedCmd = s.orderedDepth < 1 ? 0.35 : 0.25;
     if (this.stateT > 50) { this.state = 'evade'; this.stateT = 0; }
+  }
+
+  /** an escort between us and the target on the firing bearing would take the fish instead */
+  private escortInLine(heading: number, range: number): boolean {
+    const v = this.v, c = Math.cos(heading), s = Math.sin(heading);
+    for (const e of this.escortContacts()) {
+      const dx = e.x - v.pos.x, dy = e.y - v.pos.y;
+      const along = dx * c + dy * s, lat = Math.abs(-dx * s + dy * c);
+      if (along > 0 && along < range && lat < 60 + along * 0.05) return true;
+    }
+    return false;
   }
 
   private doEvade(heard: { by: Vessel; bearingFrom: number }[]) {

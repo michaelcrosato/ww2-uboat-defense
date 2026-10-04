@@ -14,6 +14,8 @@ export class Screen {
   /** whole-number scale from internal pixels to device pixels */
   S = 3;
   dpr = 1;
+  /** HUD pixels per internal pixel (display.hudScale) */
+  hudScale = 1;
   /** device pixel size of the drawing buffer */
   pw = 1; ph = 1;
   private listeners: (() => void)[] = [];
@@ -31,6 +33,7 @@ export class Screen {
     document.addEventListener('fullscreenchange', () => setTimeout(() => this.resize(), 30));
     cfg.on('display.pixelScale', () => this.resize());
     cfg.on('display.targetHeight', () => this.resize());
+    cfg.on('display.hudScale', () => this.resize());
     this.resize();
   }
 
@@ -73,9 +76,11 @@ export class Screen {
     this.W = Math.ceil(pw / S);
     this.H = Math.ceil(ph / S);
     // the HUD canvas is internal resolution, stretched by CSS with pixelated sampling
-    this.hud.width = this.W; this.hud.height = this.H;
-    this.hud.style.width = (this.W * S) / dpr + 'px';
-    this.hud.style.height = (this.H * S) / dpr + 'px';
+    // display.hudScale 2: the HUD buffer is half size and stretched, so the pixel font and panels double
+    const k = this.hudScale = Math.max(1, parseInt(this.cfg.str('display.hudScale')) || 1);
+    this.hud.width = Math.ceil(this.W / k); this.hud.height = Math.ceil(this.H / k);
+    this.hud.style.width = (this.hud.width * k * S) / dpr + 'px';
+    this.hud.style.height = (this.hud.height * k * S) / dpr + 'px';
     this.hudCtx.imageSmoothingEnabled = false;
     for (const f of this.listeners) f();
   }

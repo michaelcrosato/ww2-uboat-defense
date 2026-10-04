@@ -20,6 +20,7 @@ export class AudioBridge {
   private runs = new Map<number, LoopHandle>();
   private lastTelegraph = -1;
   private lastCrash = 0;
+  private lastLightning = 0;
   private combatT = -1e9;
   private tensionT = -1e9;
   /** recent event names for the perf overlay / tests */
@@ -119,6 +120,10 @@ export class AudioBridge {
       this.engine?.stop(1); this.engine = null; this.engineKind = '';
       audio.setUnderwater(0);
     }
+    // thunder follows the lightning flash by a second or three (distance)
+    const lit = w.env.lightning;
+    if (lit > 1 && this.lastLightning <= 0.6) audio.play('thunder', { delay: 0.6 + Math.random() * 2.4, vol: 0.6 + Math.random() * 0.4, pitch: 0.8 + Math.random() * 0.4 });
+    this.lastLightning = lit;
     // torpedo runs near the listener
     const seen = new Set<number>();
     const torps = w.projectiles.torpedoes

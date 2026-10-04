@@ -12,7 +12,7 @@ export type SoundId = 'asdic_ping' | 'asdic_echo' | 'hydrophone_contact' | 'dept
   | 'hedgehog_launch' | 'hedgehog_hit' | 'star_shell_pop' | 'hull_creak' | 'hull_groan' | 'crush_rumble' | 'dive_alarm' | 'telegraph_bell'
   | 'blow_ballast' | 'flood_vents' | 'ramming_crunch' | 'metal_impact' | 'splash_small' | 'splash_big' | 'wave_slap' | 'loot_drop'
   | 'loot_legendary' | 'level_up' | 'ui_click' | 'ui_hover' | 'ui_back' | 'ui_error' | 'contract_complete' | 'radio_static' | 'morse_burst'
-  | 'aircraft_pass' | 'whistle_signal' | 'bubbles' | 'decoy_fizz' | 'klaxon' | 'ship_sinking' | 'fire_crackle';
+  | 'aircraft_pass' | 'whistle_signal' | 'bubbles' | 'decoy_fizz' | 'klaxon' | 'ship_sinking' | 'fire_crackle' | 'thunder';
 export type LoopId = 'sea' | 'rain' | 'wind' | 'engine_steam' | 'engine_diesel' | 'engine_electric' | 'cavitation' | 'fire' | 'underwater'
   | 'hydrophone_noise' | 'torpedo_run';
 
@@ -118,6 +118,19 @@ const S: Record<SoundId, SoundDef> = {
       const sv = p.send('sea', 0.7);
       out.connect(sv);
       return 4;
+    },
+  },
+  thunder: {
+    // a crack, then a long rolling rumble that swells and fades
+    bus: 'ambAir', ref: 0, range: 0, gain: 0.9,
+    synth: (p, t, out, o) => {
+      const crack = p.gain(0, out);
+      ahr(crack.gain, t, 0.5, 0.005, 0.05, 0.4);
+      p.noise('white', t, t + 0.6, p.bq('bandpass', 1800, 0.7, crack));
+      const e = p.gain(0, out);
+      ahr(e.gain, t + 0.1, 1, 0.5, 0.8, 3.5);
+      p.noise('brown', t, t + 5.5, p.bq('lowpass', 140 * o.pitch, 0.7, e));
+      return 5.6;
     },
   },
   underwater_boom_far: {

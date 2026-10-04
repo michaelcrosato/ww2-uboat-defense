@@ -124,7 +124,10 @@ struct FOuts {
     foam = stern * smoothstep(1.0, 4.0, speed) * exp(-depth / 6.0) * 0.4 * foamK;
   }
   let oil = i.d.y * s * 0.8;
-  let fire = i.d.z * select(exp(-pow(max(abs(l.y) - 1.0, 0.0) * 1.5, 2.0)), 0.0, s > 0.0) * 0.6;
+  // burning oil hugs the hull: falls off beyond the sides (beam units) and past bow/stern (length units)
+  let fdy = max(abs(l.y) - 1.0, 0.0) * 1.5;
+  let fdx = max(abs(l.x) - 1.0, 0.0) * 6.0;
+  let fire = i.d.z * select(exp(-(fdy * fdy + fdx * fdx)), 0.0, s > 0.0) * 0.6;
   o.f1 = vec4f(foam, foam * 0.9, oil, fire);
   return o;
 }

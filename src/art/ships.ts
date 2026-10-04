@@ -346,7 +346,7 @@ export function islandArt(seed: number, radius: number): VoxelModel {
       const z = m.mz(k);
       if (z > hgt) break;
       const c = z > hgt - 1 ? (z > 8 ? '#6a7258' : z > 2 ? '#4f5a3c' : '#8a8064') : z < 0.5 ? '#3a3a36' : '#5a5650';
-      m.set(i, j, k, weather(c, i + j, k), VM.METAL);
+      m.set(i, j, k, weather(c, i + j, k), VM.LAND);
     }
   }
   return m;
@@ -386,5 +386,52 @@ export function aircraftArt(kind: 'swordfish' | 'catalina' | 'liberator'): Voxel
   m.box(-10, -8.5, -4, 4, 0.4, 0.8, '#9aa2a8');
   for (const y of [-4, 4]) m.box(-10, -8.8, y - 0.25, y + 0.25, 0.4, 2.6, '#9aa2a8');
   m.set(m.vx(0.6), m.vy(-9), m.vz(0.0), '#ffffff', VM.LAMP);
+  return m;
+}
+
+// ------------------------------------------------------------------ coast & lighthouse
+
+/**
+ * One chunk of a low coastline (US East Coast theater): beach, dunes and a town strip with lit
+ * windows facing the sea (the sea is on the +y side). Coarse 3 m voxels: it is scenery seen from afar.
+ */
+export function coastArt(seed: number, length: number, depth: number): VoxelModel {
+  const res = 3, zres = 1.5;
+  const nx = Math.ceil(length / res), ny = Math.ceil(depth / res);
+  const m = new VoxelModel('coast' + seed, nx, ny, 12, res, zres, -length / 2, -depth / 2, -3);
+  for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) {
+    const x = m.mx(i), y = m.my(j);
+    const shore = (y + depth / 2) / depth;            // 0 inland … 1 waterline
+    const n = hash2((x / 21 + seed * 13) | 0, (y / 21) | 0);
+    // ragged waterline: coves and spits rather than a ruler-straight edge
+    const cove = Math.sin(x / 97 + seed) * 0.08 + Math.sin(x / 31 + seed * 3) * 0.04 + (n - 0.5) * 0.06;
+    if (shore > 0.9 + cove) continue;
+    const ground = (1 - shore) * 3 + n * 1.2 - 0.8;
+    for (let k = 0; k < m.nz; k++) {
+      const z = m.mz(k);
+      if (z > ground) break;
+      const c = z < 0.5 && shore > 0.72 + cove ? '#8a8060' : z > 2 ? '#3e4a32' : '#5a5a44';
+      // plain ground colour (hull weathering would paint rust streaks down the dunes)
+      m.set(i, j, k, c, VM.LAND);
+    }
+    // town blocks behind the dunes, windows lit on the seaward face
+    if (shore < 0.5 && shore > 0.15 && hash2(i >> 2, (j >> 1) + seed) > 0.72) {
+      const h = 2 + Math.floor(hash2(i, j * 3 + seed) * 4);
+      for (let k = Math.max(0, m.vz(ground)); k < Math.min(m.nz, m.vz(ground) + h); k++) {
+        const lit = k === Math.max(0, m.vz(ground)) + 1 && hash2(i * 7 + k, j + seed) > 0.7;
+        m.set(i, j, k, lit ? '#ffd890' : '#4a4640', lit ? VM.LAMP : VM.LAND);
+      }
+    }
+  }
+  return m;
+}
+
+/** a white-and-red lighthouse tower with a lamp room (stands on a rock island) */
+export function lighthouseArt(): VoxelModel {
+  const m = new VoxelModel('lighthouse', 16, 16, 80, 0.5, 0.5, -4, -4, 0);
+  m.cyl(0, 0, 2.6, 0, 30, (_i, _j, k) => (Math.floor(k / 10) % 2 ? '#c8c4bc' : '#a83a2a'), VM.LAND);
+  m.cyl(0, 0, 3.2, 30, 31, '#2a2a2a');
+  m.cyl(0, 0, 2, 31, 34, '#fff2c0', VM.LAMP);
+  m.cyl(0, 0, 2.4, 34, 36, '#2a2a2a');
   return m;
 }

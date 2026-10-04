@@ -116,7 +116,7 @@ export class Projectiles {
     const vel = v.body.linvel();
     const L = v.cls.length;
     const sink = 2.6 * v.stats.mul('dc_sink_pct');
-    const dmg = 400 * v.stats.mul('dc_damage_pct') * dmgMul * (v.stats.has('ks_hunter_killer') ? 1.3 : 1);
+    const dmg = 500 * v.stats.mul('dc_damage_pct') * dmgMul * (v.stats.has('ks_hunter_killer') ? 1.3 : 1);
     const radius = 9 * v.stats.mul('dc_radius_pct');
     if (side === 'rail') {
       const p = v.local(-L * 0.48, fx.range(-1.5, 1.5), v.cls.freeboard);
@@ -226,6 +226,14 @@ export class Projectiles {
       const x = v.pos.x + Math.cos(a) * 2500, y = v.pos.y + Math.sin(a) * 2500;
       this.aircraft.push(new Aircraft(w, k, x, y, v.pos.x + fx.range(-300, 300), v.pos.y + fx.range(-300, 300), duration, bombs));
     }
+  }
+  /** a scheduled maritime patrol orbiting a moving point (the convoy) */
+  airPatrol(kind: 'swordfish' | 'catalina' | 'liberator', duration: number, anchor: () => { x: number; y: number }) {
+    const c = anchor(), a = fx.next() * Math.PI * 2;
+    const ac = new Aircraft(this.w, kind, c.x + Math.cos(a) * 3000, c.y + Math.sin(a) * 3000, c.x, c.y, duration);
+    ac.anchor = anchor;
+    this.aircraft.push(ac);
+    return ac;
   }
   /** wolfpack reinforcements requested by the player's signal */
   reinforce(n: number) { this.w.emit('reinforce', { n }); }
@@ -445,7 +453,7 @@ export class Projectiles {
   detonateCharge(c: Charge, depth: number) {
     const w = this.w;
     underwaterBlast(w, c.x, c.y, depth, 1);
-    this.blastNear(c.x, c.y, -depth, c.radius * 3.3, c.damage, 'dc', c.from, false, c.radius);
+    this.blastNear(c.x, c.y, -depth, c.radius * 4, c.damage, 'dc', c.from, false, c.radius);
     const chain = c.from.stats.power('pow_chain_charges');
     if (chain && fx.next() < chain / 100) {
       const a = fx.next() * Math.PI * 2;
