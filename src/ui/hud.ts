@@ -5,6 +5,7 @@ import type { Screen } from '../render/screen';
 import type { Camera } from '../render/camera';
 import type { RenderBackend } from '../render/types';
 import { backendLabel } from '../render/backend';
+import { audio } from '../audio/audio';
 import type { Mission } from '../game/mission';
 import type { PlayerControl } from '../game/player';
 import { CHARGE_DEPTHS } from '../game/player';
@@ -81,7 +82,7 @@ export class Hud {
       const passes = R.passMs ? Object.entries(R.passMs).map(([k, v]) => `${k} ${v.toFixed(1)}`).join('  ') : '';
       const lines = [
         `slices ${R.stackInstances}  particles ${R.particles}  lights ${R.lights}  bodies ${w.vessels.length}  shells ${w.projectiles.shells.length}`,
-        `cpu ${P ? P.cpuMs.toFixed(1) : '-'} ms  steps ${P?.steps ?? '-'}  gpu ${R.gpuMs !== undefined ? R.gpuMs.toFixed(1) + ' ms' : 'n/a'}`,
+        `cpu ${P ? P.cpuMs.toFixed(1) : '-'} ms  steps ${P?.steps ?? '-'}  gpu ${R.gpuMs !== undefined ? R.gpuMs.toFixed(1) + ' ms' : 'n/a'}  voices ${audio.ready ? audio.voiceCount : 'off'}`,
       ];
       if (passes) lines.push(passes);
       lines.forEach((l, i) => drawText(g, l, W - 4, H - 20 - i * 10, C.dim, { align: 'right' }));

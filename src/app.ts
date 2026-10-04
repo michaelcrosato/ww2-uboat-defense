@@ -16,6 +16,8 @@ import { DEG, clamp } from './core/math';
 import type { AbilityId, AbilityState } from './meta/types';
 import { StatBlock } from './meta/stats';
 import { buildLookdev } from './game/lookdev';
+import { audio } from './audio/audio';
+import { AudioBridge } from './game/audioBridge';
 
 export interface MissionHooks {
   stats?: StatBlock;
@@ -51,6 +53,8 @@ export class App {
   frozen = false;
   /** look-dev scene (`?scene=lookdev`): fixed-dt frames left before freezing */
   private lookdev: { left: number; dt: number } | null = null;
+  /** mission ↔ audio engine (events, loops, music) */
+  private audioBridge: AudioBridge | null = null;
   /** stop calling frame() (look-dev scene finished) */
   stopped = false;
   /** perf overlay numbers (debug.perf) */
@@ -65,6 +69,12 @@ export class App {
     this.hud.backend = backend;
     this.hud.perf = this.perf;
     screen.onResize(() => this.backend.resize());
+    // audio: the context can only start after a user gesture; volumes follow the dev settings live
+    this.input.onGesture.push(() => audio.unlock());
+    audio.volumes = () => ({
+      master: dev.num('audio.master'), sfx: dev.num('audio.sfx'), ambience: dev.num('audio.ambience'),
+      music: dev.num('audio.music'), chatter: dev.bool('audio.chatter'),
+    });
     dev.on('camera.tilt', () => this.cam.setTilt(dev.num('camera.tilt') * DEG));
     this.cam.setTilt(dev.num('camera.tilt') * DEG);
     this.cam.zoom = this.cam.targetZoom = dev.num('camera.zoom');
@@ -91,6 +101,7 @@ export class App {
     }
     this.cam.zoom = this.cam.targetZoom = dev.num('camera.zoom');
     this.hud.attach(m);
+    this.audioBridge = new AudioBridge(m, this.cam);
     this.paused = false;
     this.acc = 0;
   }
@@ -125,6 +136,8 @@ export class App {
   }
 
   endMission() {
+    this.audioBridge?.dispose();
+    this.audioBridge = null;
     if (this.mission) this.mission.dispose();
     this.mission = null;
     this.player = null;
@@ -213,6 +226,7 @@ export class App {
       });
       if (simDt > 0) this.scene.splats.length = 0;
       m.world.flash *= Math.exp(-dt * 6);
+      this.audioBridge?.update(dt);
       if (pc) this.hud.draw(m, pc, dt);
       if (m.over && !this.endFired) { this.endFired = true; setTimeout(() => this.hooks.onEnd?.(m), 2500); }
       if (!m.over) this.endFired = false;

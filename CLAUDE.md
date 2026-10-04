@@ -70,7 +70,7 @@ shows CPU ms, sim steps and per-pass GPU ms (timestamp queries) above the FPS. R
 | Meta | `src/meta/stats.ts` (STAT_KEYS + StatBlock), `types.ts` (Item, Contract, MissionResult, CaptainState…), `abilities.ts` (25 abilities + `resolveAbility`), `items.ts` (bases, affix tiers, powers, uniques, `rollItem`, `rerollAffix`), `loot.ts` (`rollDrops`), `tree.ts` (both 85-node trees), `economy.ts` (vessels, components, XP), `contracts.ts` (mutators, `generateContracts`, `evaluateContract`, `ARENA_SPEC`), `profile.ts` (captain ops, save/load), `index.ts` | pure logic, Node-runnable; tests `npm test` (`src/meta/meta.test.ts`) |
 | UI | `src/ui/hud.ts` (pixel HUD on a 2D canvas), `pixelFont.ts` (5×7 font from my-3d2dge), `style.css` | DOM menus = milestones M9/M10 |
 | Input | `src/input/input.ts` | actions + rebindable bindings, gamepad (PS5 glyphs), rumble |
-| Audio | `src/audio/dsp.ts`, `mixer.ts` (partial) | engine completion = milestone M8 |
+| Audio | `src/audio/audio.ts` (`audio` engine: play/loop/music/environment/underwater), `sounds.ts` (47 synths + 11 loops), `music.ts` (procedural stems), `dsp.ts` (noise/IR banks, Patch), `mixer.ts` (buses, limiter), `lab.html`/`lab.ts` (self-test); `src/game/audioBridge.ts` (events → sounds) | lab: `node tools/shot.mjs --url /src/audio/lab.html --wait 2000 --eval "window.__audioTest"` |
 
 ### Render pipeline (per frame; identical pass order in `src/render/webgpu/renderer.ts` and `src/render/webgl2/renderer.ts`)
 WebGPU is the default (`auto`), WebGL2 the fallback (init failure, canvas-present probe failure or runtime

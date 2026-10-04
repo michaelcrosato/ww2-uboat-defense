@@ -20,7 +20,7 @@ WebGPU additionally runs the water simulations as compute shaders.
 | M5 | WebGPU water sims as compute shaders | DONE | [M05](milestones/M05-webgpu-compute-sims.md) |
 | M6 | Backend parity, regression test, WebGPU as default | DONE | [M06](milestones/M06-parity-and-default.md) |
 | M7 | Meta layer: items, loot, skill trees, economy, contracts, profile | DONE | [M07](milestones/M07-meta-layer.md) |
-| M8 | Procedural audio engine + game integration | TODO | [M08](milestones/M08-audio.md) |
+| M8 | Procedural audio engine + game integration | DONE | [M08](milestones/M08-audio.md) |
 | M9 | Menus & UI shell: title, arena setup, dev settings, pause, controls, touch | TODO | [M09](milestones/M09-menus-ui-shell.md) |
 | M10 | Port & progression UI, contracts → missions, loot drops, save/load | TODO | [M10](milestones/M10-port-progression.md) |
 | M11 | Gameplay completion & tuning, dev-settings wiring audit, weather visuals | TODO | [M11](milestones/M11-gameplay-tuning.md) |
@@ -100,4 +100,3 @@ on any failure or later device loss. The active backend shows in the FPS overlay
   (0,0,0,1) → dye.a = 1 = "burning oil" inside the sim window). WebGPU binds a zero texture. → M11 (verify + fix)
 - Headless runs simulate only ~2–5 s of game time per 15 s real time (WebGPU gets further than WebGL2), so
   live screenshots differ in particle counts / wake age; use `?scene=lookdev` / `tools/compare.mjs` for parity.
-- `src/audio/dsp.ts` and `mixer.ts` were written by an interrupted agent; review before use. → M8

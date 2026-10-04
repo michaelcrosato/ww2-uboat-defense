@@ -76,3 +76,27 @@ audio events mapped (add `?dev.debug.perf=true` line "voices N"); `npm run typec
 `Procedural audio engine, lab self-test and game integration`
 
 ## Notes (fill in when done)
+Done. Lab self-test: **63/63 ok** (47 sounds, 10 environment/engine loops + torpedo_run, 6 music states;
+no NaN, loudest-50 ms RMS ≥ 0.0027, max peak 0.61 after the limiter). In game (`/?hour=23`, after a click
+to unlock): context running, own ASDIC ping and depth-charge drop mapped (`__app.audioBridge.log`), perf line
+shows `voices N`. 0 console errors.
+
+What changed
+- Reviewed `dsp.ts` and `mixer.ts` from the interrupted agent: both sound (seeded noise/texture banks, generated
+  IRs, Patch builder that works on any BaseAudioContext, bus graph with limiter + soft clip, underwater/night
+  filtering) — kept unchanged.
+- `sounds.ts`: every SoundId as a small synth (bus, reference distance, range, gain) and every LoopId with a
+  pitch/filter control. Added `torpedo_run` to LoopId (the bridge needs a following loop).
+- `music.ts`: menu / calm / tension / combat / victory / defeat stems in D dorian/minor, ~3 s crossfades, notes
+  scheduled only for audible stems.
+- `audio.ts`: `AudioEngine` + singleton `audio` (unlock on gesture, `attach()` for offline contexts, voice cap 48
+  with oldest-first stealing, distance gain 1/(1+(d/ref)²), pan, air-absorption lowpass, positional loops,
+  environment beds, `stopAll`, `voiceCount`), volumes from `audio.*` dev settings live, `audio.chatter` gates
+  radio/morse/whistle via the chatter bus.
+- `src/game/audioBridge.ts`: events → sounds as specified, player engine loop (steam / diesel / electric),
+  cavitation, own fires, torpedo runs near the listener (max 4), telegraph bell, dive alarm on crash dive,
+  submerged listener from keel depth, music state from combat/tension timers and mission outcome.
+- `lab.html` / `lab.ts`: buttons for everything + offline self-test (`window.__audioTest`).
+
+Follow-ups: menu music state is set when a mission ends; M9 should call `audio.setMusic('menu')` on the title
+screen and `audio.play('ui_*')` on buttons.
