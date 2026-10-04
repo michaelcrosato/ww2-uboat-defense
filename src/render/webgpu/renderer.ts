@@ -24,6 +24,7 @@ import { ParticlePassGPU } from './passes/particles';
 import { DebugPassGPU, DEBUG_TEX_MODES } from './passes/debug';
 import { packForces, packParticles, packStacks, type F32 } from '../pack';
 import { WaterSimsGPU, type SimParams } from './sims/waterSims';
+import { GpuTimer } from './timing';
 import type { SplatInput } from '../../water/simInputs';
 
 const HDR: GPUTextureFormat = 'rgba16float';
@@ -82,6 +83,8 @@ export class WebGPUBackend implements RenderBackend {
   private pendingDt = 0;
   private pendingSplats: SplatInput[] = [];
   private unsub: (() => void)[] = [];
+  /** per-pass GPU ms via timestamp queries (null without the feature) */
+  private timer: GpuTimer | null;
   private partData: F32 = new Float32Array(4096 * 12);
   // readback present (test hook): offscreen frame → mapped buffer → 2D canvas
   private outTex: GpuTarget | null = null;
@@ -99,6 +102,8 @@ export class WebGPUBackend implements RenderBackend {
     this.frameUbo = frameUbo; this.oceanUbo = oceanUbo;
     this.zeroTex = g.device.createTexture({ label: 'zero', format: HDR, size: { width: 1, height: 1 }, usage: TU.TEXTURE_BINDING });
     this.zeroView = this.zeroTex.createView();
+    this.timer = g.hasTimestamps ? new GpuTimer(g.device, ['sims', 'occluder', 'under', 'gbuffer', 'lighting', 'present']) : null;
+    this.stats.passMs = this.timer?.ms;
   }
 
   /** throws on any init failure (no adapter, compile/validation error) so the caller can fall back */
@@ -131,6 +136,8 @@ export class WebGPUBackend implements RenderBackend {
 
   resize() { /* the canvas drawing buffer follows Screen; targets follow the camera buffer lazily */ }
   resetSims() { this.simReset = true; }
+  strictFrames = false;
+  async whenIdle() { await this.g.device.queue.onSubmittedWorkDone(); }
 
   /** (re)create size-dependent targets; returns true when any view changed */
   private ensureTargets(bw: number, bh: number, occRes: number): boolean {
@@ -149,7 +156,7 @@ export class WebGPUBackend implements RenderBackend {
 
   render(scene: RenderScene, f: FrameParams) {
     if (this.g.lost) return;
-    if (this.inFlight >= MAX_IN_FLIGHT) {
+    if (this.inFlight >= MAX_IN_FLIGHT && !this.strictFrames) {
       // skip this frame but keep what the sims would have consumed
       this.pendingDt += f.simDt;
       if (f.simDt > 0) this.pendingSplats.push(...scene.splats);
@@ -171,6 +178,9 @@ export class WebGPUBackend implements RenderBackend {
       P.lighting.setInputs({ frame: this.frameUbo.buffer, albedo: this.gA!.view, normal: this.gN!.view, occ: this.occ!.view });
     }
     const enc = d.createCommandEncoder({ label: 'frame' });
+    const T = this.timer;
+    T?.begin();
+    const tw = (name: string) => T?.writes(name);
 
     // ---- water sims (window follows the camera in whole cells)
     const sp = simParams(), S = P.sims, win = S.win;
@@ -180,7 +190,7 @@ export class WebGPUBackend implements RenderBackend {
       if (simDt > 0) {
         const forces = packForces(scene.hulls, splats, win.ox, win.oy, 1 / simDt, this.forceData);
         this.forceData = forces.data;
-        S.step(enc, simDt, sp, forces.data, forces.count);
+        S.step(enc, simDt, sp, forces.data, forces.count, tw('sims'));
       }
     }
     const simRel = { x: win.ox - O.x, y: win.oy - O.y, size: win.size, cell: win.cell, on: sp.sim };
@@ -218,13 +228,13 @@ export class WebGPUBackend implements RenderBackend {
       P.pattern.encode(enc, this.lit!.view, O.x, O.y, f.time);
     } else {
       // ---- occluder heightmap: max height of stacks (r) + smoke density (a), world aligned
-      const op = enc.beginRenderPass({ label: 'occluder', colorAttachments: [{ view: this.occ!.view, loadOp: 'clear', storeOp: 'store', clearValue: { r: -50, g: 0, b: 0, a: 0 } }] });
+      const op = enc.beginRenderPass({ label: 'occluder', timestampWrites: tw('occluder'), colorAttachments: [{ view: this.occ!.view, loadOp: 'clear', storeOp: 'store', clearValue: { r: -50, g: 0, b: 0, a: 0 } }] });
       P.stacks.encode(op, 'occ');
       P.particles.encode(op, 'occ');
       op.end();
       // ---- underwater: submerged parts of everything (depth = distance below surface)
       const up = enc.beginRenderPass({
-        label: 'underwater',
+        label: 'underwater', timestampWrites: tw('under'),
         colorAttachments: [
           { view: this.uC!.view, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } },
           { view: this.uD!.view, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } },
@@ -235,7 +245,7 @@ export class WebGPUBackend implements RenderBackend {
       up.end();
       // ---- G-buffer: sea surface (writes depth), then stacks and particles (depth less)
       const gp = enc.beginRenderPass({
-        label: 'gbuffer',
+        label: 'gbuffer', timestampWrites: tw('gbuffer'),
         colorAttachments: [
           { view: this.gA!.view, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } },
           { view: this.gN!.view, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } },
@@ -247,7 +257,7 @@ export class WebGPUBackend implements RenderBackend {
       P.particles.encode(gp, 'gbuf');
       gp.end();
       // ---- lighting
-      const lpass = enc.beginRenderPass({ label: 'lighting', colorAttachments: [{ view: this.lit!.view, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
+      const lpass = enc.beginRenderPass({ label: 'lighting', timestampWrites: tw('lighting'), colorAttachments: [{ view: this.lit!.view, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
       P.lighting.encode(lpass);
       lpass.end();
       // debug texture views drawn straight into the lit buffer
@@ -263,23 +273,29 @@ export class WebGPUBackend implements RenderBackend {
     const pp = postParams(sc, cam, f);
     P.post.bloom(enc, pp.bloom);
     if (this.g.present === 'canvas') {
-      P.post.present(enc, this.g.context!.getCurrentTexture().createView(), pp);
+      P.post.present(enc, this.g.context!.getCurrentTexture().createView(), pp, tw('present'));
+      T?.resolve(enc);
       d.queue.submit([enc.finish()]);
-    } else this.presentReadback(enc, pp);
+    } else this.presentReadback(enc, pp, tw('present'));
+    T?.read();
+    if (T) this.stats.gpuMs = T.total;
     this.inFlight++;
     const t0 = performance.now();
     d.queue.onSubmittedWorkDone().then(() => {
       this.inFlight--;
-      // submit → done latency (an upper bound on GPU frame time; timestamp queries come in M6)
-      const ms = performance.now() - t0;
-      this.stats.gpuMs = this.stats.gpuMs ? this.stats.gpuMs * 0.9 + ms * 0.1 : ms;
+      // without timestamp queries: submit → done latency (an upper bound on GPU frame time)
+      if (!this.timer) {
+        const ms = performance.now() - t0;
+        this.stats.gpuMs = this.stats.gpuMs ? this.stats.gpuMs * 0.9 + ms * 0.1 : ms;
+      }
     }, () => { this.inFlight--; });
   }
 
-  private presentReadback(enc: GPUCommandEncoder, pp: ReturnType<typeof postParams>) {
+  private presentReadback(enc: GPUCommandEncoder, pp: ReturnType<typeof postParams>, timestampWrites?: GPURenderPassTimestampWrites) {
     const d = this.g.device, w = pp.pw, h = pp.ph;
     [this.outTex] = resizeTarget(d, this.outTex, this.g.format, w, h, TU.COPY_SRC, 'readback');
-    this.p.post.present(enc, this.outTex.view, pp);
+    this.p.post.present(enc, this.outTex.view, pp, timestampWrites);
+    this.timer?.resolve(enc);
     // a previous frame is still being read back: present nothing new this frame (the sims still ran)
     if (this.reading) { d.queue.submit([enc.finish()]); return; }
     const bpr = Math.ceil((w * 4) / 256) * 256;
@@ -312,6 +328,7 @@ export class WebGPUBackend implements RenderBackend {
     this.frameUbo.destroy(); this.oceanUbo.destroy();
     for (const t of [this.gA, this.gN, this.gDepth, this.uC, this.uD, this.uDepth, this.occ, this.lit, this.outTex]) t?.texture.destroy();
     this.zeroTex.destroy();
+    this.timer?.destroy();
     this.readBuf?.destroy();
     this.g.context?.unconfigure();
     this.g.device.destroy();

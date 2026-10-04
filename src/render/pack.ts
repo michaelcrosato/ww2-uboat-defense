@@ -48,7 +48,7 @@ export function packStacks(stacks: StackInstance[], ox: number, oy: number, out:
 export function packParticles(ps: ParticleSystem, ox: number, oy: number, time: number, out: F32): { data: F32; count: number } {
   const B = ensure(out, ps.n * PARTICLE_FLOATS);
   for (let i = 0; i < ps.n; i++) {
-    const o = i * PARTICLE_FLOATS, k = ps.kind[i], t = ps.life[i] / ps.max[i];
+    const o = i * PARTICLE_FLOATS, k = ps.kind[i], t = ps.max[i] > 0 ? ps.life[i] / ps.max[i] : 0;
     B[o] = ps.px[i] - ox; B[o + 1] = ps.py[i] - oy; B[o + 2] = ps.pz[i]; B[o + 3] = ps.size[i];
     let r = ps.r[i], g = ps.g[i], b = ps.b[i], a = 1, mat: number = MAT.SPRAY, em = 0, up = 0.3, smoke = 0;
     switch (k) {

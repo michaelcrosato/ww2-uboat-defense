@@ -6,11 +6,8 @@ import type { BackendInfo, BackendPref, RenderBackend } from './types';
 import { WebGL2Backend } from './webgl2/renderer';
 import { WebGPUBackend } from './webgpu/renderer';
 
-/**
- * Whether `auto` should pick WebGPU. Off until the WebGPU backend renders the whole scene (M6);
- * until then `?renderer=webgpu` / display.renderer=webgpu opt in explicitly.
- */
-export const WEBGPU_DEFAULT = false;
+/** `auto` picks WebGPU (parity with WebGL2 verified by tools/compare.mjs since M6) */
+export const WEBGPU_DEFAULT = true;
 
 export interface BackendOpts {
   /** test hook (`?gpufail=1`): make WebGPU init fail to exercise the fallback */

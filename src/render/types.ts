@@ -23,6 +23,8 @@ export interface BackendStats {
   particles: number;
   lights: number;
   gpuMs?: number;
+  /** per-pass GPU ms (WebGPU with timestamp-query) */
+  passMs?: Record<string, number>;
 }
 
 export interface FrameParams {
@@ -49,5 +51,9 @@ export interface RenderBackend {
   render(scene: RenderScene, f: FrameParams): void;
   /** new mission / camera teleport: clear the water sims and re-center their window */
   resetSims(): void;
+  /** resolves once all submitted GPU work has finished (tests) */
+  whenIdle(): Promise<void>;
+  /** tests: never skip a frame for pacing (deterministic sim stepping across backends) */
+  strictFrames?: boolean;
   dispose(): void;
 }

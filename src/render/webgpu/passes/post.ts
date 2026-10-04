@@ -132,8 +132,8 @@ export class PostPassGPU {
     });
   }
 
-  private pass(enc: GPUCommandEncoder, view: GPUTextureView, pl: GPURenderPipeline | null, bg: GPUBindGroup | null, label: string) {
-    const rp = enc.beginRenderPass({ label, colorAttachments: [{ view, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
+  private pass(enc: GPUCommandEncoder, view: GPUTextureView, pl: GPURenderPipeline | null, bg: GPUBindGroup | null, label: string, timestampWrites?: GPURenderPassTimestampWrites) {
+    const rp = enc.beginRenderPass({ label, timestampWrites, colorAttachments: [{ view, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
     if (pl && bg) { rp.setPipeline(pl); rp.setBindGroup(0, bg); rp.draw(3); }
     rp.end();
   }
@@ -148,13 +148,13 @@ export class PostPassGPU {
     this.pass(enc, this.blurB!.view, this.pBlur, this.bgBlurV, 'bloom.blurV');
   }
 
-  present(enc: GPUCommandEncoder, out: GPUTextureView, o: PostParams) {
+  present(enc: GPUCommandEncoder, out: GPUTextureView, o: PostParams, timestampWrites?: GPURenderPassTimestampWrites) {
     const f = this.uPresent.f;
     f[0] = o.pw; f[1] = o.ph; f[2] = o.shiftX; f[3] = o.shiftY; f[4] = o.bw; f[5] = o.bh; f[6] = o.S; f[7] = o.bloom;
     f[8] = o.vignette; f[9] = o.grain; f[10] = o.scan; f[11] = o.time; f[12] = o.flash; f[13] = o.grade;
     f[16] = o.flashCol[0]; f[17] = o.flashCol[1]; f[18] = o.flashCol[2];
     this.uPresent.write();
-    this.pass(enc, out, this.pPresent, this.bgPresent, 'present');
+    this.pass(enc, out, this.pPresent, this.bgPresent, 'present', timestampWrites);
   }
 
   dispose() {

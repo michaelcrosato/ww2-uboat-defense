@@ -29,6 +29,7 @@ npm run dev                 # Vite dev server on :5173
 npm run typecheck           # tsc --noEmit (TypeScript 7, strict) — must pass before every commit
 npm run build               # typecheck + production build to dist/
 npm run probe:gpu           # confirms headless Chromium exposes WebGPU (it does, via SwiftShader)
+node tools/compare.mjs --hour 13      # WebGPU vs WebGL2 parity on the look-dev scene (exit 1 on mismatch, ~2 min)
 node tools/shot.mjs --url "/?hour=13" --wait 6000 --out check-output/x.png \
    [--eval "<js returning JSON>"] [--steps "key:KeyW:800,wait:500,click:640:360"] [--w 1280 --h 720]
 ```
@@ -46,7 +47,9 @@ dev setting without persisting it (e.g. `?dev.water.sim=false&dev.display.showFp
 (camera settles at once), `?renderer=webgpu|webgl2|auto` picks the backend (`auto` = WebGL2 until M6).
 **Headless WebGPU needs `&gpupresent=readback`**: presenting to a canvas loses the device in headless
 SwiftShader, so without it WebGPU init fails its present probe and falls back to WebGL2. `?gpufail=1`
-forces the WebGPU init to fail (fallback test). Reproducible shot:
+forces the WebGPU init to fail (fallback test). `?scene=lookdev` builds the deterministic comparison scene
+(fixed spawns, 40 fixed-dt frames, then frozen, HUD hidden, `window.__lookdevDone`). `?dev.debug.perf=true`
+shows CPU ms, sim steps and per-pass GPU ms (timestamp queries) above the FPS. Reproducible shot:
 `/?freeze=1&fxseed=1&seed=7&hour=13&dev.display.showFps=false` (pixel-identical across runs).
 
 ## Architecture (file map)
@@ -68,21 +71,25 @@ forces the WebGPU init to fail (fallback test). Reproducible shot:
 | Input | `src/input/input.ts` | actions + rebindable bindings, gamepad (PS5 glyphs), rumble |
 | Audio | `src/audio/dsp.ts`, `mixer.ts` (partial) | engine completion = milestone M8 |
 
-### Render pipeline (per frame, `src/render/webgl2/renderer.ts`)
+### Render pipeline (per frame; identical pass order in `src/render/webgpu/renderer.ts` and `src/render/webgl2/renderer.ts`)
+WebGPU is the default (`auto`), WebGL2 the fallback (init failure, canvas-present probe failure or runtime
+device loss → `fallbackToWebGL2`). Both read the same CPU-side uniforms (`render/common/*`) and packers
+(`render/pack.ts`); parity is checked by `tools/compare.mjs` (see Commands).
 1. Water sims: force raster (hull footprints + splats as instanced quads → 3 force textures) →
-   wave equation (RG16F h,v) → stable fluids (velocity, pressure, vorticity) → dye advection
-   (RGBA16F: foam, bioluminescence, oil, burning oil). Sim window follows the camera in whole cells.
+   wave equation (h,v) → stable fluids (velocity, pressure, vorticity) → dye advection
+   (RGBA16F: foam, bioluminescence, oil, burning oil). WebGPU: compute kernels; WebGL2: fragment passes.
+   Sim window follows the camera in whole cells.
 2. Occluder heightmap: top-down render of sprite-stack slices (R = max height via MAX blend,
    A = smoke density via ADD blend) — drives soft shadows.
 3. Underwater pass: submerged parts → color + depth-below-surface (composited by the water pass).
 4. G-buffer: fullscreen water (writes depth) → sprite stacks → particles. RT0 = albedo + material id,
    RT1 = normal.xy, world height z, emissive. Materials: `src/render/materials.ts` (`MAT`) + `MAT_GLSL`.
-5. Lighting: ambient + sun + moon + up to 64 point/spot lights (float texture), heightmap-marched
+5. Lighting: ambient + sun + moon + up to 64 point/spot lights (storage buffer / float texture), heightmap-marched
    soft shadows, searchlight beam haze, water glints/sky reflection, light-band quantization.
 6. Post: bloom (half res) → grade/vignette/grain/scanlines → integer-scaled present with the camera's
    sub-pixel shift (pixel grid anchored to the world).
 
-Conventions: internal passes treat `gl_FragCoord.xy` as buffer pixels **y-down** (GL passes write
+Conventions (WGSL equivalents in `docs/WEBGPU_PORTING.md`): internal passes treat `gl_FragCoord.xy` as buffer pixels **y-down** (GL passes write
 `clip.y = by/bh*2-1`); shader world positions are relative to the render origin (snapped camera
 center) for precision; the CPU folds the origin into wave phases (`Ocean.pack`). The camera is an
 oblique orthographic projection (`src/render/camera.ts`): `by = (y*cosT - z*sinT)*zoom`.

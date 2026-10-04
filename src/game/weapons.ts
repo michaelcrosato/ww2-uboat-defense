@@ -485,7 +485,8 @@ export class Projectiles {
   // ------------------------------------------------------------------ render submission
   submit(dt: number) {
     const w = this.w, R = w.scene, P = R.particles;
-    for (const s of this.shells) {
+    // tracers live one frame: none while paused (zero-life particles would never be removed)
+    for (const s of dt > 0 ? this.shells : []) {
       P.spawn(PK.TRACER, s.x, s.y, s.z, 0, 0, 0, dt * 1.5, s.caliber > 80 ? 0.9 : 0.6, [1, 0.8, 0.45]);
       P.spawn(PK.TRACER, s.x - s.vx * dt * 0.5, s.y - s.vy * dt * 0.5, s.z - s.vz * dt * 0.5, 0, 0, 0, dt * 1.5, 0.5, [1, 0.6, 0.3]);
     }
@@ -501,7 +502,8 @@ export class Projectiles {
     }
     for (const f of this.flares) {
       const k = Math.min(1, f.life / 3) * (0.85 + 0.15 * Math.sin(w.time * 23 + f.x));
-      P.spawn(PK.FLASH, f.x, f.y, f.z, 0, 0, 0, dt * 1.5, 1.2, [1, 1, 0.9]);
+      // one-frame flash; none while paused (a zero-life particle would never be updated or removed)
+      if (dt > 0) P.spawn(PK.FLASH, f.x, f.y, f.z, 0, 0, 0, dt * 1.5, 1.2, [1, 1, 0.9]);
       if (fx.next() < 0.3) P.spawn(PK.SMOKE, f.x, f.y, f.z + 1, 0, 0, 0.5, 4, 1.2, [0.7, 0.7, 0.7]);
       w.lights.add({ x: f.x, y: f.y, z: f.z, reach: f.radius, r: 1, g: 0.98, b: 0.88, intensity: f.intensity * k, shadow: true, beam: 0.6, priority: 4 });
     }

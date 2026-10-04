@@ -208,7 +208,7 @@ export class WaterSimsGPU {
    * Raster forces → wave substeps → fluid + dye, in the WebGL2 order. `forces` is packForces output
    * relative to the CURRENT window, so the caller packs after `follow()`.
    */
-  step(enc: GPUCommandEncoder, simDt: number, p: SimParams, forces: Float32Array<ArrayBuffer>, count: number) {
+  step(enc: GPUCommandEncoder, simDt: number, p: SimParams, forces: Float32Array<ArrayBuffer>, count: number, timestampWrites?: GPUComputePassTimestampWrites) {
     const n = this.win.n, size = this.win.size, cell = this.win.cell;
     // ---- 1. force raster
     this.forceInst.write(forces, count * FORCE_FLOATS);
@@ -224,7 +224,7 @@ export class WaterSimsGPU {
     }
     rp.end();
     const zero = this.zero.createView();
-    const cp = enc.beginComputePass({ label: 'sims' });
+    const cp = enc.beginComputePass({ label: 'sims', timestampWrites });
     // ---- 2. wave equation, CFL: c*dt/dx < 0.5 for the 9-point stencil
     if (p.sim) {
       const maxDt = (0.45 * cell) / Math.max(p.waveSpeed, 0.1);

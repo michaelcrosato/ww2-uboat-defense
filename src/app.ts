@@ -15,6 +15,7 @@ import { arena } from './game/arenaConfig';
 import { DEG, clamp } from './core/math';
 import type { AbilityId, AbilityState } from './meta/types';
 import { StatBlock } from './meta/stats';
+import { buildLookdev } from './game/lookdev';
 
 export interface MissionHooks {
   stats?: StatBlock;
@@ -48,6 +49,12 @@ export class App {
   menuOpen = false;
   /** test hook (`?freeze=1`): render only; world, sims and particles never advance */
   frozen = false;
+  /** look-dev scene (`?scene=lookdev`): fixed-dt frames left before freezing */
+  private lookdev: { left: number; dt: number } | null = null;
+  /** stop calling frame() (look-dev scene finished) */
+  stopped = false;
+  /** perf overlay numbers (debug.perf) */
+  perf = { cpuMs: 0, steps: 0 };
 
   constructor(screen: Screen, backend: RenderBackend) {
     this.screen = screen;
@@ -56,6 +63,7 @@ export class App {
     this.input = new Input(screen.root, (x, y) => this.screen.clientToPixel(x, y));
     this.hud = new Hud(this.screen, this.cam, this.input);
     this.hud.backend = backend;
+    this.hud.perf = this.perf;
     screen.onResize(() => this.backend.resize());
     dev.on('camera.tilt', () => this.cam.setTilt(dev.num('camera.tilt') * DEG));
     this.cam.setTilt(dev.num('camera.tilt') * DEG);
@@ -87,6 +95,23 @@ export class App {
     this.acc = 0;
   }
 
+  /**
+   * Deterministic renderer comparison scene: AI frozen, fixed spawns, `frames` fixed-dt frames (same
+   * sim inputs on every backend), then frozen with the HUD hidden; sets `window.__lookdevDone`.
+   */
+  startLookdev(overrides: Record<string, number | string | boolean> = {}, frames = 40, dt = 0.1) {
+    dev.set('ai.freeze', true, false);
+    this.startMission({ 'arena.timeFlow': 0, ...overrides });
+    const m = this.mission!;
+    buildLookdev(m.world);
+    if (this.player) this.player.freeCam = true;
+    const p = m.world.player;
+    if (p) { this.cam.x = p.pos.x + 10; this.cam.y = p.pos.y + 5; }
+    this.backend.strictFrames = true;
+    this.screen.hud.style.display = 'none';
+    this.lookdev = { left: frames, dt };
+  }
+
   /** stats that change vessel numbers at spawn (hull, ammo) */
   private applyStats(s: StatBlock, v: import('./game/vessel').Vessel) {
     v.maxHp = (v.cls.hp + s.get('hull_hp')) * s.mul('hull_hp_pct');
@@ -109,7 +134,7 @@ export class App {
     const loop = (now: number) => {
       const dt = Math.min(0.1, (now - this.last) / 1000);
       this.last = now;
-      try { this.frame(dt); } catch (e) { console.error(e); }
+      if (!this.stopped) try { this.frame(dt); } catch (e) { console.error(e); }
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
@@ -126,6 +151,21 @@ export class App {
   }
 
   private frame(dt: number) {
+    const t0 = performance.now();
+    const ld = this.lookdev;
+    if (ld && ld.left > 0) {
+      dt = ld.dt;
+      if (--ld.left === 0) {
+        this.frozen = true;
+        // let the frozen frame reach the screen before signalling (readback present lags)
+        // render a few frozen frames so the final image reaches the screen, then stop the loop so the
+        // page stays responsive for screenshots (software WebGPU can saturate the main thread)
+        void this.backend.whenIdle().then(() => setTimeout(() => {
+          this.stopped = true;
+          void this.backend.whenIdle().then(() => setTimeout(() => { (window as unknown as { __lookdevDone: boolean }).__lookdevDone = true; }, 500));
+        }, 1500));
+      }
+    }
     this.realTime += dt;
     if (this.backend.lost) this.switchToWebGL2(this.backend.lost);
     this.input.update();
@@ -153,6 +193,7 @@ export class App {
           n++;
         }
         if (n >= maxSteps) this.acc = 0;
+        this.perf.steps = n;
       }
       // camera (frozen test frames settle it at once so shots don't depend on the frame count)
       const camDt = this.frozen ? 60 : dt;
@@ -177,6 +218,7 @@ export class App {
       if (!m.over) this.endFired = false;
     }
     this.input.endFrame();
+    this.perf.cpuMs = this.perf.cpuMs * 0.9 + (performance.now() - t0) * 0.1;
   }
   private endFired = false;
 

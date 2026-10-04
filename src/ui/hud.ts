@@ -35,6 +35,8 @@ export class Hud {
   tactical = false;
   /** active renderer (perf line + backend name next to the FPS) */
   backend: RenderBackend | null = null;
+  /** CPU frame ms + sim steps this frame (debug.perf) */
+  perf: { cpuMs: number; steps: number } | null = null;
 
   constructor(private screen: Screen, private cam: Camera, private input: Input) {}
 
@@ -74,8 +76,15 @@ export class Hud {
     if (ts > 1) drawText(g, `TIME x${ts}`, W / 2, 30, C.warn, { align: 'center' });
     if (dev.bool('display.showFps')) drawText(g, `${Math.round(this.fps)} fps ${this.backend ? backendLabel(this.backend.info) : ''}`.trimEnd(), W - 4, H - 10, C.dim, { align: 'right' });
     if (dev.bool('debug.perf') && this.backend) {
-      const R = this.backend.stats;
-      drawText(g, `slices ${R.stackInstances}  particles ${R.particles}  lights ${R.lights}  bodies ${w.vessels.length}  shells ${w.projectiles.shells.length}`, 4, H - 10, C.dim);
+      // right-aligned above the FPS so it never covers the status panel
+      const R = this.backend.stats, P = this.perf;
+      const passes = R.passMs ? Object.entries(R.passMs).map(([k, v]) => `${k} ${v.toFixed(1)}`).join('  ') : '';
+      const lines = [
+        `slices ${R.stackInstances}  particles ${R.particles}  lights ${R.lights}  bodies ${w.vessels.length}  shells ${w.projectiles.shells.length}`,
+        `cpu ${P ? P.cpuMs.toFixed(1) : '-'} ms  steps ${P?.steps ?? '-'}  gpu ${R.gpuMs !== undefined ? R.gpuMs.toFixed(1) + ' ms' : 'n/a'}`,
+      ];
+      if (passes) lines.push(passes);
+      lines.forEach((l, i) => drawText(g, l, W - 4, H - 20 - i * 10, C.dim, { align: 'right' }));
     }
   }
 

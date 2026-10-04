@@ -32,7 +32,8 @@ async function boot() {
       if (!arena.byKey.has(key)) continue;
       overrides[key] = urlValue(v);
     }
-    app.startMission(overrides);
+    if (params.get('scene') === 'lookdev') app.startLookdev(overrides, Number(params.get('frames')) || 40);
+    else app.startMission(overrides);
     app.start();
     document.getElementById('boot')!.classList.add('gone');
   } catch (e) {

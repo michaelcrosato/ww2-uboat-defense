@@ -96,6 +96,7 @@ export class WebGL2Backend implements RenderBackend {
 
   resize() { /* targets follow the camera buffer size every frame */ }
   resetSims() { this.simNeedsReset = true; }
+  whenIdle() { this.gl.finish(); return Promise.resolve(); }
   dispose() {
     for (const u of this.unsub) u();
     this.gl.getExtension('WEBGL_lose_context')?.loseContext();
