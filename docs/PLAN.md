@@ -1,0 +1,87 @@
+# Wolfpack & Escort — milestone plan
+
+The game is built in self-contained milestones. Each one fits a single agent session; clear the
+context between milestones and tell the next session: **"Continue the plan in docs/PLAN.md."**
+The protocol is in `CLAUDE.md` ("Resume protocol"). Milestone details live in `docs/milestones/`.
+
+**Rendering direction (decided):** WebGPU is the primary renderer; WebGL2 is the fallback. Both
+backends consume the same backend-agnostic scene data and must produce visually equivalent frames.
+WebGPU additionally runs the water simulations as compute shaders.
+
+## Status board
+
+| # | Milestone | Status | File |
+|---|---|---|---|
+| M0 | WebGL2 prototype + handoff docs (baseline) | DONE | — |
+| M1 | Render abstraction refactor (backend-agnostic scene, WebGL2 behind an interface) | TODO | [M01](milestones/M01-render-abstraction.md) |
+| M2 | WebGPU bootstrap: device, canvas, fallback chain, present pass | TODO | [M02](milestones/M02-webgpu-bootstrap.md) |
+| M3 | WebGPU water G-buffer, lighting (sun/moon/ambient) and post | TODO | [M03](milestones/M03-webgpu-water-lighting-post.md) |
+| M4 | WebGPU sprite stacks, particles, dynamic lights + occluder shadows | TODO | [M04](milestones/M04-webgpu-stacks-particles-lights.md) |
+| M5 | WebGPU water sims as compute shaders | TODO | [M05](milestones/M05-webgpu-compute-sims.md) |
+| M6 | Backend parity, regression test, WebGPU as default | TODO | [M06](milestones/M06-parity-and-default.md) |
+| M7 | Meta layer: items, loot, skill trees, economy, contracts, profile | TODO | [M07](milestones/M07-meta-layer.md) |
+| M8 | Procedural audio engine + game integration | TODO | [M08](milestones/M08-audio.md) |
+| M9 | Menus & UI shell: title, arena setup, dev settings, pause, controls, touch | TODO | [M09](milestones/M09-menus-ui-shell.md) |
+| M10 | Port & progression UI, contracts → missions, loot drops, save/load | TODO | [M10](milestones/M10-port-progression.md) |
+| M11 | Gameplay completion & tuning, dev-settings wiring audit, weather visuals | TODO | [M11](milestones/M11-gameplay-tuning.md) |
+| M12 | Visual polish, ship art expansion, performance | TODO | [M12](milestones/M12-visual-polish.md) |
+| M13 | Final QA, README, PR ready for review | TODO | [M13](milestones/M13-qa-release.md) |
+
+Order matters for M1→M6 (renderer). M7 and M8 are independent of the renderer and may be done
+before M1 if preferred; M9 needs nothing else; M10 needs M7 + M9; M11 needs M10; M12/M13 last.
+
+Model guidance: every milestone is written to be executable by Sonnet 5.5 (or Opus at medium
+effort). The renderer milestones (M3–M5) are the most technical; their files contain explicit
+porting notes, and `docs/WEBGPU_PORTING.md` lists the GLSL→WGSL rules and pitfalls.
+
+## Target render architecture (end of M6)
+
+```
+src/render/
+  types.ts         RenderBackend interface, BackendInfo, FrameParams
+  scene.ts         RenderScene: atlas (CPU), stacks[], particles (CPU sim), lights, hulls[], splats[]
+  backend.ts       createBackend(screen, pref): WebGPU → WebGL2 fallback chain, fresh canvas per attempt
+  camera.ts        (moved from src/gfx) oblique camera, backend-agnostic
+  pack.ts          CPU packers shared by both backends: stacks, particles, lights, forces
+  materials.ts     MAT ids + particle kinds (shared constants)
+  common/          frameUniforms.ts: per-frame uniform values computed once for both backends (M3)
+  webgl2/          the current GL renderer, moved: gl.ts, renderer.ts, passes/, glsl/, waveSim.ts, fluidSim.ts
+  webgpu/          device.ts, targets.ts, uniforms.ts, renderer.ts, passes/, wgsl/, sims/ (compute)
+```
+Game code (`src/game/*`) talks only to `RenderScene`; it never imports a backend.
+
+`RenderBackend` (implemented by both backends):
+```ts
+interface RenderBackend {
+  readonly info: { kind: 'webgpu' | 'webgl2'; adapter: string; computeSims: boolean; features: string[] };
+  readonly stats: { stackInstances: number; particles: number; lights: number; gpuMs?: number };
+  resize(): void;
+  render(scene: RenderScene, f: FrameParams): void;   // whole frame incl. present
+  resetSims(): void;                                   // new mission / camera teleport
+  dispose(): void;
+}
+```
+Backend selection: dev setting `display.renderer` (`auto` | `webgpu` | `webgl2`) and URL
+`?renderer=`. `auto` tries WebGPU (adapter → device → pipeline compile) and falls back to WebGL2
+on any failure or later device loss. The active backend shows in the FPS overlay and dev menu.
+
+## Decisions log
+- 2026-10: Rapier 3D (not 2D): the world is 3D (buoyancy, depth, sinking), rendered top-down.
+- 2026-10: Two hand-written shader sets (GLSL + WGSL) instead of runtime translation (no heavy deps).
+  Parity is enforced by the M6 regression tool.
+- 2026-10: WebGPU particles are instanced quads (WebGPU has no point size); WebGL2 keeps gl_PointSize.
+- 2026-10: Headless WebGPU verified: Chromium 1194 + `--enable-unsafe-webgpu` on an http://localhost
+  page exposes a SwiftShader adapter with compute, float32-filterable, float32-blendable, timestamps.
+
+## Known issues (keep this list current)
+- U-boat AI cannot get ahead of the convoy while submerged (transit aims at a point that runs away). → M11
+- Escort AI lingers in `reacquire` on stale, large-error hydrophone contacts. → M11
+- `reinforce` world event (Wolfpack Signal) is emitted but Mission does not spawn boats. → M11
+- Air patrol scheduling from `arena.aircraft` not implemented (only the Air Support ability). → M11
+- Loot crates are never dropped by sinking ships (needs M7 loot) → M10.
+- Searchlight beam haze is visible in daylight (scale haze by darkness). → M11
+- Water swell bands look streaky at some sea states (tone dominated by long swell). → M12
+- Islands use metal material; should be land with its own look. → M11/M12
+- Many dev settings are declared but not wired (audit table in M11).
+- Camera does not snap after `fastForward` (tests only). → M11
+- `src/audio/dsp.ts` and `mixer.ts` were written by an interrupted agent; review before use. → M8
