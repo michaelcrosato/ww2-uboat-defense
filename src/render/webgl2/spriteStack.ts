@@ -164,6 +164,7 @@ export class SpriteStackRenderer {
   pGbuf: Program; pUnder: Program; pOcc: Program;
 
   private texSize = 0;
+  private uploaded: { atlas: SliceAtlas | null; version: number } = { atlas: null, version: 0 };
 
   constructor(private gl: GL) {
     this.atlasTex = makeTex(gl, 1, 1, { filter: gl.NEAREST });
@@ -175,7 +176,7 @@ export class SpriteStackRenderer {
   }
 
   uploadAtlas(atlas: SliceAtlas) {
-    if (!atlas.dirty) return;
+    if (this.uploaded.atlas === atlas && this.uploaded.version === atlas.version) return;
     const gl = this.gl, S = atlas.size;
     if (this.texSize !== S) {
       gl.deleteTexture(this.atlasTex); gl.deleteTexture(this.normTex);
@@ -188,7 +189,7 @@ export class SpriteStackRenderer {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, S, S, gl.RGBA, gl.UNSIGNED_BYTE, atlas.albedo);
     gl.bindTexture(gl.TEXTURE_2D, this.normTex);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, S, S, gl.RGBA, gl.UNSIGNED_BYTE, atlas.normal);
-    atlas.dirty = false;
+    this.uploaded = { atlas, version: atlas.version };
   }
 
   /** take the packed slice instances for this frame (render/pack.ts `packStacks`) */

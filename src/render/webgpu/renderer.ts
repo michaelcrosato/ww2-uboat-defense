@@ -1,6 +1,6 @@
 // WebGPU backend. Records one command encoder per frame in the same pass order as
-// webgl2/renderer.ts: occluder heightmap → underwater → G-buffer (water; stacks + particles in M4)
-// → deferred lighting → bloom + present. Water sims arrive as compute shaders in M5; until then the
+// webgl2/renderer.ts: occluder heightmap (stacks + smoke) → underwater (submerged stacks) →
+// G-buffer (water, stacks, particles) → deferred lighting (+ debug views) → bloom + present. Water sims arrive as compute shaders in M5; until then the
 // ripple and dye inputs are 1×1 zero textures.
 
 import type { Screen } from '../screen';
@@ -19,6 +19,10 @@ import { PostPassGPU } from './passes/post';
 import { TestPatternPass } from './passes/testPattern';
 import { WaterPassGPU } from './passes/water';
 import { LightingPassGPU } from './passes/lighting';
+import { StackPassGPU } from './passes/stacks';
+import { ParticlePassGPU } from './passes/particles';
+import { DebugPassGPU, DEBUG_TEX_MODES } from './passes/debug';
+import { packParticles, packStacks, type F32 } from '../pack';
 
 const HDR: GPUTextureFormat = 'rgba16float';
 const MAX_IN_FLIGHT = 2;
@@ -28,7 +32,10 @@ export interface WebGPUOpts {
   testPattern?: boolean;
 }
 
-interface Passes { post: PostPassGPU; water: WaterPassGPU; lighting: LightingPassGPU; pattern: TestPatternPass | null }
+interface Passes {
+  post: PostPassGPU; water: WaterPassGPU; lighting: LightingPassGPU; stacks: StackPassGPU; particles: ParticlePassGPU;
+  debug: DebugPassGPU; pattern: TestPatternPass | null;
+}
 
 export class WebGPUBackend implements RenderBackend {
   readonly info: BackendInfo;
@@ -47,12 +54,15 @@ export class WebGPUBackend implements RenderBackend {
   private lit: GpuTarget | null = null;
   /** 1×1 zero textures standing in for the ripple / dye sims until M5 */
   private zeroTex: GPUTexture;
+  private zeroView: GPUTextureView;
   private frameUbo: Ubo;
   private oceanUbo: Ubo;
   private waveA = new Float32Array(MAX_WAVES * 4);
   private waveB = new Float32Array(MAX_WAVES * 4);
   private rings = new Float32Array(32);
   private lightData = new Float32Array(MAX_LIGHTS * LIGHT_FLOATS);
+  private stackData: F32 = new Float32Array(2048 * 20);
+  private partData: F32 = new Float32Array(4096 * 12);
   // readback present (test hook): offscreen frame → mapped buffer → 2D canvas
   private outTex: GpuTarget | null = null;
   private readBuf: GPUBuffer | null = null;
@@ -63,6 +73,7 @@ export class WebGPUBackend implements RenderBackend {
     this.info = { kind: 'webgpu', adapter: g.adapterName, computeSims: false, features: g.features };
     this.frameUbo = frameUbo; this.oceanUbo = oceanUbo;
     this.zeroTex = g.device.createTexture({ label: 'zero', format: HDR, size: { width: 1, height: 1 }, usage: TU.TEXTURE_BINDING });
+    this.zeroView = this.zeroTex.createView();
   }
 
   /** throws on any init failure (no adapter, compile/validation error) so the caller can fall back */
@@ -76,6 +87,9 @@ export class WebGPUBackend implements RenderBackend {
         post: await PostPassGPU.create(g, samplers),
         water: await WaterPassGPU.create(g, samplers),
         lighting: await LightingPassGPU.create(g, samplers, HDR),
+        stacks: await StackPassGPU.create(g, samplers),
+        particles: await ParticlePassGPU.create(g),
+        debug: await DebugPassGPU.create(g, samplers, HDR),
         pattern: wopts.testPattern ? await TestPatternPass.create(g, frameUbo.buffer, HDR) : null,
       };
       if (g.lost) throw new Error(g.lost);
@@ -118,10 +132,13 @@ export class WebGPUBackend implements RenderBackend {
     const occRes = occluderRes();
     if (this.ensureTargets(bw, bh, occRes)) {
       P.post.setInputs(this.lit!.view, bw, bh);
-      const zero = this.zeroTex.createView();
+      const zero = this.zeroView;
       P.water.setInputs({ frame: this.frameUbo.buffer, ocean: this.oceanUbo.buffer, wave: zero, dye: zero, under: this.uC!.view, underD: this.uD!.view });
       P.lighting.setInputs({ frame: this.frameUbo.buffer, albedo: this.gA!.view, normal: this.gN!.view, occ: this.occ!.view });
     }
+    P.stacks.uploadAtlas(scene.atlas);
+    P.stacks.setInputs({ frame: this.frameUbo.buffer, ocean: this.oceanUbo.buffer, wave: this.zeroView });
+    P.particles.setFrame(this.frameUbo.buffer);
 
     // ---- per-frame uniforms (origin folded into wave phases on the CPU, in double precision)
     writeFrame(this.frameUbo.f, cam);
@@ -139,23 +156,36 @@ export class WebGPUBackend implements RenderBackend {
     this.lightData = lp.data;
     P.lighting.write(L, occRel, lp.data, lp.count);
     this.stats.lights = lp.count;
+    const st = packStacks(scene.stacks, O.x, O.y, this.stackData);
+    this.stackData = st.data;
+    P.stacks.write(occRel, { x: 0, y: 0, size: 1, on: false, rippleScale: W.rippleScale }, W.foamCol, dev.bool('water.waterline'), f.time, st.data, st.count);
+    this.stats.stackInstances = st.count;
+    const pk = packParticles(scene.particles, O.x, O.y, f.time, this.partData);
+    this.partData = pk.data;
+    P.particles.write(occRel, occRes, 24, pk.data, pk.count);
+    this.stats.particles = pk.count;
 
     const enc = d.createCommandEncoder({ label: 'frame' });
     if (P.pattern) {
       P.pattern.encode(enc, this.lit!.view, O.x, O.y, f.time);
     } else {
-      // ---- occluder heightmap (stacks + smoke in M4)
-      enc.beginRenderPass({ label: 'occluder', colorAttachments: [{ view: this.occ!.view, loadOp: 'clear', storeOp: 'store', clearValue: { r: -50, g: 0, b: 0, a: 0 } }] }).end();
-      // ---- underwater: submerged parts (M4)
-      enc.beginRenderPass({
+      // ---- occluder heightmap: max height of stacks (r) + smoke density (a), world aligned
+      const op = enc.beginRenderPass({ label: 'occluder', colorAttachments: [{ view: this.occ!.view, loadOp: 'clear', storeOp: 'store', clearValue: { r: -50, g: 0, b: 0, a: 0 } }] });
+      P.stacks.encode(op, 'occ');
+      P.particles.encode(op, 'occ');
+      op.end();
+      // ---- underwater: submerged parts of everything (depth = distance below surface)
+      const up = enc.beginRenderPass({
         label: 'underwater',
         colorAttachments: [
           { view: this.uC!.view, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } },
           { view: this.uD!.view, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } },
         ],
         depthStencilAttachment: { view: this.uDepth!.view, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' },
-      }).end();
-      // ---- G-buffer: sea surface (writes depth), then stacks + particles (M4)
+      });
+      P.stacks.encode(up, 'under');
+      up.end();
+      // ---- G-buffer: sea surface (writes depth), then stacks and particles (depth less)
       const gp = enc.beginRenderPass({
         label: 'gbuffer',
         colorAttachments: [
@@ -165,11 +195,19 @@ export class WebGPUBackend implements RenderBackend {
         depthStencilAttachment: { view: this.gDepth!.view, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' },
       });
       P.water.encode(gp);
+      P.stacks.encode(gp, 'gbuf');
+      P.particles.encode(gp, 'gbuf');
       gp.end();
       // ---- lighting
       const lpass = enc.beginRenderPass({ label: 'lighting', colorAttachments: [{ view: this.lit!.view, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
       P.lighting.encode(lpass);
       lpass.end();
+      // debug texture views drawn straight into the lit buffer
+      const dv = dev.str('debug.view');
+      if (dv in DEBUG_TEX_MODES) {
+        const occ = dv === 'occluder';
+        P.debug.encode(enc, this.lit!.view, this.frameUbo.buffer, occ ? this.occ!.view : this.zeroView, occ ? occRel : [0, 0, 1, 1], DEBUG_TEX_MODES[dv]);
+      }
     }
 
     // ---- post
@@ -211,7 +249,7 @@ export class WebGPUBackend implements RenderBackend {
 
   dispose() {
     const P = this.p;
-    P.post.dispose(); P.water.dispose(); P.lighting.dispose(); P.pattern?.dispose();
+    P.post.dispose(); P.water.dispose(); P.lighting.dispose(); P.stacks.dispose(); P.particles.dispose(); P.debug.dispose(); P.pattern?.dispose();
     this.frameUbo.destroy(); this.oceanUbo.destroy();
     for (const t of [this.gA, this.gN, this.gDepth, this.uC, this.uD, this.uDepth, this.occ, this.lit, this.outTex]) t?.texture.destroy();
     this.zeroTex.destroy();

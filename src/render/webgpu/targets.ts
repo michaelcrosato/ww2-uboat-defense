@@ -7,6 +7,28 @@ export const BU = {
   MAP_READ: 0x0001, MAP_WRITE: 0x0002, COPY_SRC: 0x0004, COPY_DST: 0x0008, INDEX: 0x0010, VERTEX: 0x0020,
   UNIFORM: 0x0040, STORAGE: 0x0080, INDIRECT: 0x0100, QUERY_RESOLVE: 0x0200,
 } as const;
+export const SS = { VERTEX: 0x1, FRAGMENT: 0x2, COMPUTE: 0x4 } as const;
+
+/** grow-by-doubling GPU buffer for per-frame instance / storage data */
+export class DynBuffer {
+  buffer: GPUBuffer | null = null;
+  constructor(private device: GPUDevice, private usage: number, private label: string) {}
+  /** upload `floats` floats of `data`; returns true when the GPUBuffer was (re)created */
+  write(data: Float32Array<ArrayBuffer>, floats: number): boolean {
+    const bytes = Math.max(256, floats * 4);
+    let grew = false;
+    if (!this.buffer || this.buffer.size < bytes) {
+      this.buffer?.destroy();
+      let size = Math.max(4096, this.buffer ? this.buffer.size : 0);
+      while (size < bytes) size *= 2;
+      this.buffer = this.device.createBuffer({ label: this.label, size, usage: this.usage | BU.COPY_DST });
+      grew = true;
+    }
+    if (floats > 0) this.device.queue.writeBuffer(this.buffer, 0, data, 0, floats);
+    return grew;
+  }
+  destroy() { this.buffer?.destroy(); this.buffer = null; }
+}
 
 export interface GpuTarget {
   texture: GPUTexture;

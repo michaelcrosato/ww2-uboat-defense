@@ -16,7 +16,7 @@ WebGPU additionally runs the water simulations as compute shaders.
 | M1 | Render abstraction refactor (backend-agnostic scene, WebGL2 behind an interface) | DONE | [M01](milestones/M01-render-abstraction.md) |
 | M2 | WebGPU bootstrap: device, canvas, fallback chain, present pass | DONE | [M02](milestones/M02-webgpu-bootstrap.md) |
 | M3 | WebGPU water G-buffer, lighting (sun/moon/ambient) and post | DONE | [M03](milestones/M03-webgpu-water-lighting-post.md) |
-| M4 | WebGPU sprite stacks, particles, dynamic lights + occluder shadows | TODO | [M04](milestones/M04-webgpu-stacks-particles-lights.md) |
+| M4 | WebGPU sprite stacks, particles, dynamic lights + occluder shadows | DONE | [M04](milestones/M04-webgpu-stacks-particles-lights.md) |
 | M5 | WebGPU water sims as compute shaders | TODO | [M05](milestones/M05-webgpu-compute-sims.md) |
 | M6 | Backend parity, regression test, WebGPU as default | TODO | [M06](milestones/M06-parity-and-default.md) |
 | M7 | Meta layer: items, loot, skill trees, economy, contracts, profile | TODO | [M07](milestones/M07-meta-layer.md) |
@@ -93,5 +93,5 @@ on any failure or later device loss. The active backend shows in the FPS overlay
 - Debug perf line (`debug.perf`) overlaps the bottom-left status panel. → M9
 - WebGL2: with `water.sim` on and `water.fluid` off the water pass samples an unbound dye texture (GL returns
   (0,0,0,1) → dye.a = 1 = "burning oil" inside the sim window). WebGPU binds a zero texture. → M5 (verify + fix)
-- WebGPU debug texture views `debug.view=wave|fluid|foam|occluder` not ported yet. → M5
+- WebGPU debug texture views `wave|fluid|foam` show the 1×1 zero texture until the sims exist. → M5
 - `src/audio/dsp.ts` and `mixer.ts` were written by an interrupted agent; review before use. → M8

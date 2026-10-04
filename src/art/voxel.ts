@@ -123,7 +123,8 @@ export class SliceAtlas {
   readonly albedo: Uint8Array;
   readonly normal: Uint8Array;
   private shelfX = 0; private shelfY = 0; private shelfH = 0;
-  dirty = true;
+  /** bumped on every change; each render backend re-uploads when it differs from what it last sent */
+  version = 1;
   models = new Map<string, StackModel>();
   constructor(size = 2048) {
     this.size = size;
@@ -176,7 +177,7 @@ export class SliceAtlas {
     }
     const sm: StackModel = { name: m.name, slices, length: m.nx * m.res, beam: m.ny * m.res, height: m.nz * m.zres, zMin, zMax, model: m };
     this.models.set(m.name, sm);
-    this.dirty = true;
+    this.version++;
     return sm;
   }
 }

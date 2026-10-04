@@ -17,7 +17,7 @@ export interface StackInstance {
 }
 
 export class RenderScene {
-  /** voxel slice atlas (CPU pixels; backends upload it when `dirty`) */
+  /** voxel slice atlas (CPU pixels; backends re-upload it when its `version` changes) */
   atlas = new SliceAtlas(2048);
   stacks: StackInstance[] = [];
   particles = new ParticleSystem();

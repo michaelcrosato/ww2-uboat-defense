@@ -17,7 +17,6 @@ import { ParticlesGL } from './particlesGL';
 import { MAX_WAVES } from '../../water/ocean';
 import { WaveSim } from './water/waveSim';
 import { FluidSim } from './water/fluidSim';
-import type { SliceAtlas } from '../../art/voxel';
 import { dev } from '../../core/devSettings';
 import { CAMERA_GLSL } from './glsl/common';
 import { postParams } from '../common/post';
@@ -53,7 +52,6 @@ export class WebGL2Backend implements RenderBackend {
   particles: ParticlesGL;
   wave: WaveSim;
   fluid: FluidSim;
-  private atlas: SliceAtlas | null = null;
   private debugProg: Program;
   // CPU staging for packed scene data (grown on demand by the packers)
   private stackData = new Float32Array(2048 * 20);
@@ -140,7 +138,6 @@ export class WebGL2Backend implements RenderBackend {
     this.gbuf.resize(bw, bh); this.under.resize(bw, bh); this.lit.resize(bw, bh); this.post.resize(bw, bh);
     const occRes = occluderRes();
     this.occ.resize(occRes, occRes);
-    if (this.atlas !== scene.atlas) { this.atlas = scene.atlas; this.atlas.dirty = true; }
     this.stacks.uploadAtlas(scene.atlas);
 
     // ---- ocean uniforms (origin folded into wave phases on the CPU, in double precision)
