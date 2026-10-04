@@ -351,3 +351,40 @@ export function islandArt(seed: number, radius: number): VoxelModel {
   }
   return m;
 }
+
+// ------------------------------------------------------------------ aircraft
+
+export function aircraftArt(kind: 'swordfish' | 'catalina' | 'liberator'): VoxelModel {
+  if (kind === 'swordfish') {
+    const m = new VoxelModel('ac_swordfish', 26, 30, 8, 0.5, 0.5, -6, -7.5, -1.5);
+    m.cylX(-5.5, 5, 0, 0, 0.6, (i) => (i < 4 ? '#5a6a54' : '#7a8a70'));
+    m.box(-0.6, 1.2, -7, 7, 0.4, 0.8, (i, j) => (Math.abs(j - 15) < 2 ? '#6a7a62' : '#8a9a80'));   // lower wing
+    m.box(-0.2, 1.6, -7, 7, 1.9, 2.3, '#9aaa8c');                                                      // upper wing
+    for (const y of [-4.5, 4.5]) m.line([0.6, y, 0.8], [0.8, y, 1.9], '#3a3a32');
+    m.box(-5.6, -4.6, -2.2, 2.2, 0, 0.3, '#7a8a70');                                                  // tailplane
+    m.box(-5.6, -4.8, -0.2, 0.2, 0, 1.6, '#7a8a70');
+    m.cyl(5.2, 0, 0.6, -0.3, 0.3, '#2a2a2a');                                                          // engine
+    m.set(m.vx(4.6), m.vy(0), m.vz(0.8), '#ffe8a0', VM.LAMP);
+    return m;
+  }
+  if (kind === 'catalina') {
+    const m = new VoxelModel('ac_catalina', 44, 66, 10, 0.5, 0.5, -10.5, -16.5, -1.5);
+    m.cylX(-10, 9.5, 0, 0, 1.1, (i) => (i % 9 === 0 ? '#6c7c84' : '#8a9aa2'));
+    m.box(-1.6, 1.6, -16, 16, 2.6, 3.0, (i, j) => (j < 4 || j > 61 ? '#e8ecee' : '#b8c4ca'));
+    m.box(-1.0, 1.0, -0.6, 0.6, 1.0, 2.6, '#8a9aa2');
+    for (const y of [-3, 3]) m.cyl(1.2, y, 0.8, 2.2, 3.2, '#3a3e40');
+    m.box(-10, -8.8, -3.4, 3.4, 0.4, 0.8, '#b8c4ca');
+    m.box(-10, -9, -0.25, 0.25, 0.4, 3.4, '#b8c4ca');
+    for (const y of [-14.5, 14.5]) m.box(-0.8, 0.8, y - 0.5, y + 0.5, 1.8, 2.6, '#8a9aa2');
+    m.set(m.vx(1.2), m.vy(-8), m.vz(2.2), '#ffffff', VM.LAMP);
+    return m;
+  }
+  const m = new VoxelModel('ac_liberator', 44, 70, 10, 0.5, 0.5, -10.5, -17.5, -1.5);
+  m.cylX(-10, 10, 0, 0, 1.2, (i) => (i % 10 === 0 ? '#5c646a' : '#767e84'));
+  m.box(-1.6, 1.6, -16.8, 16.8, 0.2, 0.6, (i, j) => (j < 4 || j > 65 ? '#d0d4d6' : '#9aa2a8'));
+  for (const y of [-8, -4, 4, 8]) m.cylX(0, 3, y, 0.2, 0.55, '#3a3e40');
+  m.box(-10, -8.5, -4, 4, 0.4, 0.8, '#9aa2a8');
+  for (const y of [-4, 4]) m.box(-10, -8.8, y - 0.25, y + 0.25, 0.4, 2.6, '#9aa2a8');
+  m.set(m.vx(0.6), m.vy(-9), m.vz(0.0), '#ffffff', VM.LAMP);
+  return m;
+}

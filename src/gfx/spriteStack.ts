@@ -33,6 +33,7 @@ flat out vec4 vRot;
 flat out vec4 vMisc;
 void main() {
   vec3 local = vec3(iRect.x + aQuad.x * iRect.z, iRect.y + aQuad.y * iRect.w, iPos.w);
+  if ((int(iMisc.y + 0.5) & 8) != 0) local.z = 0.0;   // flatten (ground shadows)
   vec3 w = iPos.xyz + qrot(iRot, local);
   vWorld = w; vLocal = local; vRot = iRot; vMisc = iMisc;
   vUv = mix(iUv.xy, iUv.zw, aQuad);
@@ -82,6 +83,14 @@ void main() {
   vec4 c = texture(uAtlas, vUv);
   if (c.a < 0.5) discard;
   vec4 nm = texture(uNormAtlas, vUv);
+  int flags = int(vMisc.y + 0.5);
+  if ((flags & 4) != 0) {
+    // ground shadow decal: dithered darkening of the sea
+    if (ditherHere() < 0.45) discard;
+    oAlbedo = vec4(0.015, 0.02, 0.03, MAT_WATER / 255.0);
+    oNormal = vec4(0.0, 0.0, vWorld.z, 0.0);
+    return;
+  }
   float wh = waterAt(vWorld.xy);
   if (vWorld.z < wh - 0.05) discard;
   vec3 n = normalize(qrot(vRot, nm.rgb * 2.0 - 1.0));
@@ -89,7 +98,6 @@ void main() {
   float mat = floor(nm.a * 255.0 + 0.5);
   vec3 alb = c.rgb;
   float emis = 0.0;
-  int flags = int(vMisc.y + 0.5);
   // battle damage: scorched, blackened plating in a stable pattern
   float dmg = vMisc.x;
   if (dmg > 0.0) {
@@ -124,10 +132,11 @@ void main() {
   if (vLocal.x < vMisc.z || vLocal.x > vMisc.w) discard;
   vec4 c = texture(uAtlas, vUv);
   if (c.a < 0.5) discard;
+  int flags = int(vMisc.y + 0.5);
+  if ((flags & 4) != 0) discard;
   float wh = waterAt(vWorld.xy);
   float dep = wh - vWorld.z;
   if (dep < 0.0) discard;
-  int flags = int(vMisc.y + 0.5);
   vec3 col = c.rgb;
   // x-ray: own submerged boat stays readable as a tinted silhouette
   if ((flags & 2) == 2) { col = mix(col, vec3(0.75, 0.95, 0.85), 0.35); dep = min(dep, 4.0); }
@@ -145,7 +154,7 @@ out vec4 o;
 void main() {
   if (vLocal.x < vMisc.z || vLocal.x > vMisc.w) discard;
   vec4 c = texture(uAtlas, vUv);
-  if (c.a < 0.5) discard;
+  if (c.a < 0.5 || (int(vMisc.y + 0.5) & 4) != 0) discard;
   o = vec4(vWorld.z, 0.0, 0.0, 0.0);
 }`;
 

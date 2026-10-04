@@ -23,7 +23,7 @@ await server.listen();
 const base = server.resolvedUrls.local[0].replace(/\/$/, '');
 const browser = await chromium.launch({
   executablePath: '/opt/pw-browsers/chromium',
-  args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist', '--enable-webgl'],
+  args: ['--enable-unsafe-webgpu', '--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist', '--enable-webgl'],
 });
 const page = await browser.newPage({ viewport: { width: W, height: H } });
 const errors = [];
