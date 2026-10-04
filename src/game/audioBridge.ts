@@ -134,7 +134,8 @@ export class AudioBridge {
     for (const [id, h] of this.runs) if (!seen.has(id)) { h.stop(0.5); this.runs.delete(id); }
     // music
     let state: Parameters<typeof audio.setMusic>[0] = 'calm';
-    if (m.over) state = m.outcome === 'victory' ? 'victory' : m.outcome === 'withdrew' ? 'calm' : 'defeat';
+    if (m.spectator) state = 'menu';
+    else if (m.over) state = m.outcome === 'victory' ? 'victory' : m.outcome === 'withdrew' ? 'calm' : 'defeat';
     else if (w.time - this.combatT < 12) state = 'combat';
     else if (w.time - this.tensionT < 15 || this.enemyNear()) state = 'tension';
     audio.setMusic(state);

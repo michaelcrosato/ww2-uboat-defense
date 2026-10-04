@@ -56,6 +56,8 @@ export class World {
   rng = new Rng(1);
   playerSide: Side = 'allied';
   player: Vessel | null = null;
+  /** attract mode: nobody to hide contacts from */
+  spectator = false;
   projectiles!: Projectiles;
   sensors!: Sensors;
   lights: { add: (l: Light) => void };
@@ -102,6 +104,7 @@ export class World {
 
   /** fog of war for rendering enemy vessels */
   isVisibleToPlayer(v: Vessel): boolean {
+    if (this.spectator) return true;
     if (v.side === this.playerSide || v.isPlayer) return true;
     if (!dev.bool('game.fogOfWar') || dev.bool('debug.reveal')) return true;
     if (!v.alive) return true;

@@ -77,15 +77,16 @@ export class Hud {
     if (ts > 1) drawText(g, `TIME x${ts}`, W / 2, 30, C.warn, { align: 'center' });
     if (dev.bool('display.showFps')) drawText(g, `${Math.round(this.fps)} fps ${this.backend ? backendLabel(this.backend.info) : ''}`.trimEnd(), W - 4, H - 10, C.dim, { align: 'right' });
     if (dev.bool('debug.perf') && this.backend) {
-      // right-aligned above the FPS so it never covers the status panel
+      // short right-aligned lines under the chart: clear of the status panel, ability bar and messages
       const R = this.backend.stats, P = this.perf;
-      const passes = R.passMs ? Object.entries(R.passMs).map(([k, v]) => `${k} ${v.toFixed(1)}`).join('  ') : '';
       const lines = [
-        `slices ${R.stackInstances}  particles ${R.particles}  lights ${R.lights}  bodies ${w.vessels.length}  shells ${w.projectiles.shells.length}`,
-        `cpu ${P ? P.cpuMs.toFixed(1) : '-'} ms  steps ${P?.steps ?? '-'}  gpu ${R.gpuMs !== undefined ? R.gpuMs.toFixed(1) + ' ms' : 'n/a'}  voices ${audio.ready ? audio.voiceCount : 'off'}`,
+        `slices ${R.stackInstances}  ptcl ${R.particles}`, `lights ${R.lights}  bodies ${w.vessels.length}  shells ${w.projectiles.shells.length}`,
+        `cpu ${P ? P.cpuMs.toFixed(1) : '-'} ms  steps ${P?.steps ?? '-'}`,
+        `gpu ${R.gpuMs !== undefined ? R.gpuMs.toFixed(1) + ' ms' : 'n/a'}  voices ${audio.ready ? audio.voiceCount : 'off'}`,
       ];
-      if (passes) lines.push(passes);
-      lines.forEach((l, i) => drawText(g, l, W - 4, H - 20 - i * 10, C.dim, { align: 'right' }));
+      const passes = R.passMs ? Object.entries(R.passMs).map(([k, v]) => `${k} ${v.toFixed(1)}`) : [];
+      for (let k = 0; k < passes.length; k += 2) lines.push(passes.slice(k, k + 2).join('  '));
+      lines.forEach((l, i) => drawText(g, l, W - 4, 140 + i * 10, C.dim, { align: 'right' }));
     }
   }
 

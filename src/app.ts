@@ -24,6 +24,8 @@ export interface MissionHooks {
   loadout?: (AbilityId | null)[];
   abilities?: Partial<Record<AbilityId, AbilityState>>;
   onEnd?: (m: Mission) => void;
+  /** attract mode: AI-only mission, drifting camera, no HUD */
+  spectator?: boolean;
 }
 
 const DEFAULT_LOADOUT: Record<'allied' | 'axis', AbilityId[]> = {
@@ -46,6 +48,8 @@ export class App {
   private acc = 0;
   private realTime = 0;
   private hooks: MissionHooks = {};
+  /** arguments of the last startMission (restart) */
+  lastStart: { overrides: Record<string, number | string | boolean>; hooks: MissionHooks } = { overrides: {}, hooks: {} };
   onFrame: ((dt: number) => void)[] = [];
   /** extra pause sources (menus open over the mission) */
   menuOpen = false;
@@ -86,7 +90,8 @@ export class App {
   startMission(overrides: Record<string, number | string | boolean> = {}, hooks: MissionHooks = {}) {
     this.endMission();
     this.hooks = hooks;
-    const m = new Mission(this.scene, arena, overrides);
+    this.lastStart = { overrides, hooks };
+    const m = new Mission(this.scene, arena, overrides, { spectator: hooks.spectator });
     this.mission = m;
     this.backend.resetSims();
     this.scene.particles.n = 0;
@@ -100,6 +105,11 @@ export class App {
       this.player.aimX = p.pos.x + 200; this.player.aimY = p.pos.y;
     }
     this.cam.zoom = this.cam.targetZoom = dev.num('camera.zoom');
+    if (m.spectator) {
+      this.cam.x = m.convoy.x; this.cam.y = m.convoy.y;
+      this.cam.zoom = this.cam.targetZoom = 0.6;
+      this.attractT = 0;
+    }
     this.hud.attach(m);
     this.audioBridge = new AudioBridge(m, this.cam);
     this.paused = false;
@@ -211,6 +221,7 @@ export class App {
       // camera (frozen test frames settle it at once so shots don't depend on the frame count)
       const camDt = this.frozen ? 60 : dt;
       if (pc) pc.updateCamera(camDt);
+      else if (m.spectator) this.attractCamera(m, dt);
       this.cam.update(camDt, dev.num('camera.shake'));
       // render
       m.world.submit(halted ? 0 : dt * tempo);
@@ -235,6 +246,17 @@ export class App {
     this.perf.cpuMs = this.perf.cpuMs * 0.9 + (performance.now() - t0) * 0.1;
   }
   private endFired = false;
+  private attractT = 0;
+
+  /** slow drift around the convoy's centre, a little ahead of it */
+  private attractCamera(m: Mission, dt: number) {
+    this.attractT += dt;
+    const c = m.convoy, a = this.attractT * 0.045;
+    const alive = c.alive;
+    let cx = c.x, cy = c.y;
+    if (alive.length) { cx = 0; cy = 0; for (const s of alive) { cx += s.pos.x; cy += s.pos.y; } cx /= alive.length; cy /= alive.length; }
+    this.cam.follow(cx + Math.cos(a) * 140 + 80, cy + Math.sin(a) * 90, dt, 0.6);
+  }
 
   /** run the simulation without rendering (testing / skipping transit) */
   fastForward(seconds: number, hz = 30): string[] {

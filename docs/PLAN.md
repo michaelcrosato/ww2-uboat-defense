@@ -21,7 +21,7 @@ WebGPU additionally runs the water simulations as compute shaders.
 | M6 | Backend parity, regression test, WebGPU as default | DONE | [M06](milestones/M06-parity-and-default.md) |
 | M7 | Meta layer: items, loot, skill trees, economy, contracts, profile | DONE | [M07](milestones/M07-meta-layer.md) |
 | M8 | Procedural audio engine + game integration | DONE | [M08](milestones/M08-audio.md) |
-| M9 | Menus & UI shell: title, arena setup, dev settings, pause, controls, touch | TODO | [M09](milestones/M09-menus-ui-shell.md) |
+| M9 | Menus & UI shell: title, arena setup, dev settings, pause, controls, touch | DONE | [M09](milestones/M09-menus-ui-shell.md) |
 | M10 | Port & progression UI, contracts → missions, loot drops, save/load | TODO | [M10](milestones/M10-port-progression.md) |
 | M11 | Gameplay completion & tuning, dev-settings wiring audit, weather visuals | TODO | [M11](milestones/M11-gameplay-tuning.md) |
 | M12 | Visual polish, ship art expansion, performance | TODO | [M12](milestones/M12-visual-polish.md) |
@@ -93,10 +93,15 @@ on any failure or later device loss. The active backend shows in the FPS overlay
 - Legendary powers with no gameplay hook yet: pow_flare_aura, pow_ram_shield, pow_convoy_heal, pow_silent_crit,
   pow_ghost_decoy, pow_hunter_reload; keystone flag ks_shepherd is stat-only. → M11
 - Camera does not snap after `fastForward` (tests only; `?freeze=1` frames do settle it). → M11
-- Debug perf lines (`debug.perf`) overlap the ability bar on narrow screens (debug only). → M9
 - Burning hulls leak "burning oil" over their whole force-raster quad, giving a rectangular fire slick
   around the ship (both backends; `fire` term in the force FS needs a footprint-shaped falloff). → M11
 - WebGL2: with `water.sim` on and `water.fluid` off the water pass samples an unbound dye texture (GL returns
   (0,0,0,1) → dye.a = 1 = "burning oil" inside the sim window). WebGPU binds a zero texture. → M11 (verify + fix)
 - Headless runs simulate only ~2–5 s of game time per 15 s real time (WebGPU gets further than WebGL2), so
   live screenshots differ in particle counts / wake age; use `?scene=lookdev` / `tools/compare.mjs` for parity.
+- Menus: gamepad navigation is code-complete but untested on hardware (headless cannot simulate pads); the
+  touch overlay was only checked visually with `?dev.controls.touch=on` (no real touch device). → M13
+- The headline font (`--font-head`: Impact/Haettenschweiler…) is not installed headless, so screenshots show the
+  sans fallback; a bundled stencil webfont would need the user's OK (asset). → M12
+- Touch overlay duplicates the HUD ability bar (both visible on touch devices). → M12
+- Key taps shorter than one frame can merge in slow headless runs (two taps → one press); real browsers are fine.

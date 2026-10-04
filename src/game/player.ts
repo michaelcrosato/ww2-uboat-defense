@@ -82,7 +82,8 @@ export class PlayerControl {
     const scheme = dev.str('controls.scheme');
     const [mx, my] = inp.moveAxes();
     const padSteer = inp.usingPad && (Math.abs(inp.lx) + Math.abs(inp.ly) > 0);
-    if (scheme === 'direct' || (padSteer && scheme === 'direct')) {
+    // touch steering is a virtual stick, so it always steers directly
+    if (scheme === 'direct' || inp.device === 'touch' || (padSteer && scheme === 'direct')) {
       if (Math.abs(mx) + Math.abs(my) > 0.1) {
         v.course = Math.atan2(my, mx);
         v.speedCmd = clamp(Math.hypot(mx, my), 0, 1);

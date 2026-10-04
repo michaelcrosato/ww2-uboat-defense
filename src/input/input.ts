@@ -167,7 +167,7 @@ export class Input {
     this.gestured = true;
     for (const f of this.onGesture) f();
   }
-  private setDevice(d: Device) { this.device = d; }
+  setDevice(d: Device) { this.device = d; }
 
   get padKind(): 'ps' | 'xbox' | 'pad' {
     const id = this.padId.toLowerCase();
@@ -233,6 +233,10 @@ export class Input {
   released(a: Action): boolean { for (const c of this.bindings[a]) if (this.releasedCodes.has(c)) return true; return false; }
   codeDown(c: string) { return this.codes.has(c); }
   codePressed(c: string) { return this.pressedCodes.has(c); }
+  /** press + release an action through its first binding (touch buttons) */
+  tapAction(a: Action) { const c = this.bindings[a][0]; if (c) { this.queueDown.push(c); this.queueUp.push(c); } }
+  holdAction(a: Action, down: boolean) { const c = this.bindings[a][0]; if (c) (down ? this.queueDown : this.queueUp).push(c); }
+  setBindings(a: Action, codes: string[]) { this.bindings[a] = codes.filter(Boolean); this.save(); }
   /** inject from touch UI or tests */
   injectDown(code: string) { this.queueDown.push(code); }
   injectUp(code: string) { this.queueUp.push(code); }

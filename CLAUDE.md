@@ -42,7 +42,9 @@ the fast-forward hook in `--eval`: `__app.fastForward(300)` runs 300 s of simula
 rendering and returns the message log. `window.__app` is the App instance (mission, world, player).
 
 URL parameters override any arena setting for testing: `/?side=uboat&hour=2&weather=fog&seaState=6`
-(keys from `src/game/arenaConfig.ts` without the `arena.` prefix). Test hooks: `?dev.<key>=<v>` sets a
+(keys from `src/game/arenaConfig.ts` without the `arena.` prefix).
+Without arena params the game opens the title screen (attract mode behind it). `?menu=title|arena|dev|settings|
+controls|credits|pause|end` (+ `&tab=Lighting`) opens a screen directly; `window.__shell` is the UI shell. Test hooks: `?dev.<key>=<v>` sets a
 dev setting without persisting it (e.g. `?dev.water.sim=false&dev.display.showFps=false`),
 `?fxseed=1` seeds the cosmetic RNG, `?freeze=1` renders without ever stepping world/sims/particles
 (camera settles at once), `?renderer=webgpu|webgl2|auto` picks the backend (`auto` = WebGL2 until M6).
@@ -68,7 +70,7 @@ shows CPU ms, sim steps and per-pass GPU ms (timestamp queries) above the FPS. R
 | Physics | `src/physics/physics.ts` (Rapier world, groups, queries), `hydro.ts` (buoyancy columns, drag, thrust, rudder, ballast) | `@dimforge/rapier3d-compat` **0.21.0 pinned** |
 | Game | `src/game/world.ts` (hub + event bus), `vessel.ts`, `vesselClasses.ts`, `weapons.ts`, `effects.ts`, `sensors.ts`, `convoy.ts`, `ai/escort.ts`, `ai/uboat.ts`, `aircraft.ts`, `mission.ts`, `player.ts`, `abilities.ts`, `environment.ts`, `theaters.ts` | AI and HUD read only the side's contact picture (fog of war) |
 | Meta | `src/meta/stats.ts` (STAT_KEYS + StatBlock), `types.ts` (Item, Contract, MissionResult, CaptainState…), `abilities.ts` (25 abilities + `resolveAbility`), `items.ts` (bases, affix tiers, powers, uniques, `rollItem`, `rerollAffix`), `loot.ts` (`rollDrops`), `tree.ts` (both 85-node trees), `economy.ts` (vessels, components, XP), `contracts.ts` (mutators, `generateContracts`, `evaluateContract`, `ARENA_SPEC`), `profile.ts` (captain ops, save/load), `index.ts` | pure logic, Node-runnable; tests `npm test` (`src/meta/meta.test.ts`) |
-| UI | `src/ui/hud.ts` (pixel HUD on a 2D canvas), `pixelFont.ts` (5×7 font from my-3d2dge), `style.css` | DOM menus = milestones M9/M10 |
+| UI | `src/ui/hud.ts` (pixel HUD on a 2D canvas), `pixelFont.ts` (5×7 font from my-3d2dge), `style.css`, `dom.ts` (`h()`, `Ui` screen stack + spatial focus nav), `widgets.ts` (`renderSetting` from schemas), `shell.ts` (boot flow, hotkeys, attract mode), `screens/*`, `touch.ts` | Port/progression screens = M10 |
 | Input | `src/input/input.ts` | actions + rebindable bindings, gamepad (PS5 glyphs), rumble |
 | Audio | `src/audio/audio.ts` (`audio` engine: play/loop/music/environment/underwater), `sounds.ts` (47 synths + 11 loops), `music.ts` (procedural stems), `dsp.ts` (noise/IR banks, Patch), `mixer.ts` (buses, limiter), `lab.html`/`lab.ts` (self-test); `src/game/audioBridge.ts` (events → sounds) | lab: `node tools/shot.mjs --url /src/audio/lab.html --wait 2000 --eval "window.__audioTest"` |
 

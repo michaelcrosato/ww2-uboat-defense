@@ -51,7 +51,11 @@ export class Mission {
   private escapeT = 0;
   readonly cfg: Record<string, number | string | boolean>;
 
-  constructor(scene: RenderScene, arena: ConfigStore, overrides: Record<string, number | string | boolean> = {}) {
+  /** attract mode: no player vessel, every ship AI, fog of war off */
+  readonly spectator: boolean;
+
+  constructor(scene: RenderScene, arena: ConfigStore, overrides: Record<string, number | string | boolean> = {}, opts: { spectator?: boolean } = {}) {
+    this.spectator = !!opts.spectator;
     const cfg = { ...arena.snapshot(), ...overrides };
     this.cfg = cfg;
     const num = (k: string) => Number(cfg[k]);
@@ -77,6 +81,7 @@ export class Mission {
     w.sensors = new Sensors(w);
     this.side = str('arena.side') === 'uboat' ? 'axis' : 'allied';
     w.playerSide = this.side;
+    w.spectator = this.spectator;
     const L = num('arena.size') * 1000;
     w.bounds = { x0: -L / 2 - 1500, y0: -L * 0.35 - 1500, x1: L / 2 + 1500, y1: L * 0.35 + 1500 };
 
@@ -114,7 +119,7 @@ export class Mission {
     const nE = num('arena.escorts');
     const escortClasses = ['corvette', 'destroyer', 'frigate', 'corvette'];
     let si = 0;
-    if (this.side === 'allied') {
+    if (this.side === 'allied' && !this.spectator) {
       const cls = VESSELS[str('arena.escortClass')] ?? VESSELS.destroyer;
       const st = stations[si++];
       const p = this.stationPos(st);
@@ -144,7 +149,7 @@ export class Mission {
       if (u.sub) u.sub.orderedDepth = depth;
       return u;
     };
-    if (this.side === 'axis') {
+    if (this.side === 'axis' && !this.spectator) {
       const u = spawnU(0, true);
       u.isPlayer = true;
       w.player = u;

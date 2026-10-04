@@ -65,3 +65,42 @@ plus a secondary touch overlay. Screens are generated from the config schemas wh
 `Menus and UI shell: title, arena setup, dev settings, pause, controls, touch`
 
 ## Notes (fill in when done)
+**Done.** What changed:
+- `src/ui/dom.ts`: `h()` hyperscript, `Ui` screen stack (`push/pop/replace/clear/popTo`, screens hide the one
+  below unless `overlay`), own focus (`.focused` on `[data-nav]`; browser focus is blurred so Enter/Space click
+  exactly once), spatial navigation (edge distance + cross-axis gap penalty), held-direction auto-repeat, left
+  stick navigation, `nav(el, {adjust, accept})` hooks, in-screen modal `confirm()`, mouse hover focuses, UI sounds
+  (`ui_hover/click/back/error`).
+- `src/ui/widgets.ts`: `renderSetting(store, def)` → toggle / slider (+`fmt`/unit label) / ◀ cycle ▶ select /
+  colour row; `showIf` + "changed" dot; `bindRows` keeps rows live; `tabs`, `helpPanel` (follows the focused
+  item's `data-help`), `hintBar` (glyphs for the active device), `RELOAD_KEYS` (`display.renderer`).
+- Screens (`src/ui/screens/`): title (+credits), arena setup (side cards, Mission/Environment/Forces tabs, class
+  row follows the side, Randomize/Reset/Launch), dev settings (right-side panel so the game stays visible,
+  tab per group, presets, label/key search, reset group with confirm, "reload to apply" note + button), player
+  settings (Display/Audio/Controls subset + fullscreen), pause, controls rebinding (2 key slots + 1 pad slot, capture
+  incl. mouse buttons + wheel on the modal, Delete clears, conflicts, reset all, pad glyphs follow the device),
+  mission-end summary.
+- `src/ui/shell.ts`: boot flow + hotkeys. F1 / Select+Options toggles dev settings, F11 / Alt+Enter fullscreen
+  (direct keydown so it counts as a user gesture), `pause` action and window blur open the pause menu.
+  `app.menuOpen` is true while a menu covers a real mission *and on the frame it closes*, so the closing key
+  never reaches gameplay. `window.__shell` for tests.
+- Attract mode: `Mission(…, { spectator: true })` spawns no player vessel, `World.spectator` disables fog of war,
+  the App drifts the camera around the convoy centroid, `AudioBridge` plays the menu stem; a finished attract
+  mission restarts with the next look (4 presets: dusk, moonlit night, Mediterranean morning, fog).
+- `src/ui/touch.ts`: virtual stick (left 45 %, anchored at the touch point) → `input.touchAxes`, aim zone sets
+  the reticle and a short tap fires, buttons for abilities 1–6 (mirror the loadout/cooldowns), ping, charge,
+  depth ±, time ±, pause via new `Input.tapAction/holdAction` (first binding of the action). Touch steering is
+  always direct (`player.ts`). Hidden on desktop unless `controls.touch = on`.
+- `main.ts`: no params → title over attract; arena params (or `menu=pause|end`) → straight into a mission (all
+  old test URLs still work); `?menu=title|arena|dev|settings|controls|credits|pause|end&tab=<group>`.
+- HUD: `debug.perf` lines are now short right-aligned lines under the chart (known issue fixed).
+
+Acceptance: screenshots of title, arena, dev (Lighting + Water), pause over a mission, controls, settings and the
+touch overlay at 1280×720 and 800×600 (`check-output/m9/`, 0 page errors). Keyboard only: from the title
+`Enter, ↓×6, →×3, Enter` reaches Launch and starts a commanded mission (`__app.mission.spectator === false`).
+Live change: `?hour=21&menu=dev&tab=Lighting`, focus Light bands, ←: `light.bands` 7 → 4 and the water
+posterizes immediately. Esc pauses (sim halts, `menuOpen`), Esc resumes. Gamepad path (not testable headless):
+`Input.pollPad` → `pressed('menuUp…')`/`lx,ly` → `Ui.update/stickNav`, Pad8+Pad9 → dev settings.
+
+Follow-ups: Port button stays disabled until M10 (`shell.open('port')` to add); the mission-end screen is the
+temporary debrief that M10 replaces.
