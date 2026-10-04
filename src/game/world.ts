@@ -35,7 +35,7 @@ export interface WorldEvents extends Record<string, unknown> {
   torpedoHit: { by: Vessel | null; target: Vessel; dud: boolean };
   ping: { by: Vessel; bearing: number; arc: number };
   echo: { by: Vessel; x: number; y: number; doppler: number; strength: number };
-  message: { text: string; side?: Side; kind?: 'radio' | 'crew' | 'alert' | 'loot' | 'info'; important?: boolean };
+  message: { text: string; side?: Side; kind?: 'radio' | 'crew' | 'alert' | 'loot' | 'info'; important?: boolean; color?: string };
   lootPicked: { item: Item; by: Vessel };
   starShell: { x: number; y: number };
   gunFired: { by: Vessel; caliber: number; x: number; y: number };

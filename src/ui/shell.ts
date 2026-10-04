@@ -15,8 +15,12 @@ import { settingsScreen } from './screens/settings';
 import { pauseScreen } from './screens/pause';
 import { controlsScreen } from './screens/controls';
 import { missionEndScreen } from './screens/missionEnd';
+import { factionScreen, portScreen } from './screens/port';
+import { afterActionScreen } from './screens/afterAction';
+import { Career } from '../game/career';
+import type { Contract } from '../meta/index.ts';
 
-export type MenuId = 'title' | 'arena' | 'dev' | 'settings' | 'controls' | 'credits' | 'pause' | 'end';
+export type MenuId = 'title' | 'arena' | 'dev' | 'settings' | 'controls' | 'credits' | 'pause' | 'end' | 'port' | 'faction';
 
 /** attract-mode looks, picked at random each time the backdrop restarts */
 const ATTRACT: Record<string, number | string | boolean>[] = [
@@ -29,6 +33,9 @@ const ATTRACT: Record<string, number | string | boolean>[] = [
 export class Shell {
   readonly ui: Ui;
   readonly touch: TouchOverlay;
+  readonly career = new Career();
+  /** what the current mission counts as: a contract, arena free play, or a URL test mission */
+  private mode: 'career' | 'arena' | 'test' = 'test';
   private attractIdx = Math.floor(Math.random() * ATTRACT.length);
 
   constructor(readonly app: App) {
@@ -76,22 +83,46 @@ export class Shell {
       case 'credits': this.ui.push(creditsScreen(this)); return;
       case 'pause': if (this.playing) this.ui.push(pauseScreen(this)); return;
       case 'end': if (this.app.mission) this.ui.push(missionEndScreen(this, this.app.mission)); return;
+      case 'faction': this.ui.push(factionScreen(this, () => this.open('port'))); return;
+      case 'port':
+        this.ensureBackdrop();
+        if (!this.career.faction) this.open('faction');
+        else this.ui.push(portScreen(this));
+        return;
     }
   }
 
   /** start a mission from the arena store (+ overrides); menus close */
-  launch(overrides: Record<string, number | string | boolean> = {}) {
+  launch(overrides: Record<string, number | string | boolean> = {}, mode: 'arena' | 'test' = 'arena') {
+    this.mode = mode;
     this.ui.clear();
     this.app.startMission(overrides, { onEnd: (m) => this.onMissionEnd(m) });
     this.app.paused = false;
   }
+  /** fly a contract with the active captain (stats, abilities, mutators, loot drops) */
+  launchContract(k: Contract) {
+    this.mode = 'career';
+    this.ui.clear();
+    const { overrides, hooks } = this.career.contractMission(k);
+    this.app.startMission(overrides, { ...hooks, onEnd: (m) => this.onMissionEnd(m) });
+    this.app.paused = false;
+  }
   restart() { const ls = this.app.lastStart; this.ui.clear(); this.app.startMission(ls.overrides, ls.hooks); }
-  abandon() { this.app.endMission(); this.openTitle(); }
+  abandon() {
+    const career = this.mode === 'career';
+    this.career.active = null;
+    this.app.endMission();
+    this.openTitle();
+    if (career) this.open('port');
+  }
 
   private onMissionEnd(m: Mission) {
     if (this.app.mission !== m || m.spectator) return;
     this.ui.clear();
-    this.ui.push(missionEndScreen(this, m));
+    if (this.mode === 'career') { this.ui.push(afterActionScreen(this, this.career.finish(m, false))); return; }
+    // arena free play earns the side's captain half experience (URL test missions earn nothing)
+    const xp = this.mode === 'arena' ? this.career.finish(m, true).summary.xp : 0;
+    this.ui.push(missionEndScreen(this, m, xp));
   }
 
   toggleDev() {

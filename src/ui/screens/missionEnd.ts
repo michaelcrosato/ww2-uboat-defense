@@ -7,7 +7,7 @@ import { button, hintBar } from '../widgets';
 
 const OUTCOME: Record<string, string> = { victory: 'VICTORY', defeat: 'DEFEAT', sunk: 'LOST WITH ALL HANDS', withdrew: 'WITHDREW' };
 
-export function missionEndScreen(shell: Shell, m: Mission): UiScreen {
+export function missionEndScreen(shell: Shell, m: Mission, xp = 0): UiScreen {
   const r = m.result();
   const mins = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   const pct = (x: number) => Math.round(x * 100) + '%';
@@ -24,6 +24,7 @@ export function missionEndScreen(shell: Shell, m: Mission): UiScreen {
     ['Torpedoes fired', String(r.torpedoesFired)], ['Torpedo hits', `${r.torpedoHits}${r.torpedoesFired ? ` (${pct(r.torpedoHits / r.torpedoesFired)})` : ''}`],
   ];
   lines.push(['Time in action', mins(r.durationSec)], ['Hull damage', pct(r.playerHullDamage)], ['Loot recovered', String(r.lootCollected.length)]);
+  if (xp) lines.push(['Captain experience (free play)', `+${xp.toLocaleString('en-GB')} XP`]);
   const hints = hintBar(shell.app.input);
   const el = h('div', { class: 'screen center dim' },
     h('div', { class: 'panel end ' + r.outcome },

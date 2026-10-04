@@ -5,7 +5,7 @@
 import type { AbilityId, CaptainState, Contract, Faction, Item, MissionResult, Profile, Slot } from './types.ts';
 import { StatBlock } from './stats.ts';
 import { ABILITIES, MAX_RANK, MODIFIER_RANK } from './abilities.ts';
-import { itemStats, rollItem, SLOTS } from './items.ts';
+import { itemStats, rerollAffix, rerollCost, rollItem, SLOTS } from './items.ts';
 import { rollDrops, type DropSource } from './loot.ts';
 import { TREES, canAllocate, canRefund, treeStats } from './tree.ts';
 import { LEVEL_CAP, MAX_TIER, component, componentStats, levelGrants, levelStats, repairCost, starterVessel, upgradeCost, vesselOffer, xpForLevel } from './economy.ts';
@@ -100,7 +100,14 @@ export function addLoot(c: CaptainState, items: Item[]): number {
   return funds;
 }
 
-export function applyMissionResult(p: Profile, faction: Faction, contract: Contract | null, r: MissionResult, rng: Rng): MissionSummary {
+export interface ApplyOpts {
+  /** sinkings already dropped crates in the mission (their items arrive via `r.lootCollected`) */
+  inMissionDrops?: boolean;
+  /** arena free play: half XP, no pay, no loot, no contract board change */
+  freePlay?: boolean;
+}
+
+export function applyMissionResult(p: Profile, faction: Faction, contract: Contract | null, r: MissionResult, rng: Rng, opts: ApplyOpts = {}): MissionSummary {
   const c = p[faction];
   const stats = computeStats(c);
   let payout: number, xp: number, evaluation: ContractEvaluation | null = null;
@@ -112,6 +119,12 @@ export function applyMissionResult(p: Profile, faction: Faction, contract: Contr
     const base = faction === 'escort' ? (r.merchantsTotal - r.merchantsLost) * 120 + r.uboatsSunk * 600 : r.tonnageSunk * 0.08 + r.escortsSunk * 600;
     payout = Math.round(base * stats.mul('funds_pct') * (r.playerSunk ? 0.25 : 1));
     xp = Math.round((100 + payout * 0.2) * stats.mul('xp_pct'));
+  }
+  if (opts.freePlay) {
+    xp = Math.round(xp * 0.5);
+    const levelsGained = addXp(c, xp);
+    c.record.patrols++;
+    return { evaluation: null, payout: 0, xp, levelsGained, loot: [], salvaged: 0 };
   }
   c.funds += payout;
   const levelsGained = addXp(c, xp);
@@ -126,7 +139,8 @@ export function applyMissionResult(p: Profile, faction: Faction, contract: Contr
   const lootFind = stats.get('loot_find_pct');
   const mult = contract ? contract.mutators.reduce((m, x) => m * x.lootMult, 1) : 1;
   const loot: Item[] = [...r.lootCollected];
-  if (faction === 'uboat') for (const s of r.shipsSunk) loot.push(...rollDrops(rng, { faction, source: SOURCE_OF[s.kind] ?? 'merchant', ilvl, lootFind, mult }));
+  if (opts.inMissionDrops) { /* sinkings dropped crates during the mission */ }
+  else if (faction === 'uboat') for (const s of r.shipsSunk) loot.push(...rollDrops(rng, { faction, source: SOURCE_OF[s.kind] ?? 'merchant', ilvl, lootFind, mult }));
   else for (let i = 0; i < r.uboatsSunk; i++) loot.push(...rollDrops(rng, { faction, source: 'uboat', ilvl, lootFind, mult }));
   if (contract && evaluation?.success) loot.push(...rollDrops(rng, { faction, source: 'contract', ilvl, lootFind, mult }));
   const salvaged = addLoot(c, loot);
@@ -147,6 +161,19 @@ export function equip(c: CaptainState, uid: string): boolean {
   const prev = c.equipped[it.slot];
   if (prev) c.inventory.push(prev);
   c.equipped[it.slot] = it;
+  return true;
+}
+/** shipyard crafting: re-roll one affix of an owned item (inventory or equipped) for funds */
+export function rerollItem(c: CaptainState, uid: string, index: number, rng: Rng): boolean {
+  const inv = c.inventory.findIndex((x) => x.uid === uid);
+  const slot = (Object.keys(c.equipped) as Slot[]).find((s) => c.equipped[s]?.uid === uid);
+  const item = inv >= 0 ? c.inventory[inv] : slot ? c.equipped[slot] : undefined;
+  if (!item || item.rarity === 'unique' || index < 0 || index >= item.affixes.length) return false;
+  const cost = rerollCost(item);
+  if (c.funds < cost) return false;
+  c.funds -= cost;
+  const next = rerollAffix(item, index, rng);
+  if (inv >= 0) c.inventory[inv] = next; else c.equipped[slot!] = next;
   return true;
 }
 export function unequip(c: CaptainState, slot: Slot): boolean {

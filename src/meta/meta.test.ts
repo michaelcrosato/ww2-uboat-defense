@@ -12,7 +12,7 @@ import { COMPONENTS, componentStats, upgradeCost, xpForLevel, LEVEL_CAP } from '
 import { ARENA_SPEC, MUTATORS, evaluateContract, generateContracts, isValidArenaValue } from './contracts.ts';
 import {
   addXp, allocateNode, applyMissionResult, buyUpgrade, computeStats, equip, loadProfile, newCaptain, newProfile,
-  rankUpAbility, refundNode, saveProfile, setLoadout, setModifier, unequip,
+  rankUpAbility, refundNode, rerollItem, saveProfile, setLoadout, setModifier, unequip,
 } from './profile.ts';
 import type { Faction, MissionResult, Rarity, SkillTree } from './types.ts';
 
@@ -272,4 +272,30 @@ test('profile: stats, missions, loadout, tree, save/load', () => {
   saveProfile(p, store);
   const back = loadProfile(store);
   assert.deepEqual(back, JSON.parse(JSON.stringify(p)));
+});
+
+test('profile: in-mission drops, free play, shipyard re-roll', () => {
+  const rng = new Rng(77);
+  const p = newProfile(9);
+  const c = p.uboat;
+  // in-mission drops: only the collected crates arrive (no extra sinking rolls)
+  const picked = rollItem(rng, { faction: 'uboat', ilvl: 10, rarity: 'rare' });
+  const ships = Array.from({ length: 6 }, (_, i) => ({ kind: 'tanker', grt: 9000, name: 'S' + i }));
+  const contract = { ...c.contracts[0], objectives: c.contracts[0].objectives.map((o) => ({ ...o, optional: true })) };
+  const sum = applyMissionResult(p, 'uboat', contract, result({ side: 'uboat', tonnageSunk: 54000, shipsSunk: ships, lootCollected: [picked], outcome: 'defeat' }), rng, { inMissionDrops: true });
+  assert.deepEqual(sum.loot.map((x) => x.uid), [picked.uid]);
+  // free play: half XP, no pay, nothing else changes
+  const funds = c.funds, inv = c.inventory.length, board = c.contracts.map((x) => x.id).join();
+  const fp = applyMissionResult(p, 'uboat', null, result({ side: 'uboat', tonnageSunk: 20000, outcome: 'victory' }), rng, { freePlay: true });
+  assert.ok(fp.xp > 0 && fp.payout === 0 && fp.loot.length === 0);
+  assert.equal(c.funds, funds); assert.equal(c.inventory.length, inv); assert.equal(c.contracts.map((x) => x.id).join(), board);
+  // re-roll costs funds and bumps the counter
+  const it = rollItem(rng, { faction: 'uboat', ilvl: 20, rarity: 'rare' });
+  c.inventory.push(it);
+  c.funds = 0;
+  assert.ok(!rerollItem(c, it.uid, 0, rng), 'cannot afford');
+  c.funds = 1e6;
+  assert.ok(rerollItem(c, it.uid, 0, rng));
+  assert.equal(c.inventory.find((x) => x.uid === it.uid)!.rerolls, 1);
+  assert.ok(c.funds < 1e6);
 });

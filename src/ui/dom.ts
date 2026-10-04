@@ -49,13 +49,23 @@ export interface UiScreen {
 }
 
 /** per-element behaviour beyond a click: left/right adjust, custom accept */
-export interface NavHooks { adjust?: (dir: number) => void; accept?: () => void }
+export interface NavHooks {
+  adjust?: (dir: number) => void;
+  accept?: () => void;
+  /** custom directional movement inside the element (canvas); return false to leave it */
+  move?: (dx: number, dy: number) => boolean;
+}
 const hooks = new WeakMap<HTMLElement, NavHooks>();
 export function nav<T extends HTMLElement>(el: T, hk: NavHooks = {}): T {
   el.setAttribute('data-nav', '');
   hooks.set(el, hk);
   return el;
 }
+
+/** detail panels: run `f` whenever this element gets focus (screens dispatch it from navfocus) */
+const showHooks = new WeakMap<HTMLElement, () => void>();
+export function onShow(el: HTMLElement, f: () => void) { showHooks.set(el, f); }
+export function runShow(el: HTMLElement) { showHooks.get(el)?.(); }
 
 export function sfx(id: 'ui_click' | 'ui_hover' | 'ui_back' | 'ui_error') { audio.play(id); }
 
@@ -132,6 +142,7 @@ export class Ui {
     el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     if (sound) sfx('ui_hover');
     this.top?.el.dispatchEvent(new CustomEvent('navfocus', { detail: el }));
+    runShow(el);
   }
 
   private visible(el: HTMLElement) {
@@ -216,6 +227,7 @@ export class Ui {
       const [dx, dy] = DIRS[a];
       const hk = this.focused ? hooks.get(this.focused) : undefined;
       if (dx && hk?.adjust) { hk.adjust(dx); sfx('ui_hover'); continue; }
+      if (hk?.move?.(dx, dy)) continue;
       this.move(dx, dy);
     }
     this.stickNav(dt);
@@ -236,7 +248,20 @@ export class Ui {
     const horiz = Math.abs(x) > Math.abs(y);
     const hk = this.focused ? hooks.get(this.focused) : undefined;
     if (horiz && hk?.adjust) { hk.adjust(Math.sign(x)); return; }
+    if (hk?.move?.(horiz ? Math.sign(x) : 0, horiz ? 0 : Math.sign(y))) return;
     this.move(horiz ? Math.sign(x) : 0, horiz ? 0 : Math.sign(y));
+  }
+
+  /** modal list of choices inside the top screen (last one is focused when `cancel` is given) */
+  choose(text: string, options: { label: string; run: () => void; disabled?: boolean; cls?: string }[], cancel = 'Cancel') {
+    const t = this.top;
+    if (!t) return;
+    const close = () => { m.remove(); this.autoFocus(); };
+    const btns = options.map((o) => nav(h('button', { class: 'btn' + (o.disabled ? ' disabled' : '') + (o.cls ? ' ' + o.cls : ''), on: { click: () => { if (o.disabled) return; close(); o.run(); } } }, o.label)));
+    const no = nav(h('button', { class: 'btn', on: { click: close } }, cancel));
+    const m = h('div', { class: 'modal' }, h('div', { class: 'modal-box panel' }, h('p', null, text), h('div', { class: 'menu-list' }, btns, no)));
+    t.el.append(m);
+    this.focus(btns.find((b) => !b.classList.contains('disabled')) ?? no, false);
   }
 
   /** modal yes/no inside the top screen */

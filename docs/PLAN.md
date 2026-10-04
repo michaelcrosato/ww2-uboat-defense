@@ -22,7 +22,7 @@ WebGPU additionally runs the water simulations as compute shaders.
 | M7 | Meta layer: items, loot, skill trees, economy, contracts, profile | DONE | [M07](milestones/M07-meta-layer.md) |
 | M8 | Procedural audio engine + game integration | DONE | [M08](milestones/M08-audio.md) |
 | M9 | Menus & UI shell: title, arena setup, dev settings, pause, controls, touch | DONE | [M09](milestones/M09-menus-ui-shell.md) |
-| M10 | Port & progression UI, contracts → missions, loot drops, save/load | TODO | [M10](milestones/M10-port-progression.md) |
+| M10 | Port & progression UI, contracts → missions, loot drops, save/load | DONE | [M10](milestones/M10-port-progression.md) |
 | M11 | Gameplay completion & tuning, dev-settings wiring audit, weather visuals | TODO | [M11](milestones/M11-gameplay-tuning.md) |
 | M12 | Visual polish, ship art expansion, performance | TODO | [M12](milestones/M12-visual-polish.md) |
 | M13 | Final QA, README, PR ready for review | TODO | [M13](milestones/M13-qa-release.md) |
@@ -85,7 +85,6 @@ on any failure or later device loss. The active backend shows in the FPS overlay
 - Escort AI lingers in `reacquire` on stale, large-error hydrophone contacts. → M11
 - `reinforce` world event (Wolfpack Signal) is emitted but Mission does not spawn boats. → M11
 - Air patrol scheduling from `arena.aircraft` not implemented (only the Air Support ability). → M11
-- Loot crates are never dropped by sinking ships (needs M7 loot) → M10.
 - Searchlight beam haze is visible in daylight (scale haze by darkness). → M11
 - Water swell bands look streaky at some sea states (tone dominated by long swell). → M12
 - Islands use metal material; should be land with its own look. → M11/M12
@@ -103,5 +102,10 @@ on any failure or later device loss. The active backend shows in the FPS overlay
   touch overlay was only checked visually with `?dev.controls.touch=on` (no real touch device). → M13
 - The headline font (`--font-head`: Impact/Haettenschweiler…) is not installed headless, so screenshots show the
   sans fallback; a bundled stencil webfont would need the user's OK (asset). → M12
+- Contract balance: AI escorts get sunk by the wolfpack in long fast-forwards (2 of 3 lost in a 35 min escort
+  run) and an idle U-boat player is found and sunk within ~10 min; tune with M11's AI work.
+- Crates still afloat when a contract ends are recovered automatically if the ship survived (keeps
+  fast-forward tests and short sessions rewarding); revisit if pickup should matter more. → M11
+- The skill tree canvas has no minimap/legend and nodes are small at 800×600. → M12
 - Touch overlay duplicates the HUD ability bar (both visible on touch devices). → M12
 - Key taps shorter than one frame can merge in slow headless runs (two taps → one press); real browsers are fine.

@@ -26,6 +26,12 @@ export interface MissionHooks {
   onEnd?: (m: Mission) => void;
   /** attract mode: AI-only mission, drifting camera, no HUD */
   spectator?: boolean;
+  /** contract mutators applied to the enemy side's warships */
+  enemyStats?: StatBlock;
+  /** hull damage carried from the last patrol (0..1) */
+  hullDamage?: number;
+  /** called once the mission exists (career hooks: loot drops) */
+  onStart?: (m: Mission) => void;
 }
 
 const DEFAULT_LOADOUT: Record<'allied' | 'axis', AbilityId[]> = {
@@ -91,7 +97,7 @@ export class App {
     this.endMission();
     this.hooks = hooks;
     this.lastStart = { overrides, hooks };
-    const m = new Mission(this.scene, arena, overrides, { spectator: hooks.spectator });
+    const m = new Mission(this.scene, arena, overrides, { spectator: hooks.spectator, enemyStats: hooks.enemyStats });
     this.mission = m;
     this.backend.resetSims();
     this.scene.particles.n = 0;
@@ -99,6 +105,8 @@ export class App {
     const p = m.world.player;
     if (p) {
       if (hooks.stats) { p.stats = hooks.stats; this.applyStats(p.stats, p); }
+      // unrepaired damage: the ship sails with part of its hull already gone
+      if (hooks.hullDamage) p.hp = p.maxHp * (1 - clamp(hooks.hullDamage, 0, 1) * 0.6);
       this.player = new PlayerControl(m, this.input, this.cam);
       this.player.abilities.setLoadout(hooks.loadout ?? DEFAULT_LOADOUT[m.side], hooks.abilities ?? {});
       this.cam.x = p.pos.x; this.cam.y = p.pos.y;
@@ -112,6 +120,7 @@ export class App {
     }
     this.hud.attach(m);
     this.audioBridge = new AudioBridge(m, this.cam);
+    hooks.onStart?.(m);
     this.paused = false;
     this.acc = 0;
   }

@@ -1,6 +1,7 @@
 // Arena mission: builds the battlefield from the arena config (or a contract), tracks the score,
 // decides when it is over and produces a MissionResult for the meta layer.
 
+import type { StatBlock } from '../meta/stats';
 import { World } from './world';
 import { Convoy, MerchantAI } from './convoy';
 import { EscortAI } from './ai/escort';
@@ -54,7 +55,7 @@ export class Mission {
   /** attract mode: no player vessel, every ship AI, fog of war off */
   readonly spectator: boolean;
 
-  constructor(scene: RenderScene, arena: ConfigStore, overrides: Record<string, number | string | boolean> = {}, opts: { spectator?: boolean } = {}) {
+  constructor(scene: RenderScene, arena: ConfigStore, overrides: Record<string, number | string | boolean> = {}, opts: { spectator?: boolean; enemyStats?: StatBlock } = {}) {
     this.spectator = !!opts.spectator;
     const cfg = { ...arena.snapshot(), ...overrides };
     this.cfg = cfg;
@@ -169,6 +170,8 @@ export class Mission {
       w.islands.push({ x, y, r, model: scene.atlas.add(islandArt(i + 1, r)) });
     }
 
+    // contract mutators make the opposing side's warships tougher / sharper
+    if (opts.enemyStats) for (const v of w.vessels) if (v.side !== this.side && (v.kind === 'escort' || v.kind === 'uboat')) v.stats = opts.enemyStats;
     this.hookEvents();
   }
 

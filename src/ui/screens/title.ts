@@ -12,7 +12,7 @@ export function titleScreen(shell: Shell): UiScreen {
       h('div', { class: 'game-sub' }, 'Convoy war in the Atlantic, 1939–1945'),
       h('div', { class: 'menu-list' },
         button('Arena', () => shell.open('arena'), 'btn big', { 'data-autofocus': true, 'data-help': 'Customise a convoy battle and play it as the escort or the U-boat.' }),
-        button('Port — coming soon', () => {}, 'btn big disabled', { 'data-help': 'The captain\'s career: contracts, loot and the skill tree.' }),
+        button('Port', () => shell.open('port'), 'btn big', { 'data-help': 'The captain\'s career: contracts, loot, the shipyard and the skill tree.' }),
         button('Settings', () => shell.open('settings'), 'btn', { 'data-help': 'Display, audio and controller options.' }),
         button('Controls', () => shell.open('controls'), 'btn', { 'data-help': 'Rebind keys, mouse buttons and gamepad buttons.' }),
         button('Dev Settings', () => shell.open('dev'), 'btn', { 'data-help': 'Every renderer, water, physics and gameplay knob. Also F1 during a mission.' }),

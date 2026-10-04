@@ -40,7 +40,8 @@ async function boot() {
     else {
       const shell = new Shell(app);
       const inMission = Object.keys(overrides).length > 0 || menu === 'pause' || menu === 'end';
-      if (inMission) shell.launch(overrides); else shell.openTitle();
+      if (params.has('faction')) shell.career.faction = params.get('faction') === 'uboat' ? 'uboat' : 'escort';
+      if (inMission) shell.launch(overrides, 'test'); else shell.openTitle();
       if (menu && menu !== 'title') shell.open(menu, params.get('tab') ?? undefined);
     }
     app.start();

@@ -25,7 +25,7 @@ const C = {
 };
 const RARITY_HEX: Record<string, string> = { common: '#c8c8c8', magic: '#6f9cff', rare: '#ffd84a', legendary: '#ff8c2a', unique: '#d8b47a' };
 
-interface Msg { text: string; t: number; kind: string; important: boolean }
+interface Msg { text: string; t: number; kind: string; important: boolean; color?: string }
 
 export class Hud {
   msgs: Msg[] = [];
@@ -46,7 +46,7 @@ export class Hud {
     this.msgs = [];
     w.bus.on('message', (e) => {
       if (e.side && e.side !== w.playerSide) return;
-      this.msgs.push({ text: e.text, t: performance.now() / 1000, kind: e.kind ?? 'info', important: !!e.important });
+      this.msgs.push({ text: e.text, t: performance.now() / 1000, kind: e.kind ?? 'info', important: !!e.important, color: e.color });
       if (this.msgs.length > 40) this.msgs.shift();
     });
     w.bus.on('torpedoFired', (e) => { if (e.by.side !== w.playerSide) { const p = w.player; if (p && Math.hypot(e.x - p.pos.x, e.y - p.pos.y) < 2000 && (p.kind === 'escort' || p.kind === 'merchant')) this.warn('TORPEDO IN THE WATER!'); } });
@@ -394,7 +394,7 @@ export class Hud {
     let y = H - 104 - recent.length * 10;
     for (const m of recent) {
       const a = clamp(((m.important ? 10 : 7) - (now - m.t)) / 1.5, 0, 1);
-      const col = m.kind === 'alert' ? C.danger : m.kind === 'radio' ? '#b8d8a0' : m.kind === 'loot' ? '#ffd84a' : m.kind === 'crew' ? C.allied : C.text;
+      const col = m.color ?? (m.kind === 'alert' ? C.danger : m.kind === 'radio' ? '#b8d8a0' : m.kind === 'loot' ? '#ffd84a' : m.kind === 'crew' ? C.allied : C.text);
       for (const line of wrapText(m.text, 260)) { drawText(g, line, 6, y, col, { alpha: a }); y += 10; }
     }
   }
