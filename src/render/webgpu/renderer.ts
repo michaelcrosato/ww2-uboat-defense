@@ -1,7 +1,7 @@
 // WebGPU backend. Records one command encoder per frame in the same pass order as
 // webgl2/renderer.ts: occluder heightmap (stacks + smoke) → underwater (submerged stacks) →
-// G-buffer (water, stacks, particles) → deferred lighting (+ debug views) → bloom + present. Water sims arrive as compute shaders in M5; until then the
-// ripple and dye inputs are 1×1 zero textures.
+// G-buffer (water, stacks, particles) → deferred lighting (+ debug views) → bloom + present, after
+// the water sims (force raster + compute kernels, sims/waterSims.ts).
 
 import type { Screen } from '../screen';
 import type { RenderScene } from '../scene';
@@ -22,7 +22,9 @@ import { LightingPassGPU } from './passes/lighting';
 import { StackPassGPU } from './passes/stacks';
 import { ParticlePassGPU } from './passes/particles';
 import { DebugPassGPU, DEBUG_TEX_MODES } from './passes/debug';
-import { packParticles, packStacks, type F32 } from '../pack';
+import { packForces, packParticles, packStacks, type F32 } from '../pack';
+import { WaterSimsGPU, type SimParams } from './sims/waterSims';
+import type { SplatInput } from '../../water/simInputs';
 
 const HDR: GPUTextureFormat = 'rgba16float';
 const MAX_IN_FLIGHT = 2;
@@ -34,7 +36,19 @@ export interface WebGPUOpts {
 
 interface Passes {
   post: PostPassGPU; water: WaterPassGPU; lighting: LightingPassGPU; stacks: StackPassGPU; particles: ParticlePassGPU;
-  debug: DebugPassGPU; pattern: TestPatternPass | null;
+  debug: DebugPassGPU; pattern: TestPatternPass | null; sims: WaterSimsGPU;
+}
+
+function simSizes() {
+  return { n: parseInt(dev.str('water.simRes')) || 768, cell: dev.num('water.simCell'), nf: parseInt(dev.str('water.fluidRes')) || 256 };
+}
+function simParams(): SimParams {
+  return {
+    sim: dev.bool('water.sim'), fluid: dev.bool('water.fluid'),
+    waveSpeed: dev.num('water.waveSpeed'), damping: dev.num('water.simDamping'), hullPush: dev.num('water.hullPush'),
+    foamAmount: dev.num('water.foamAmount'), vorticity: dev.num('water.vorticity'), iterations: dev.num('water.pressureIters'),
+    foamDecay: dev.num('water.foamDecay'),
+  };
 }
 
 export class WebGPUBackend implements RenderBackend {
@@ -62,6 +76,12 @@ export class WebGPUBackend implements RenderBackend {
   private rings = new Float32Array(32);
   private lightData = new Float32Array(MAX_LIGHTS * LIGHT_FLOATS);
   private stackData: F32 = new Float32Array(2048 * 20);
+  private forceData: F32 = new Float32Array(64 * 20);
+  private simReset = true;
+  /** sim time + one-shot splats from frames skipped for pacing (the App clears scene.splats) */
+  private pendingDt = 0;
+  private pendingSplats: SplatInput[] = [];
+  private unsub: (() => void)[] = [];
   private partData: F32 = new Float32Array(4096 * 12);
   // readback present (test hook): offscreen frame → mapped buffer → 2D canvas
   private outTex: GpuTarget | null = null;
@@ -70,7 +90,12 @@ export class WebGPUBackend implements RenderBackend {
   private img: ImageData | null = null;
 
   private constructor(readonly screen: Screen, readonly g: GpuContext, private p: Passes, frameUbo: Ubo, oceanUbo: Ubo) {
-    this.info = { kind: 'webgpu', adapter: g.adapterName, computeSims: false, features: g.features };
+    this.info = { kind: 'webgpu', adapter: g.adapterName, computeSims: true, features: g.features };
+    for (const k of ['water.simRes', 'water.simCell', 'water.fluidRes']) this.unsub.push(dev.on(k, () => {
+      const z = simSizes();
+      this.p.sims.resize(z.n, z.cell, z.nf);
+      this.simReset = true;
+    }));
     this.frameUbo = frameUbo; this.oceanUbo = oceanUbo;
     this.zeroTex = g.device.createTexture({ label: 'zero', format: HDR, size: { width: 1, height: 1 }, usage: TU.TEXTURE_BINDING });
     this.zeroView = this.zeroTex.createView();
@@ -91,6 +116,7 @@ export class WebGPUBackend implements RenderBackend {
         particles: await ParticlePassGPU.create(g),
         debug: await DebugPassGPU.create(g, samplers, HDR),
         pattern: wopts.testPattern ? await TestPatternPass.create(g, frameUbo.buffer, HDR) : null,
+        sims: await (() => { const z = simSizes(); return WaterSimsGPU.create(g, samplers, z.n, z.cell, z.nf); })(),
       };
       if (g.lost) throw new Error(g.lost);
       return new WebGPUBackend(screen, g, passes, frameUbo, oceanUbo);
@@ -104,7 +130,7 @@ export class WebGPUBackend implements RenderBackend {
   get lost() { return this.g.lost; }
 
   resize() { /* the canvas drawing buffer follows Screen; targets follow the camera buffer lazily */ }
-  resetSims() { /* no sims yet (M5) */ }
+  resetSims() { this.simReset = true; }
 
   /** (re)create size-dependent targets; returns true when any view changed */
   private ensureTargets(bw: number, bh: number, occRes: number): boolean {
@@ -122,7 +148,17 @@ export class WebGPUBackend implements RenderBackend {
   }
 
   render(scene: RenderScene, f: FrameParams) {
-    if (this.g.lost || this.inFlight >= MAX_IN_FLIGHT || this.reading) return;
+    if (this.g.lost) return;
+    if (this.inFlight >= MAX_IN_FLIGHT) {
+      // skip this frame but keep what the sims would have consumed
+      this.pendingDt += f.simDt;
+      if (f.simDt > 0) this.pendingSplats.push(...scene.splats);
+      return;
+    }
+    const simDt = Math.min(0.1, f.simDt + this.pendingDt);
+    const splats = this.pendingSplats.length ? [...this.pendingSplats, ...scene.splats] : scene.splats;
+    this.pendingDt = 0;
+    this.pendingSplats = [];
     const cam = f.camera, sc = this.screen, d = this.g.device, P = this.p;
     cam.setViewport(sc.W, sc.H);
     cam.snap();
@@ -132,12 +168,25 @@ export class WebGPUBackend implements RenderBackend {
     const occRes = occluderRes();
     if (this.ensureTargets(bw, bh, occRes)) {
       P.post.setInputs(this.lit!.view, bw, bh);
-      const zero = this.zeroView;
-      P.water.setInputs({ frame: this.frameUbo.buffer, ocean: this.oceanUbo.buffer, wave: zero, dye: zero, under: this.uC!.view, underD: this.uD!.view });
       P.lighting.setInputs({ frame: this.frameUbo.buffer, albedo: this.gA!.view, normal: this.gN!.view, occ: this.occ!.view });
     }
+    const enc = d.createCommandEncoder({ label: 'frame' });
+
+    // ---- water sims (window follows the camera in whole cells)
+    const sp = simParams(), S = P.sims, win = S.win;
+    if (sp.sim || sp.fluid) {
+      S.follow(enc, cam.x, cam.y, this.simReset);
+      this.simReset = false;
+      if (simDt > 0) {
+        const forces = packForces(scene.hulls, splats, win.ox, win.oy, 1 / simDt, this.forceData);
+        this.forceData = forces.data;
+        S.step(enc, simDt, sp, forces.data, forces.count);
+      }
+    }
+    const simRel = { x: win.ox - O.x, y: win.oy - O.y, size: win.size, cell: win.cell, on: sp.sim };
+    P.water.setInputs({ frame: this.frameUbo.buffer, ocean: this.oceanUbo.buffer, wave: S.heightView, dye: sp.fluid ? S.dyeView : this.zeroView, under: this.uC!.view, underD: this.uD!.view });
     P.stacks.uploadAtlas(scene.atlas);
-    P.stacks.setInputs({ frame: this.frameUbo.buffer, ocean: this.oceanUbo.buffer, wave: this.zeroView });
+    P.stacks.setInputs({ frame: this.frameUbo.buffer, ocean: this.oceanUbo.buffer, wave: S.heightView });
     P.particles.setFrame(this.frameUbo.buffer);
 
     // ---- per-frame uniforms (origin folded into wave phases on the CPU, in double precision)
@@ -148,7 +197,7 @@ export class WebGPUBackend implements RenderBackend {
     const ringCount = f.ocean.packRings(O.x, O.y, this.rings);
     writeOcean(this.oceanUbo.f, this.waveA, this.waveB, W.swell ? waveCount : 0, this.rings, ringCount);
     this.oceanUbo.write();
-    P.water.write(W, { x: 0, y: 0, size: 1, cell: 1, on: false });
+    P.water.write(W, simRel);
     this.occRect = occluderRect(cam, occRes);
     const occRel: [number, number, number, number] = [this.occRect.x - O.x, this.occRect.y - O.y, this.occRect.s, this.occRect.s];
     const L = lightParams(f);
@@ -158,14 +207,13 @@ export class WebGPUBackend implements RenderBackend {
     this.stats.lights = lp.count;
     const st = packStacks(scene.stacks, O.x, O.y, this.stackData);
     this.stackData = st.data;
-    P.stacks.write(occRel, { x: 0, y: 0, size: 1, on: false, rippleScale: W.rippleScale }, W.foamCol, dev.bool('water.waterline'), f.time, st.data, st.count);
+    P.stacks.write(occRel, { ...simRel, rippleScale: W.rippleScale }, W.foamCol, dev.bool('water.waterline'), f.time, st.data, st.count);
     this.stats.stackInstances = st.count;
     const pk = packParticles(scene.particles, O.x, O.y, f.time, this.partData);
     this.partData = pk.data;
     P.particles.write(occRel, occRes, 24, pk.data, pk.count);
     this.stats.particles = pk.count;
 
-    const enc = d.createCommandEncoder({ label: 'frame' });
     if (P.pattern) {
       P.pattern.encode(enc, this.lit!.view, O.x, O.y, f.time);
     } else {
@@ -206,7 +254,8 @@ export class WebGPUBackend implements RenderBackend {
       const dv = dev.str('debug.view');
       if (dv in DEBUG_TEX_MODES) {
         const occ = dv === 'occluder';
-        P.debug.encode(enc, this.lit!.view, this.frameUbo.buffer, occ ? this.occ!.view : this.zeroView, occ ? occRel : [0, 0, 1, 1], DEBUG_TEX_MODES[dv]);
+        const tex = occ ? this.occ!.view : dv === 'wave' ? S.heightView : dv === 'fluid' ? S.velView : S.dyeView;
+        P.debug.encode(enc, this.lit!.view, this.frameUbo.buffer, tex, occ ? occRel : [simRel.x, simRel.y, simRel.size, simRel.size], DEBUG_TEX_MODES[dv]);
       }
     }
 
@@ -218,13 +267,21 @@ export class WebGPUBackend implements RenderBackend {
       d.queue.submit([enc.finish()]);
     } else this.presentReadback(enc, pp);
     this.inFlight++;
-    d.queue.onSubmittedWorkDone().then(() => { this.inFlight--; }, () => { this.inFlight--; });
+    const t0 = performance.now();
+    d.queue.onSubmittedWorkDone().then(() => {
+      this.inFlight--;
+      // submit → done latency (an upper bound on GPU frame time; timestamp queries come in M6)
+      const ms = performance.now() - t0;
+      this.stats.gpuMs = this.stats.gpuMs ? this.stats.gpuMs * 0.9 + ms * 0.1 : ms;
+    }, () => { this.inFlight--; });
   }
 
   private presentReadback(enc: GPUCommandEncoder, pp: ReturnType<typeof postParams>) {
     const d = this.g.device, w = pp.pw, h = pp.ph;
     [this.outTex] = resizeTarget(d, this.outTex, this.g.format, w, h, TU.COPY_SRC, 'readback');
     this.p.post.present(enc, this.outTex.view, pp);
+    // a previous frame is still being read back: present nothing new this frame (the sims still ran)
+    if (this.reading) { d.queue.submit([enc.finish()]); return; }
     const bpr = Math.ceil((w * 4) / 256) * 256;
     if (!this.readBuf || this.readBuf.size !== bpr * h) {
       this.readBuf?.destroy();
@@ -249,6 +306,8 @@ export class WebGPUBackend implements RenderBackend {
 
   dispose() {
     const P = this.p;
+    for (const u of this.unsub) u();
+    P.sims.dispose();
     P.post.dispose(); P.water.dispose(); P.lighting.dispose(); P.stacks.dispose(); P.particles.dispose(); P.debug.dispose(); P.pattern?.dispose();
     this.frameUbo.destroy(); this.oceanUbo.destroy();
     for (const t of [this.gA, this.gN, this.gDepth, this.uC, this.uD, this.uDepth, this.occ, this.lit, this.outTex]) t?.texture.destroy();

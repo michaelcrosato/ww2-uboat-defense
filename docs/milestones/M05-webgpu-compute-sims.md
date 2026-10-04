@@ -53,3 +53,26 @@ the sim section of `src/render/webgl2/renderer.ts` (`applySimSizes`, follow/shif
 `WebGPU: compute-shader water simulations (waves, fluid, dye)`
 
 ## Notes (fill in when done)
+Done. Live `/?hour=13&seed=7` after a 60 s fast-forward: both backends show the destroyer's foam trail, bow
+wave and hull trough; the `foam` debug views are near-identical, `wave` views match in shape
+(`check-output/m5-*.png`). Caribbean night: cyan bioluminescent wakes on both (`m5-bio-*.png`). Depth-charge
+drop works on both; splat impulses (rings/craters) verified via injected splats. `simRes=1024` rebuilds
+live (n 1024, nf 256). SwiftShader submit→done latency (`stats.gpuMs`, 2 frames in flight + readback):
+~1300 ms sims off, ~1780 ms at 768², ~1620 ms at 1024² — software emulation, not representative of GPUs.
+
+What changed
+- `webgpu/sims/kernels.ts`: WGSL force raster (render pass, MRT additive), wave equation, shift (rgba16f and
+  r32f), advect velocity, curl, vorticity, divergence, Jacobi, gradient, dye — 1:1 with the GLSL. GL
+  texel-centre neighbour taps → `textureLoad` with clamped coords; advection keeps linear sampling.
+- `webgpu/sims/waterSims.ts` (`WaterSimsGPU`): rgba16float state/velocity/dye, r32float pressure/div/curl,
+  explicit bind group layouts per kernel, one compute pass per frame, shared `SimWindow` (quant, thresholds,
+  clear on big jumps), CFL substeps with impulses only in substep 0, live resize on `simRes/simCell/fluidRes`.
+- Backend: water pass + stack `waterAt()` read the real wave/dye; debug views wave/fluid/foam; `info.computeSims`.
+- Fix found while testing: frames skipped for pacing (2 in flight / readback) used to drop their `simDt` and
+  splats (App clears `scene.splats`). Now banked and applied on the next frame; readback mode never skips the
+  render, only the copy.
+
+Debugging notes (to save the next agent time)
+- Readback present lags 1–2 s behind the HUD in SwiftShader: wait ≥ 4 s after a camera jump before judging
+  alignment. Sim textures have COPY_SRC so they can be read back in-page for numeric checks.
+- Leaving an old hull trough behind after a teleport/fast-forward is normal sim behaviour on both backends.
