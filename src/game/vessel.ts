@@ -11,7 +11,7 @@ import type { StackModel } from '../art/voxel';
 import type { World } from './world';
 import type { HullInput } from '../water/simInputs';
 import { StatBlock } from '../meta/stats';
-import { PK } from '../gfx/particles';
+import { PK } from '../render/materials';
 import { dev } from '../core/devSettings';
 
 export const TELEGRAPH = [
@@ -456,20 +456,20 @@ export class Vessel {
 
   // ------------------------------------------------------------------ cosmetic + render submission
   submit(dt: number) {
-    const w = this.world, R = w.renderer;
+    const w = this.world, R = w.scene;
     const p = this.pos, q = this.rot;
     const removedSoon = !this.alive && w.time > this.removeAt - 3;
     if (removedSoon) return;
     const visible = w.isVisibleToPlayer(this);
     const flags = (this.searchlightOn ? 1 : 0) | (this.isPlayer && this.sub ? 2 : 0);
     if (visible) {
-      R.stacks.add({ model: this.hullModel, x: p.x, y: p.y, z: p.z, q, damage: this.damageLook, flags });
+      R.stacks.push({ model: this.hullModel, x: p.x, y: p.y, z: p.z, q, damage: this.damageLook, flags });
       for (const m of this.mounts) {
         if (m.raise <= 0.02) continue;
         const lz = m.z - (1 - m.raise) * 5.5;
         const mp = qrot(q, m.x, m.y, lz);
         const mq = quatMul(q, quatFromYaw(m.yaw));
-        R.stacks.add({ model: m.model, x: p.x + mp.x, y: p.y + mp.y, z: p.z + mp.z, q: mq, damage: this.damageLook * 0.7, flags });
+        R.stacks.push({ model: m.model, x: p.x + mp.x, y: p.y + mp.y, z: p.z + mp.z, q: mq, damage: this.damageLook * 0.7, flags });
       }
     }
     // water interaction
@@ -483,13 +483,13 @@ export class Vessel {
       depth, foam: this.alive ? 1 : 0.4, oil: this.oilLeak(), fire: this.fires.length ? Math.min(1, this.fires.reduce((a, b) => a + b.power, 0)) : 0,
       kind: isSub && depth > 1.5 ? 3 : 0,
     };
-    if (!(isSub && depth > 25)) w.hulls.push(hull);
+    if (!(isSub && depth > 25)) w.scene.hulls.push(hull);
     // periscope feather
     if (isSub && this.sub!.periscope > 0.6 && this.atPeriscopeDepth) {
       const sp = this.mounts.find((m) => m.id === 'periscope');
       if (sp) {
         const wp = this.local(sp.x, 0, 0);
-        w.hulls.push({ ...hull, x: wp.x, y: wp.y, halfLen: 1.5, halfBeam: 0.4, draft: 0, depth: 0, kind: 2 });
+        w.scene.hulls.push({ ...hull, x: wp.x, y: wp.y, halfLen: 1.5, halfBeam: 0.4, draft: 0, depth: 0, kind: 2 });
       }
     }
     if (!visible && !this.isPlayer) return;

@@ -11,7 +11,7 @@ import { Projectiles } from './weapons';
 import { Sensors } from './sensors';
 import { theaterById } from './theaters';
 import type { ConfigStore } from '../core/config';
-import type { Renderer } from '../gfx/renderer';
+import type { RenderScene } from '../render/scene';
 import { DEG, fromBearing, Rng } from '../core/math';
 import type { Vessel } from './vessel';
 import type { Weather } from './environment';
@@ -51,12 +51,12 @@ export class Mission {
   private escapeT = 0;
   readonly cfg: Record<string, number | string | boolean>;
 
-  constructor(renderer: Renderer, arena: ConfigStore, overrides: Record<string, number | string | boolean> = {}) {
+  constructor(scene: RenderScene, arena: ConfigStore, overrides: Record<string, number | string | boolean> = {}) {
     const cfg = { ...arena.snapshot(), ...overrides };
     this.cfg = cfg;
     const num = (k: string) => Number(cfg[k]);
     const str = (k: string) => String(cfg[k]);
-    const w = new World(renderer);
+    const w = new World(scene);
     this.world = w;
     w.rng = new Rng(num('arena.seed'));
     const rng = w.rng;
@@ -64,6 +64,7 @@ export class Mission {
     w.theater = theaterById(str('arena.theater'));
     w.env.setTheater(w.theater);
     w.env.apply({ hour: num('arena.hour'), timeFlow: num('arena.timeFlow'), moonPhase: num('arena.moon'), season: Number(str('arena.season')), weather: str('arena.weather') as Weather });
+    w.env.update(0);   // sun, sky and visibility valid before the first step
     w.layerDepth = num('arena.layer');
     // wind "from" -> waves travel toward the opposite bearing
     const windToward = fromBearing((num('arena.windDir') + 180) % 360);
@@ -160,7 +161,7 @@ export class Mission {
     for (let i = 0; i < num('arena.islands'); i++) {
       const r = rng.range(60, 160);
       const x = rng.range(-L / 2, L / 2), y = (rng.sign()) * rng.range(900, L * 0.32);
-      w.islands.push({ x, y, r, model: renderer.atlas.add(islandArt(i + 1, r)) });
+      w.islands.push({ x, y, r, model: scene.atlas.add(islandArt(i + 1, r)) });
     }
 
     this.hookEvents();

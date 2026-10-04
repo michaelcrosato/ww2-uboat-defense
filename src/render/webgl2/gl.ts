@@ -227,6 +227,12 @@ export class InstanceBatch {
     if (this.count >= this.capacity) this.grow();
     return this.count++ * this.stride;
   }
+  /** take an instance array packed elsewhere (`stride` floats per instance, see render/pack.ts) */
+  set(src: Float32Array, count: number) {
+    while (count > this.capacity) this.grow();
+    this.data.set(src.subarray(0, count * this.stride));
+    this.count = count;
+  }
   private grow() {
     const gl = this.gl;
     this.capacity *= 2;

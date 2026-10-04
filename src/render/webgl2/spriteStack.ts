@@ -5,10 +5,9 @@
 //  * occluder : top-down orthographic -> heightmap of occluders for the shadow pass
 
 import { InstanceBatch, makeTex, Program, type GL } from './gl';
-import { CAMERA_GLSL, DITHER_GLSL, GBUF_OUT_GLSL, MAT_GLSL, NOISE_GLSL } from './shaders/common';
-import { OCEAN_GLSL } from '../water/ocean';
-import type { SliceAtlas, StackModel } from '../art/voxel';
-import type { Quat } from '../core/math';
+import { CAMERA_GLSL, DITHER_GLSL, GBUF_OUT_GLSL, MAT_GLSL, NOISE_GLSL } from './glsl/common';
+import { OCEAN_GLSL } from './glsl/ocean';
+import type { SliceAtlas } from '../../art/voxel';
 
 const QROT_GLSL = /* glsl */ `
 vec3 qrot(vec4 q, vec3 v) { vec3 t = 2.0 * cross(q.xyz, v); return v + q.w * t + cross(q.xyz, t); }
@@ -158,63 +157,42 @@ void main() {
   o = vec4(vWorld.z, 0.0, 0.0, 0.0);
 }`;
 
-export interface StackInstance {
-  model: StackModel;
-  x: number; y: number; z: number;
-  q: Quat;
-  damage?: number;
-  flags?: number;      // 1 lamps on, 2 x-ray silhouette
-  clipX0?: number; clipX1?: number;
-}
-
 export class SpriteStackRenderer {
   atlasTex: WebGLTexture;
   normTex: WebGLTexture;
   batch: InstanceBatch;
   pGbuf: Program; pUnder: Program; pOcc: Program;
-  instances: StackInstance[] = [];
 
-  constructor(private gl: GL, private atlas: SliceAtlas) {
-    this.atlasTex = makeTex(gl, atlas.size, atlas.size, { filter: gl.NEAREST });
-    this.normTex = makeTex(gl, atlas.size, atlas.size, { filter: gl.NEAREST });
+  private texSize = 0;
+
+  constructor(private gl: GL) {
+    this.atlasTex = makeTex(gl, 1, 1, { filter: gl.NEAREST });
+    this.normTex = makeTex(gl, 1, 1, { filter: gl.NEAREST });
     this.batch = new InstanceBatch(gl, [4, 4, 4, 4, 4], 2048, 1);
     this.pGbuf = new Program(gl, 'stack.gbuf', VS, GBUF_FS);
     this.pUnder = new Program(gl, 'stack.under', VS, UNDER_FS);
     this.pOcc = new Program(gl, 'stack.occ', VS, OCC_FS);
   }
 
-  uploadAtlas() {
-    if (!this.atlas.dirty) return;
-    const gl = this.gl, S = this.atlas.size;
+  uploadAtlas(atlas: SliceAtlas) {
+    if (!atlas.dirty) return;
+    const gl = this.gl, S = atlas.size;
+    if (this.texSize !== S) {
+      gl.deleteTexture(this.atlasTex); gl.deleteTexture(this.normTex);
+      this.atlasTex = makeTex(gl, S, S, { filter: gl.NEAREST });
+      this.normTex = makeTex(gl, S, S, { filter: gl.NEAREST });
+      this.texSize = S;
+    }
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, S, S, gl.RGBA, gl.UNSIGNED_BYTE, this.atlas.albedo);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, S, S, gl.RGBA, gl.UNSIGNED_BYTE, atlas.albedo);
     gl.bindTexture(gl.TEXTURE_2D, this.normTex);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, S, S, gl.RGBA, gl.UNSIGNED_BYTE, this.atlas.normal);
-    this.atlas.dirty = false;
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, S, S, gl.RGBA, gl.UNSIGNED_BYTE, atlas.normal);
+    atlas.dirty = false;
   }
 
-  clear() { this.instances.length = 0; }
-  add(inst: StackInstance) { this.instances.push(inst); }
-
-  /** fill the instance buffer (positions relative to origin); `filter` selects a subset */
-  build(ox: number, oy: number, filter?: (i: StackInstance) => boolean) {
-    const b = this.batch;
-    b.begin();
-    for (const it of this.instances) {
-      if (filter && !filter(it)) continue;
-      const m = it.model;
-      for (const s of m.slices) {
-        const o = b.push(), d = b.data;
-        d[o] = it.x - ox; d[o + 1] = it.y - oy; d[o + 2] = it.z; d[o + 3] = s.z;
-        d[o + 4] = it.q.x; d[o + 5] = it.q.y; d[o + 6] = it.q.z; d[o + 7] = it.q.w;
-        d[o + 8] = s.x0; d[o + 9] = s.y0; d[o + 10] = s.w; d[o + 11] = s.h;
-        d[o + 12] = s.u0; d[o + 13] = s.v0; d[o + 14] = s.u1; d[o + 15] = s.v1;
-        d[o + 16] = it.damage ?? 0; d[o + 17] = it.flags ?? 0; d[o + 18] = it.clipX0 ?? -1e4; d[o + 19] = it.clipX1 ?? 1e4;
-      }
-    }
-    return b.count;
-  }
+  /** take the packed slice instances for this frame (render/pack.ts `packStacks`) */
+  set(data: Float32Array, count: number) { this.batch.set(data, count); }
 
   draw() { this.batch.draw(); }
 }

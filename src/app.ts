@@ -1,10 +1,10 @@
-// Application shell: owns the screen, renderer, input and the current mode (menus or a mission),
-// and runs the frame loop: input -> player orders -> fixed physics steps -> render -> HUD.
+// Application shell: owns the screen, render scene + backend, input and the current mode (menus or
+// a mission), and runs the frame loop: input -> player orders -> fixed physics steps -> render -> HUD.
 
-import { Screen } from './gfx/screen';
-import { createGL } from './gfx/gl';
-import { Renderer } from './gfx/renderer';
-import { Camera } from './gfx/camera';
+import { Screen } from './render/screen';
+import { Camera } from './render/camera';
+import { RenderScene } from './render/scene';
+import type { RenderBackend } from './render/types';
 import { Input } from './input/input';
 import { Hud } from './ui/hud';
 import { Mission } from './game/mission';
@@ -29,7 +29,9 @@ const DEFAULT_LOADOUT: Record<'allied' | 'axis', AbilityId[]> = {
 
 export class App {
   screen: Screen;
-  renderer: Renderer;
+  /** what the game draws this frame; backends only read it */
+  scene = new RenderScene();
+  backend: RenderBackend;
   cam = new Camera();
   input: Input;
   hud: Hud;
@@ -43,13 +45,17 @@ export class App {
   onFrame: ((dt: number) => void)[] = [];
   /** extra pause sources (menus open over the mission) */
   menuOpen = false;
+  /** test hook (`?freeze=1`): render only; world, sims and particles never advance */
+  frozen = false;
 
-  constructor(root: HTMLElement) {
-    this.screen = new Screen(root, dev);
-    const { gl, caps } = createGL(this.screen.canvas);
-    this.renderer = new Renderer(gl, caps, this.screen);
-    this.input = new Input(this.screen.canvas, (x, y) => this.screen.clientToPixel(x, y));
+  constructor(screen: Screen, backend: RenderBackend) {
+    this.screen = screen;
+    this.backend = backend;
+    // listen on the stage, not the canvas: a backend fallback swaps in a fresh canvas
+    this.input = new Input(screen.root, (x, y) => this.screen.clientToPixel(x, y));
     this.hud = new Hud(this.screen, this.cam, this.input);
+    this.hud.backend = backend;
+    screen.onResize(() => this.backend.resize());
     dev.on('camera.tilt', () => this.cam.setTilt(dev.num('camera.tilt') * DEG));
     this.cam.setTilt(dev.num('camera.tilt') * DEG);
     this.cam.zoom = this.cam.targetZoom = dev.num('camera.zoom');
@@ -61,10 +67,11 @@ export class App {
   startMission(overrides: Record<string, number | string | boolean> = {}, hooks: MissionHooks = {}) {
     this.endMission();
     this.hooks = hooks;
-    const m = new Mission(this.renderer, arena, overrides);
+    const m = new Mission(this.scene, arena, overrides);
     this.mission = m;
-    this.renderer.simNeedsReset = true;
-    this.renderer.particles.n = 0;
+    this.backend.resetSims();
+    this.scene.particles.n = 0;
+    this.scene.splats.length = 0;
     const p = m.world.player;
     if (p) {
       if (hooks.stats) { p.stats = hooks.stats; this.applyStats(p.stats, p); }
@@ -114,7 +121,7 @@ export class App {
     const m = this.mission;
     if (m) {
       const pc = this.player;
-      const halted = this.paused || this.menuOpen;
+      const halted = this.paused || this.menuOpen || this.frozen;
       if (pc && !halted) pc.update(dt);
       // fixed-step simulation
       const hz = parseInt(dev.str('phys.hz')) || 60;
@@ -135,21 +142,23 @@ export class App {
         }
         if (n >= maxSteps) this.acc = 0;
       }
-      // camera
-      if (pc) pc.updateCamera(dt);
-      this.cam.update(dt, dev.num('camera.shake'));
+      // camera (frozen test frames settle it at once so shots don't depend on the frame count)
+      const camDt = this.frozen ? 60 : dt;
+      if (pc) pc.updateCamera(camDt);
+      this.cam.update(camDt, dev.num('camera.shake'));
       // render
       m.world.submit(halted ? 0 : dt * tempo);
-      this.renderer.particles.wind.x = Math.cos(m.world.ocean.params.windDir) * m.world.ocean.windSpeed * 0.5;
-      this.renderer.particles.wind.y = Math.sin(m.world.ocean.params.windDir) * m.world.ocean.windSpeed * 0.5;
-      if (!halted) this.renderer.particles.update(dt * tempo, (x, y) => m.world.ocean.height(x, y));
+      const ps = this.scene.particles;
+      ps.wind.x = Math.cos(m.world.ocean.params.windDir) * m.world.ocean.windSpeed * 0.5;
+      ps.wind.y = Math.sin(m.world.ocean.params.windDir) * m.world.ocean.windSpeed * 0.5;
+      if (!halted) ps.update(dt * tempo, (x, y) => m.world.ocean.height(x, y));
       const bio = this.bioLevel(m);
-      this.renderer.frame({
+      this.backend.render(this.scene, {
         camera: this.cam, ocean: m.world.ocean, env: m.world.env, theater: m.world.theater,
-        hulls: m.world.hulls, splats: m.world.splats, simDt: clamp(simDt, 0, 0.1), time: m.world.time,
+        simDt: clamp(simDt, 0, 0.1), time: m.world.time,
         flash: m.world.flash, flashCol: m.world.flashCol, bio, ice: m.world.theater.ice ? 0.6 : 0,
       });
-      if (simDt > 0) m.world.splats.length = 0;
+      if (simDt > 0) this.scene.splats.length = 0;
       m.world.flash *= Math.exp(-dt * 6);
       if (pc) this.hud.draw(m, pc, dt);
       if (m.over && !this.endFired) { this.endFired = true; setTimeout(() => this.hooks.onEnd?.(m), 2500); }
@@ -167,7 +176,7 @@ export class App {
     const off = m.world.bus.on('message', (e) => log.push(`[${m.world.time.toFixed(0)}s] ${e.text}`));
     m.world.physics.setRate(hz);
     const step = 1 / hz;
-    for (let t = 0; t < seconds && !m.over; t += step) { m.world.step(step); m.update(step); m.world.splats.length = 0; m.world.hulls.length = 0; }
+    for (let t = 0; t < seconds && !m.over; t += step) { m.world.step(step); m.update(step); this.scene.splats.length = 0; this.scene.hulls.length = 0; }
     off();
     return log;
   }

@@ -2,25 +2,25 @@
 //   water sims -> occluder heightmap -> underwater objects -> G-buffer (sea, ships, particles)
 //   -> deferred lighting with occluder shadows -> bloom + grade -> integer-scaled present.
 
-import { drawFullscreen, FULLSCREEN_VS, Program, Target, type GL, type GLCaps } from './gl';
-import type { Camera } from './camera';
-import type { Screen } from './screen';
+import { createGL, drawFullscreen, FULLSCREEN_VS, Program, Target, type GL, type GLCaps } from './gl';
+import type { Camera } from '../camera';
+import type { Screen } from '../screen';
+import type { RenderScene } from '../scene';
+import type { BackendInfo, BackendStats, FrameParams, RenderBackend } from '../types';
 import { WaterPass } from './passes/waterPass';
 import { LightingPass } from './passes/lightingPass';
 import { PostPass } from './passes/postPass';
-import { LightList } from './lights';
+import { LIGHT_FLOATS, MAX_LIGHTS, packLights } from '../lights';
+import { packForces, packParticles, packStacks } from '../pack';
 import { SpriteStackRenderer } from './spriteStack';
-import { Particles } from './particles';
-import { Ocean, MAX_WAVES } from '../water/ocean';
-import { WaveSim } from '../water/waveSim';
-import { FluidSim } from '../water/fluidSim';
-import type { HullInput, SplatInput } from '../water/simInputs';
-import type { Environment } from '../game/environment';
-import type { Theater } from '../game/theaters';
-import { dev } from '../core/devSettings';
-import { hex01 } from '../core/math';
-import { SliceAtlas } from '../art/voxel';
-import { CAMERA_GLSL } from './shaders/common';
+import { ParticlesGL } from './particlesGL';
+import { MAX_WAVES } from '../../water/ocean';
+import { WaveSim } from './water/waveSim';
+import { FluidSim } from './water/fluidSim';
+import type { SliceAtlas } from '../../art/voxel';
+import { dev } from '../../core/devSettings';
+import { hex01 } from '../../core/math';
+import { CAMERA_GLSL } from './glsl/common';
 
 const DEBUG_FS = /* glsl */ `#version 300 es
 precision highp float;
@@ -40,41 +40,39 @@ void main() {
   else o = vec4(clamp(t.r * 0.05 + 0.2, 0.0, 1.0), t.a * 0.3, clamp(t.r * 0.02, 0.0, 1.0), 1.0);
 }`;
 
-export interface FrameInputs {
-  camera: Camera;
-  ocean: Ocean;
-  env: Environment;
-  theater: Theater;
-  hulls: HullInput[];
-  splats: SplatInput[];
-  simDt: number;
-  time: number;
-  flash: number;
-  flashCol: [number, number, number];
-  bio: number;
-  ice: number;
-}
-
-export class Renderer {
+export class WebGL2Backend implements RenderBackend {
+  readonly gl: GL;
+  readonly caps: GLCaps;
+  readonly info: BackendInfo;
   gbuf: Target; under: Target; occ: Target; lit: Target;
   water: WaterPass; lighting: LightingPass; post: PostPass;
-  lights: LightList;
+  lightTex: WebGLTexture;
+  lightCount = 0;
   stacks: SpriteStackRenderer;
-  particles: Particles;
+  particles: ParticlesGL;
   wave: WaveSim;
   fluid: FluidSim;
-  atlas: SliceAtlas;
+  private atlas: SliceAtlas | null = null;
   private debugProg: Program;
+  // CPU staging for packed scene data (grown on demand by the packers)
+  private stackData = new Float32Array(2048 * 20);
+  private partData = new Float32Array(4096 * 12);
+  private forceData = new Float32Array(64 * 20);
+  private lightData = new Float32Array(MAX_LIGHTS * LIGHT_FLOATS);
   private waveA = new Float32Array(MAX_WAVES * 4);
   private waveB = new Float32Array(MAX_WAVES * 4);
   private rings = new Float32Array(32);
   private ringCount = 0;
   origin = { x: 0, y: 0 };
   occRect = { x: 0, y: 0, s: 1 };
-  stats = { stackInstances: 0, particles: 0, lights: 0, gpuMs: 0 };
+  stats: BackendStats = { stackInstances: 0, particles: 0, lights: 0, gpuMs: 0 };
   simsOk: boolean;
+  private unsub: (() => void)[] = [];
 
-  constructor(readonly gl: GL, readonly caps: GLCaps, readonly screen: Screen) {
+  constructor(readonly screen: Screen) {
+    const { gl, caps } = createGL(screen.canvas);
+    this.gl = gl; this.caps = caps;
+    this.info = { kind: 'webgl2', adapter: caps.renderer, computeSims: false, features: [caps.floatRT ? 'float-rt' : 'no-float-rt', ...(caps.floatLinear ? ['float-linear'] : [])] };
     this.simsOk = caps.floatRT;
     this.gbuf = new Target(gl, ['rgba8', 'rgba16f'], { depth: true });
     this.under = new Target(gl, ['rgba8', 'rgba16f'], { depth: true });
@@ -83,15 +81,25 @@ export class Renderer {
     this.water = new WaterPass(gl);
     this.lighting = new LightingPass(gl);
     this.post = new PostPass(gl);
-    this.lights = new LightList(gl);
-    this.atlas = new SliceAtlas(2048);
-    this.stacks = new SpriteStackRenderer(gl, this.atlas);
-    this.particles = new Particles(gl);
+    this.lightTex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, this.lightTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, MAX_LIGHTS, 0, gl.RGBA, gl.FLOAT, null);
+    this.stacks = new SpriteStackRenderer(gl);
+    this.particles = new ParticlesGL(gl);
     this.wave = new WaveSim(gl, parseInt(dev.str('water.simRes')), dev.num('water.simCell'));
     this.fluid = new FluidSim(gl);
     this.applySimSizes();
     this.debugProg = new Program(gl, 'debug', FULLSCREEN_VS, DEBUG_FS);
-    for (const k of ['water.simRes', 'water.simCell', 'water.fluidRes']) dev.on(k, () => this.applySimSizes());
+    for (const k of ['water.simRes', 'water.simCell', 'water.fluidRes']) this.unsub.push(dev.on(k, () => this.applySimSizes()));
+  }
+
+  resize() { /* targets follow the camera buffer size every frame */ }
+  resetSims() { this.simNeedsReset = true; }
+  dispose() {
+    for (const u of this.unsub) u();
+    this.gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
 
   applySimSizes() {
@@ -121,7 +129,7 @@ export class Renderer {
       .f1('uRippleScale', dev.num('water.rippleScale'));
   }
 
-  frame(f: FrameInputs) {
+  render(scene: RenderScene, f: FrameParams) {
     const gl = this.gl, cam = f.camera, sc = this.screen;
     cam.setViewport(sc.W, sc.H);
     cam.snap();
@@ -131,7 +139,8 @@ export class Renderer {
     this.gbuf.resize(bw, bh); this.under.resize(bw, bh); this.lit.resize(bw, bh); this.post.resize(bw, bh);
     const occRes = parseInt(dev.str('light.shadowRes')) || 1024;
     this.occ.resize(occRes, occRes);
-    this.stacks.uploadAtlas();
+    if (this.atlas !== scene.atlas) { this.atlas = scene.atlas; this.atlas.dirty = true; }
+    this.stacks.uploadAtlas(scene.atlas);
 
     // ---- ocean uniforms (origin folded into wave phases on the CPU, in double precision)
     this.waveCount = f.ocean.pack(O.x, O.y, this.waveA, this.waveB);
@@ -149,7 +158,9 @@ export class Renderer {
       this.wave.hullPush = dev.num('water.hullPush');
       this.wave.foamAmount = dev.num('water.foamAmount');
       if (f.simDt > 0) {
-        this.wave.rasterForces(f.hulls, f.splats, 1 / f.simDt);
+        const forces = packForces(scene.hulls, scene.splats, this.wave.win.ox, this.wave.win.oy, 1 / f.simDt, this.forceData);
+        this.forceData = forces.data;
+        this.wave.rasterForces(forces.data, forces.count);
         if (simOn) this.wave.step(f.simDt);
         if (fluidOn) {
           this.fluid.vorticity = dev.num('water.vorticity');
@@ -175,14 +186,18 @@ export class Renderer {
     gl.enable(gl.BLEND);
     gl.blendEquationSeparate(gl.MAX, gl.FUNC_ADD);
     gl.blendFunc(gl.ONE, gl.ONE);
-    const nInst = this.stacks.build(O.x, O.y);
-    this.stats.stackInstances = nInst;
+    const st = packStacks(scene.stacks, O.x, O.y, this.stackData);
+    this.stackData = st.data;
+    this.stacks.set(st.data, st.count);
+    this.stats.stackInstances = st.count;
     const ps = this.stacks.pOcc.use();
     ps.i1('uOccluder', 1).f4('uOccRect', ...occRel).tex('uAtlas', 0, this.stacks.atlasTex);
     this.setCam(ps, cam);
     this.stacks.draw();
-    const nPart = this.particles.upload(O.x, O.y, f.time);
-    this.stats.particles = nPart;
+    const pk = packParticles(scene.particles, O.x, O.y, f.time, this.partData);
+    this.partData = pk.data;
+    this.particles.upload(pk.data, pk.count);
+    this.stats.particles = pk.count;
     const po = this.particles.progOcc.use();
     this.setCam(po, cam);
     po.i1('uOccluder', 1).f4('uOccRect', ...occRel).f1('uOccScale', occRes / span).f1('uMaxPx', 64);
@@ -240,13 +255,16 @@ export class Renderer {
     // ---- lighting
     const env = f.env;
     const reach = dev.num('light.reach');
-    this.lights.upload(O.x, O.y, cam.viewRect(40), dev.num('light.maxLights'), reach);
-    this.stats.lights = this.lights.count;
+    const lp = packLights(scene.lights, O.x, O.y, cam.viewRect(40), dev.num('light.maxLights'), reach, this.lightData);
+    this.lightCount = lp.count;
+    gl.bindTexture(gl.TEXTURE_2D, this.lightTex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 4, MAX_LIGHTS, gl.RGBA, gl.FLOAT, lp.data);
+    this.stats.lights = lp.count;
     this.lit.bind();
     const pl = this.lighting.prog.use();
     this.setCam(pl, cam);
-    pl.tex('uAlbedo', 0, this.gbuf.tex[0]).tex('uNormal', 1, this.gbuf.tex[1]).tex('uOcc', 2, this.occ.t).tex('uLights', 3, this.lights.tex)
-      .i1('uLightCount', this.lights.count).f4('uOccRect', ...occRel)
+    pl.tex('uAlbedo', 0, this.gbuf.tex[0]).tex('uNormal', 1, this.gbuf.tex[1]).tex('uOcc', 2, this.occ.t).tex('uLights', 3, this.lightTex)
+      .i1('uLightCount', this.lightCount).f4('uOccRect', ...occRel)
       .f3('uAmbient', ...env.ambient).f3('uSky', ...env.sky).f3('uFogCol', ...env.fogColor)
       .f3('uSunDir', env.sunDir.x, env.sunDir.y, env.sunDir.z)
       .f3('uSunCol', env.sunColor[0] * env.sunIntensity, env.sunColor[1] * env.sunIntensity, env.sunColor[2] * env.sunIntensity)

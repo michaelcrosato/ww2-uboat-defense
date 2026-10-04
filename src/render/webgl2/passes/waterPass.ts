@@ -5,8 +5,8 @@
 // waterline) faded by depth and theater clarity.
 
 import { drawFullscreen, FULLSCREEN_VS, Program, type GL } from '../gl';
-import { CAMERA_GLSL, DITHER_GLSL, GBUF_OUT_GLSL, MAT_GLSL, NOISE_GLSL } from '../shaders/common';
-import { OCEAN_GLSL } from '../../water/ocean';
+import { CAMERA_GLSL, DITHER_GLSL, GBUF_OUT_GLSL, MAT_GLSL, NOISE_GLSL } from '../glsl/common';
+import { OCEAN_GLSL } from '../glsl/ocean';
 
 const FS = /* glsl */ `#version 300 es
 precision highp float;

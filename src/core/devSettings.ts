@@ -17,6 +17,9 @@ export const DEV_DEFS: SettingDef[] = [
     options: opts(['theater', 'Theater palette'], ['neutral', 'Neutral'], ['newsreel', 'Newsreel (sepia)'], ['technicolor', 'Technicolor'], ['uboat', 'Red battle lights'], ['mono', 'Monochrome film']) },
   { key: 'display.scanlines', group: 'Display', label: 'CRT scanlines', type: 'range', def: 0, min: 0, max: 1, step: 0.05, fmt: pct },
   { key: 'display.grain', group: 'Display', label: 'Film grain', type: 'range', def: 0.15, min: 0, max: 1, step: 0.05, fmt: pct },
+  { key: 'display.renderer', group: 'Display', label: 'Renderer', type: 'select', def: 'auto',
+    options: opts(['auto', 'Auto'], ['webgpu', 'WebGPU'], ['webgl2', 'WebGL2']),
+    help: 'WebGPU with WebGL2 fallback; change needs reload.' },
   { key: 'display.hudScale', group: 'Display', label: 'HUD text size', type: 'select', def: '1', options: opts(['1', 'Normal'], ['2', 'Large']) },
 
   // ---------------------------------------------------------------- Camera

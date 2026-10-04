@@ -3,7 +3,7 @@
 // Vorticity confinement keeps eddies alive. The velocity field advects a "dye" texture at the
 // wave-sim resolution: R = foam (white water), G = bioluminescence, B = oil slick, A = burning oil.
 
-import { drawFullscreen, FULLSCREEN_VS, PingPong, Program, Target, type GL } from '../gfx/gl';
+import { drawFullscreen, FULLSCREEN_VS, PingPong, Program, Target, type GL } from '../gl';
 import { SHIFT_FS } from './waveSim';
 
 const ADVECT_VEL_FS = /* glsl */ `#version 300 es

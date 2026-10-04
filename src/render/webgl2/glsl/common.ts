@@ -88,20 +88,6 @@ layout(location = 0) out vec4 oAlbedo;   // rgb albedo, a = material id / 255
 layout(location = 1) out vec4 oNormal;   // xy normal, z = world height, w = emissive
 `;
 
-export const MAT = {
-  NONE: 0,
-  WATER: 1,
-  METAL: 2,
-  WOOD: 3,
-  FOAM: 4,
-  FIRE: 5,
-  SMOKE: 6,
-  LAMP: 7,
-  UNDERWATER: 8,
-  SPRAY: 9,
-  ICE: 10,
-  LAND: 11,
-} as const;
 
 export const MAT_GLSL = /* glsl */ `
 #define MAT_WATER 1.0

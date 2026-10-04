@@ -5,9 +5,8 @@
 //  2. Wave equation heightfield (9-point Laplacian, damped, absorbing edges): bow waves, V wakes,
 //     explosion rings, splash ripples. State texture RG16F: R = height (m), G = vertical velocity.
 
-import { drawFullscreen, FULLSCREEN_VS, InstanceBatch, PingPong, Program, Target, type GL } from '../gfx/gl';
-import type { HullInput, SplatInput } from './simInputs';
-import { SimWindow } from './simWindow';
+import { drawFullscreen, FULLSCREEN_VS, InstanceBatch, PingPong, Program, Target, type GL } from '../gl';
+import { SimWindow } from '../../../water/simWindow';
 
 const FORCE_VS = /* glsl */ `#version 300 es
 layout(location = 0) in vec2 aQuad;
@@ -224,26 +223,10 @@ export class WaveSim {
     pp.swap();
   }
 
-  /** rasterize hulls + splats into the force textures (positions relative to the window) */
-  rasterForces(hulls: HullInput[], splats: SplatInput[], dtScale: number) {
-    const gl = this.gl, b = this.batch, ox = this.win.ox, oy = this.win.oy;
-    b.begin();
-    for (const h of hulls) {
-      const o = b.push(), d = b.data;
-      d[o] = h.x - ox; d[o + 1] = h.y - oy; d[o + 2] = h.fx; d[o + 3] = h.fy;
-      d[o + 4] = Math.max(0.5, h.halfLen); d[o + 5] = Math.max(0.4, h.halfBeam); d[o + 6] = h.vx; d[o + 7] = h.vy;
-      d[o + 8] = h.angVel; d[o + 9] = h.thrust; d[o + 10] = h.draft; d[o + 11] = h.depth;
-      d[o + 12] = h.foam; d[o + 13] = h.oil; d[o + 14] = h.fire; d[o + 15] = h.kind;
-      d[o + 16] = 0; d[o + 17] = 0; d[o + 18] = 0; d[o + 19] = 0;
-    }
-    for (const s of splats) {
-      const o = b.push(), d = b.data;
-      d[o] = s.x - ox; d[o + 1] = s.y - oy; d[o + 2] = 1; d[o + 3] = 0;
-      d[o + 4] = Math.max(0.5, s.radius); d[o + 5] = 0; d[o + 6] = 0; d[o + 7] = 0;
-      d[o + 8] = 0; d[o + 9] = 0; d[o + 10] = 0; d[o + 11] = 0;
-      d[o + 12] = 0; d[o + 13] = s.oil * dtScale; d[o + 14] = s.fire * dtScale; d[o + 15] = 10;
-      d[o + 16] = s.wave; d[o + 17] = s.foam * dtScale; d[o + 18] = s.bio * dtScale; d[o + 19] = s.push;
-    }
+  /** rasterize packed hulls + splats (render/pack.ts `packForces`, relative to the window) into the force textures */
+  rasterForces(data: Float32Array, count: number) {
+    const gl = this.gl, b = this.batch;
+    b.set(data, count);
     this.force.bind();
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);

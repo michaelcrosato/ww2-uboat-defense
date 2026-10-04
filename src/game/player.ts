@@ -3,7 +3,7 @@
 // orders, searchlight, abilities, target selection and time compression.
 
 import type { Input } from '../input/input';
-import type { Camera } from '../gfx/camera';
+import type { Camera } from '../render/camera';
 import type { Mission } from './mission';
 import type { Vessel } from './vessel';
 import { TELEGRAPH } from './vessel';

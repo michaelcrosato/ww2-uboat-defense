@@ -13,7 +13,7 @@ WebGPU additionally runs the water simulations as compute shaders.
 | # | Milestone | Status | File |
 |---|---|---|---|
 | M0 | WebGL2 prototype + handoff docs (baseline) | DONE | — |
-| M1 | Render abstraction refactor (backend-agnostic scene, WebGL2 behind an interface) | TODO | [M01](milestones/M01-render-abstraction.md) |
+| M1 | Render abstraction refactor (backend-agnostic scene, WebGL2 behind an interface) | DONE | [M01](milestones/M01-render-abstraction.md) |
 | M2 | WebGPU bootstrap: device, canvas, fallback chain, present pass | TODO | [M02](milestones/M02-webgpu-bootstrap.md) |
 | M3 | WebGPU water G-buffer, lighting (sun/moon/ambient) and post | TODO | [M03](milestones/M03-webgpu-water-lighting-post.md) |
 | M4 | WebGPU sprite stacks, particles, dynamic lights + occluder shadows | TODO | [M04](milestones/M04-webgpu-stacks-particles-lights.md) |
@@ -83,5 +83,6 @@ on any failure or later device loss. The active backend shows in the FPS overlay
 - Water swell bands look streaky at some sea states (tone dominated by long swell). → M12
 - Islands use metal material; should be land with its own look. → M11/M12
 - Many dev settings are declared but not wired (audit table in M11).
-- Camera does not snap after `fastForward` (tests only). → M11
+- Camera does not snap after `fastForward` (tests only; `?freeze=1` frames do settle it). → M11
+- Debug perf line (`debug.perf`) overlaps the bottom-left status panel. → M9
 - `src/audio/dsp.ts` and `mixer.ts` were written by an interrupted agent; review before use. → M8

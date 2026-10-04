@@ -80,3 +80,39 @@ Any WebGPU code, visual changes, shader edits.
 `Refactor renderer behind RenderBackend; backend-agnostic RenderScene` (+ bullets).
 
 ## Notes (fill in when done)
+Done. Frozen test shots are **pixel-identical** before/after (`check-output/m1-{before,after}-{day,night}.png`,
+0 px differ), normal night play shows ships, wake foam, searchlight beam and star shell, and
+`__app.fastForward(200)` advances the convoy (~550 m) without errors.
+
+What changed
+- `src/render/`: `types.ts` (`RenderBackend`, `BackendInfo`, `BackendStats`, `FrameParams`), `scene.ts`
+  (`RenderScene` + `StackInstance`), `backend.ts` (`createBackend`, `parseBackendPref`; always WebGL2 for now),
+  `materials.ts` (`MAT`, `PK`), `lights.ts` (`Light`, CPU `LightList`, `packLights`, `MAX_LIGHTS`,
+  `LIGHT_FLOATS`), `particles.ts` (CPU `ParticleSystem`), `pack.ts` (`packStacks` 20 floats/slice,
+  `packParticles` 12 floats, `packForces` 20 floats, `ensure`, type `F32`), `camera.ts`, `screen.ts`
+  (+ `replaceCanvas()`).
+- `src/render/webgl2/`: `WebGL2Backend` (old `Renderer.frame` → `render(scene, f)`; `resetSims()`; owns the
+  light texture and staging buffers), `particlesGL.ts`, `spriteStack.ts` (takes packed data via
+  `InstanceBatch.set`, atlas passed to `uploadAtlas`), `glsl/common.ts`, `glsl/ocean.ts` (`OCEAN_GLSL`, moved out
+  of `water/ocean.ts`), `water/{waveSim,fluidSim}.ts` (`rasterForces(data, count)`).
+- Deleted the unused `SimInputs` class and `SIM_INPUTS_GLSL`; `src/gfx/` is gone.
+- Game: `World(scene)`; `w.scene.{stacks.push, lights, particles.spawn, atlas.add, hulls, splats}`; `world.lights.add`
+  wrapper kept. `App(screen, backend)` owns `scene`; `main.ts` builds `Screen`, awaits `createBackend`.
+  HUD perf line reads `backend.stats`; FPS text shows the backend kind (`20 fps webgl2`).
+- Dev setting `display.renderer` (auto | webgpu | webgl2) + URL `?renderer=`.
+
+Decisions
+- Test hooks in `main.ts`: `?fxseed=`, `?dev.<key>=` (transient: `dev.set(k, v, false)`), `?freeze=1`. Under
+  freeze the camera is updated with a huge dt so it settles at once — otherwise its smoothing depended on
+  how many frames ran before the shot (that made the first baselines differ by ~2 px).
+- `Mission` now calls `env.update(0)` after `env.apply`, so sun/sky are valid before the first step (a frozen
+  frame was otherwise lit with the default environment). In normal play this only affects the first frame.
+- `Input` listens on `screen.root` (#stage) instead of the canvas so `replaceCanvas()` won't orphan its
+  pointer listeners (#hud has `pointer-events: none`, so events still arrive the same way).
+- `RenderScene.beginFrame()` clears stacks, lights and hulls; splats persist until a frame with `simDt > 0`
+  consumes them (same as before). One `RenderScene` per App; the atlas keeps growing across missions (as before).
+- If a backend sees a different atlas object than last frame it re-uploads it (for the M2 fallback swap).
+
+Follow-ups
+- M2: `createBackend` fallback chain; use `screen.replaceCanvas()` before the WebGL2 attempt.
+- `?dev.*` values are transient, but any later persisted `dev.set` saves the whole diff (incl. them); fine for tests.

@@ -6,12 +6,11 @@ import { Ocean } from '../water/ocean';
 import { Environment } from './environment';
 import type { Theater } from './theaters';
 import { Bus } from '../core/events';
-import type { Renderer } from '../gfx/renderer';
 import type { StackModel } from '../art/voxel';
 import type { VesselClass, Side } from './vesselClasses';
 import { Vessel } from './vessel';
-import type { HullInput, SplatInput } from '../water/simInputs';
-import type { Light } from '../gfx/lights';
+import type { Light } from '../render/lights';
+import type { RenderScene } from '../render/scene';
 import { dev } from '../core/devSettings';
 import { Rng } from '../core/math';
 import type { Projectiles } from './weapons';
@@ -59,9 +58,6 @@ export class World {
   player: Vessel | null = null;
   projectiles!: Projectiles;
   sensors!: Sensors;
-  // per-frame render collections
-  hulls: HullInput[] = [];
-  splats: SplatInput[] = [];
   lights: { add: (l: Light) => void };
   private artCache = new Map<string, ArtModels>();
   /** screen flash (explosions near the camera, lightning) */
@@ -75,8 +71,9 @@ export class World {
   transient: { l: Light; t: number; dur: number; i0: number }[] = [];
   flashLight(l: Light, dur: number) { this.transient.push({ l, t: 0, dur, i0: l.intensity }); }
 
-  constructor(readonly renderer: Renderer) {
-    this.lights = { add: (l: Light) => this.renderer.lights.add(l) };
+  /** render collections (stacks, lights, particles, water-sim inputs) gathered by `submit` */
+  constructor(readonly scene: RenderScene) {
+    this.lights = { add: (l: Light) => this.scene.lights.add(l) };
   }
 
   emit<K extends keyof WorldEvents>(k: K, p: WorldEvents[K]) { this.bus.emit(k, p); }
@@ -85,7 +82,7 @@ export class World {
     let a = this.artCache.get(cls.id);
     if (a) return a;
     const art = cls.art();
-    const atlas = this.renderer.atlas;
+    const atlas = this.scene.atlas;
     a = {
       hull: atlas.add(art.hull),
       mounts: art.mounts.map((m) => ({ id: m.id, model: atlas.add(m.model), x: m.x, y: m.y, z: m.z, yaw: m.yaw })),
@@ -159,12 +156,10 @@ export class World {
 
   /** gather render data for this frame */
   submit(frameDt: number) {
-    const R = this.renderer;
-    R.stacks.clear();
-    R.lights.clear();
-    this.hulls.length = 0;
+    const R = this.scene;
+    R.beginFrame();
     for (const v of this.vessels) v.submit(frameDt);
-    for (const isl of this.islands) R.stacks.add({ model: isl.model, x: isl.x, y: isl.y, z: 0, q: { x: 0, y: 0, z: 0, w: 1 } });
+    for (const isl of this.islands) R.stacks.push({ model: isl.model, x: isl.x, y: isl.y, z: 0, q: { x: 0, y: 0, z: 0, w: 1 } });
     this.projectiles?.submit(frameDt);
     for (let i = this.transient.length - 1; i >= 0; i--) {
       const tl = this.transient[i];

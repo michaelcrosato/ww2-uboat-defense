@@ -10,7 +10,7 @@ import { aircraftArt } from '../art/ships';
 import { angleDiff, clamp, fx, quatFromEuler, wrapAngle } from '../core/math';
 import { SRC } from './sensors';
 import { underwaterBlast, splashColumn, surfaceExplosion } from './effects';
-import { PK } from '../gfx/particles';
+import { PK } from '../render/materials';
 
 type Kind = 'swordfish' | 'catalina' | 'liberator';
 const SPEC: Record<Kind, { speed: number; alt: number; bombs: number; hp: number }> = {
@@ -39,7 +39,7 @@ export class Aircraft {
     this.heading = Math.atan2(cy - y, cx - x);
     this.bombs = bombs ?? s.bombs;
     this.hp = s.hp;
-    this.model = w.renderer.atlas.add(aircraftArt(kind));
+    this.model = w.scene.atlas.add(aircraftArt(kind));
   }
   get leighLight() { return this.w.year >= 1942 && this.w.env.darkness > 0.55 && this.kind !== 'swordfish'; }
 
@@ -123,12 +123,12 @@ export class Aircraft {
   }
 
   submit() {
-    const w = this.w, R = w.renderer;
+    const w = this.w, R = w.scene;
     const q = quatFromEuler(this.bank, 0, this.heading);
-    R.stacks.add({ model: this.model, x: this.x, y: this.y, z: this.z, q, flags: 1 });
+    R.stacks.push({ model: this.model, x: this.x, y: this.y, z: this.z, q, flags: 1 });
     // ground shadow
     const sx = this.x - w.env.sunDir.x * 0, sy = this.y;
-    R.stacks.add({ model: this.model, x: sx, y: sy, z: w.ocean.height(sx, sy) + 0.1, q: quatFromEuler(0, 0, this.heading), flags: 4 | 8 });
+    R.stacks.push({ model: this.model, x: sx, y: sy, z: w.ocean.height(sx, sy) + 0.1, q: quatFromEuler(0, 0, this.heading), flags: 4 | 8 });
     if (this.leighLight) {
       const dx = Math.cos(this.heading), dy = Math.sin(this.heading);
       w.lights.add({ x: this.x + dx * 4, y: this.y + dy * 4, z: this.z - 1, reach: Math.max(400, this.z * 3.5), r: 0.95, g: 0.97, b: 1, intensity: 3, dx: dx * 0.6, dy: dy * 0.6, dz: -0.8, cosOuter: Math.cos(0.12), shadow: true, beam: 1.2, size: 0.8, priority: 3 });

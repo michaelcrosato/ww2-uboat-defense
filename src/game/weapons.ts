@@ -11,7 +11,7 @@ import type { Vessel, GunState } from './vessel';
 import { quatMul } from './vessel';
 import { GROUPS } from '../physics/physics';
 import { angleDiff, clamp, fx, qrot, quatFromYaw, wrapAngle, KNOT } from '../core/math';
-import { PK } from '../gfx/particles';
+import { PK } from '../render/materials';
 import { splashColumn, surfaceExplosion, underwaterBlast, muzzleFlash } from './effects';
 import { dev } from '../core/devSettings';
 import type { StackModel } from '../art/voxel';
@@ -53,7 +53,7 @@ export class Projectiles {
   private crateModels: Record<Rarity, StackModel>;
 
   constructor(private w: World) {
-    const A = w.renderer.atlas;
+    const A = w.scene.atlas;
     this.dcModel = A.add(depthChargeArt());
     this.torpModel = A.add(torpedoArt());
     this.boatModel = A.add(lifeboatArt());
@@ -194,8 +194,8 @@ export class Projectiles {
       alive: true, target: opts.target ?? null, split: false,
     });
     // compressed-air bubble burst at the tube
-    for (let i = 0; i < 12; i++) this.w.renderer.particles.spawn(PK.FOAMBIT, p.x + fx.range(-1, 1), p.y + fx.range(-1, 1), 0, fx.range(-1, 1), fx.range(-1, 1), fx.range(1, 3), 1.2, 0.5, [0.9, 0.95, 1]);
-    this.w.splats.push({ x: p.x, y: p.y, radius: 4, wave: -0.6, foam: 1.2, bio: 0.8, oil: 0, fire: 0, push: 1 });
+    for (let i = 0; i < 12; i++) this.w.scene.particles.spawn(PK.FOAMBIT, p.x + fx.range(-1, 1), p.y + fx.range(-1, 1), 0, fx.range(-1, 1), fx.range(-1, 1), fx.range(1, 3), 1.2, 0.5, [0.9, 0.95, 1]);
+    this.w.scene.splats.push({ x: p.x, y: p.y, radius: 4, wave: -0.6, foam: 1.2, bio: 0.8, oil: 0, fire: 0, push: 1 });
     this.w.emit('torpedoFired', { by: v, x: p.x, y: p.y });
     return true;
   }
@@ -484,20 +484,20 @@ export class Projectiles {
 
   // ------------------------------------------------------------------ render submission
   submit(dt: number) {
-    const w = this.w, R = w.renderer, P = R.particles;
+    const w = this.w, R = w.scene, P = R.particles;
     for (const s of this.shells) {
       P.spawn(PK.TRACER, s.x, s.y, s.z, 0, 0, 0, dt * 1.5, s.caliber > 80 ? 0.9 : 0.6, [1, 0.8, 0.45]);
       P.spawn(PK.TRACER, s.x - s.vx * dt * 0.5, s.y - s.vy * dt * 0.5, s.z - s.vz * dt * 0.5, 0, 0, 0, dt * 1.5, 0.5, [1, 0.6, 0.3]);
     }
     for (const c of this.charges) {
       if (c.t < 0) continue;
-      R.stacks.add({ model: this.dcModel, x: c.x, y: c.y, z: c.z, q: { x: 0, y: 0, z: 0, w: 1 } });
+      R.stacks.push({ model: this.dcModel, x: c.x, y: c.y, z: c.z, q: { x: 0, y: 0, z: 0, w: 1 } });
       if (c.wet && fx.next() < 0.3) P.spawn(PK.FOAMBIT, c.x, c.y, 0, 0, 0, 0.5, 0.6, 0.35, [0.8, 0.9, 1]);
     }
     for (const t of this.torpedoes) {
-      R.stacks.add({ model: this.torpModel, x: t.x, y: t.y, z: t.z, q: quatFromYaw(t.heading) });
+      R.stacks.push({ model: this.torpModel, x: t.x, y: t.y, z: t.z, q: quatFromYaw(t.heading) });
       const wakeVis = t.kind === 'steam' ? 1 * t.from.stats.mul('torpedo_wake_pct') : 0.08;
-      w.hulls.push({ x: t.x, y: t.y, fx: Math.cos(t.heading), fy: Math.sin(t.heading), halfLen: 3.5, halfBeam: 0.6, vx: Math.cos(t.heading) * t.speed, vy: Math.sin(t.heading) * t.speed, angVel: 0, thrust: 1, draft: 0, depth: t.depth, foam: wakeVis, oil: 0, fire: 0, kind: 1 });
+      w.scene.hulls.push({ x: t.x, y: t.y, fx: Math.cos(t.heading), fy: Math.sin(t.heading), halfLen: 3.5, halfBeam: 0.6, vx: Math.cos(t.heading) * t.speed, vy: Math.sin(t.heading) * t.speed, angVel: 0, thrust: 1, draft: 0, depth: t.depth, foam: wakeVis, oil: 0, fire: 0, kind: 1 });
     }
     for (const f of this.flares) {
       const k = Math.min(1, f.life / 3) * (0.85 + 0.15 * Math.sin(w.time * 23 + f.x));
@@ -507,12 +507,12 @@ export class Projectiles {
     }
     for (const d of this.decoys) {
       if (d.kind === 'bold' && fx.next() < 0.6) P.spawn(PK.FOAMBIT, d.x + fx.range(-3, 3), d.y + fx.range(-3, 3), 0, 0, 0, 0.6, 1.0, 0.4, [0.85, 0.95, 1]);
-      if (d.kind === 'bold') w.hulls.push({ x: d.x, y: d.y, fx: 1, fy: 0, halfLen: 3, halfBeam: 3, vx: 0, vy: 0, angVel: 0, thrust: 0, draft: 0, depth: d.depth, foam: 0.4, oil: 0, fire: 0, kind: 2 });
+      if (d.kind === 'bold') w.scene.hulls.push({ x: d.x, y: d.y, fx: 1, fy: 0, halfLen: 3, halfBeam: 3, vx: 0, vy: 0, angVel: 0, thrust: 0, draft: 0, depth: d.depth, foam: 0.4, oil: 0, fire: 0, kind: 2 });
     }
     for (const c of this.crates) {
       const z = w.ocean.height(c.x, c.y) - 0.1;
       const roll = Math.sin(w.time * 1.3 + c.phase) * 0.15;
-      R.stacks.add({ model: this.crateModels[c.item.rarity], x: c.x, y: c.y, z, q: quatMul(quatFromYaw(c.phase), { x: Math.sin(roll / 2), y: 0, z: 0, w: Math.cos(roll / 2) }) });
+      R.stacks.push({ model: this.crateModels[c.item.rarity], x: c.x, y: c.y, z, q: quatMul(quatFromYaw(c.phase), { x: Math.sin(roll / 2), y: 0, z: 0, w: Math.cos(roll / 2) }) });
       const col = RARITY_BEAM[c.item.rarity];
       const pulse = 0.8 + 0.2 * Math.sin(w.time * 3 + c.phase);
       w.lights.add({ x: c.x, y: c.y, z: 3, reach: c.item.rarity === 'common' ? 18 : 34, r: col[0], g: col[1], b: col[2], intensity: (c.item.rarity === 'common' ? 0.6 : 1.6) * pulse, beam: c.item.rarity === 'common' ? 0 : 0.8, priority: 1 });
@@ -522,7 +522,7 @@ export class Projectiles {
     for (const b of this.boats) {
       b.x += Math.cos(b.h) * 0.3 * dt; b.y += Math.sin(b.h) * 0.3 * dt;
       const z = w.ocean.height(b.x, b.y);
-      R.stacks.add({ model: this.boatModel, x: b.x, y: b.y, z: z - 0.3, q: quatFromYaw(b.h), flags: 1 });
+      R.stacks.push({ model: this.boatModel, x: b.x, y: b.y, z: z - 0.3, q: quatFromYaw(b.h), flags: 1 });
       w.lights.add({ x: b.x, y: b.y, z: z + 1.5, reach: 14, r: 1, g: 0.6, b: 0.25, intensity: 0.8 + 0.3 * Math.sin(w.time * 5 + b.x) });
     }
     void qrot;

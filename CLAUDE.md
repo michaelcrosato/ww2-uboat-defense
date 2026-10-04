@@ -40,7 +40,11 @@ the fast-forward hook in `--eval`: `__app.fastForward(300)` runs 300 s of simula
 rendering and returns the message log. `window.__app` is the App instance (mission, world, player).
 
 URL parameters override any arena setting for testing: `/?side=uboat&hour=2&weather=fog&seaState=6`
-(keys from `src/game/arenaConfig.ts` without the `arena.` prefix).
+(keys from `src/game/arenaConfig.ts` without the `arena.` prefix). Test hooks: `?dev.<key>=<v>` sets a
+dev setting without persisting it (e.g. `?dev.water.sim=false&dev.display.showFps=false`),
+`?fxseed=1` seeds the cosmetic RNG, `?freeze=1` renders without ever stepping world/sims/particles
+(camera settles at once), `?renderer=webgpu|webgl2|auto` picks the backend. Reproducible shot:
+`/?freeze=1&fxseed=1&seed=7&hour=13&dev.display.showFps=false` (pixel-identical across runs).
 
 ## Architecture (file map)
 
@@ -49,8 +53,9 @@ URL parameters override any arena setting for testing: `/?side=uboat&hour=2&weat
 | Boot / loop | `src/main.ts`, `src/app.ts` | App owns screen, renderer, input, HUD, mission; fixed-step sim (`phys.hz`), tempo × time compression |
 | Config | `src/core/config.ts`, `src/core/devSettings.ts`, `src/game/arenaConfig.ts` | Schema-driven stores (`dev.num/bool/str`, `dev.on(key, fn)`); every knob persists and will auto-generate UI |
 | Math/events | `src/core/math.ts`, `src/core/events.ts` | world space: x east, y south, z up (m); heading: forward=(cos h, sin h), grows clockwise; `Rng` seeded; `fx` cosmetic RNG |
-| Rendering (WebGL2 today) | `src/gfx/*` | see "Render pipeline" below; being split into `src/render/{common,webgl2,webgpu}` (milestones M1–M6) |
-| Water | `src/water/ocean.ts` (Gerstner, CPU + GLSL twin), `waveSim.ts`, `fluidSim.ts`, `simWindow.ts`, `simInputs.ts` | CPU `Ocean.height()` drives buoyancy; GPU sims are cosmetic |
+| Render API | `src/render/types.ts` (`RenderBackend`, `FrameParams`), `scene.ts` (`RenderScene`, `StackInstance`), `backend.ts` (`createBackend`), `camera.ts`, `screen.ts`, `lights.ts` (`LightList`, `packLights`), `particles.ts` (CPU `ParticleSystem`), `pack.ts` (stack/particle/force packers), `materials.ts` (`MAT`, `PK`) | game code fills `RenderScene` only; never imports a backend |
+| WebGL2 backend | `src/render/webgl2/renderer.ts` (`WebGL2Backend`), `gl.ts`, `spriteStack.ts`, `particlesGL.ts`, `passes/*`, `glsl/{common,ocean}.ts`, `water/{waveSim,fluidSim}.ts` | see "Render pipeline" below; WebGPU backend = milestones M2–M6 |
+| Water | `src/water/ocean.ts` (CPU Gerstner; GLSL twin in `render/webgl2/glsl/ocean.ts`), `simWindow.ts`, `simInputs.ts` (`HullInput`/`SplatInput` types) | CPU `Ocean.height()` drives buoyancy; GPU sims are cosmetic |
 | Art | `src/art/voxel.ts` (VoxelModel, SliceAtlas), `shipBuilder.ts`, `ships.ts` | procedural voxel ships → horizontal slices → sprite stacking |
 | Physics | `src/physics/physics.ts` (Rapier world, groups, queries), `hydro.ts` (buoyancy columns, drag, thrust, rudder, ballast) | `@dimforge/rapier3d-compat` **0.21.0 pinned** |
 | Game | `src/game/world.ts` (hub + event bus), `vessel.ts`, `vesselClasses.ts`, `weapons.ts`, `effects.ts`, `sensors.ts`, `convoy.ts`, `ai/escort.ts`, `ai/uboat.ts`, `aircraft.ts`, `mission.ts`, `player.ts`, `abilities.ts`, `environment.ts`, `theaters.ts` | AI and HUD read only the side's contact picture (fog of war) |
@@ -59,7 +64,7 @@ URL parameters override any arena setting for testing: `/?side=uboat&hour=2&weat
 | Input | `src/input/input.ts` | actions + rebindable bindings, gamepad (PS5 glyphs), rumble |
 | Audio | `src/audio/dsp.ts`, `mixer.ts` (partial) | engine completion = milestone M8 |
 
-### Render pipeline (per frame, `src/gfx/renderer.ts`)
+### Render pipeline (per frame, `src/render/webgl2/renderer.ts`)
 1. Water sims: force raster (hull footprints + splats as instanced quads → 3 force textures) →
    wave equation (RG16F h,v) → stable fluids (velocity, pressure, vorticity) → dye advection
    (RGBA16F: foam, bioluminescence, oil, burning oil). Sim window follows the camera in whole cells.
@@ -67,7 +72,7 @@ URL parameters override any arena setting for testing: `/?side=uboat&hour=2&weat
    A = smoke density via ADD blend) — drives soft shadows.
 3. Underwater pass: submerged parts → color + depth-below-surface (composited by the water pass).
 4. G-buffer: fullscreen water (writes depth) → sprite stacks → particles. RT0 = albedo + material id,
-   RT1 = normal.xy, world height z, emissive. Materials in `src/gfx/shaders/common.ts` (`MAT`).
+   RT1 = normal.xy, world height z, emissive. Materials: `src/render/materials.ts` (`MAT`) + `MAT_GLSL`.
 5. Lighting: ambient + sun + moon + up to 64 point/spot lights (float texture), heightmap-marched
    soft shadows, searchlight beam haze, water glints/sky reflection, light-band quantization.
 6. Post: bloom (half res) → grade/vignette/grain/scanlines → integer-scaled present with the camera's
@@ -76,12 +81,12 @@ URL parameters override any arena setting for testing: `/?side=uboat&hour=2&weat
 Conventions: internal passes treat `gl_FragCoord.xy` as buffer pixels **y-down** (GL passes write
 `clip.y = by/bh*2-1`); shader world positions are relative to the render origin (snapped camera
 center) for precision; the CPU folds the origin into wave phases (`Ocean.pack`). The camera is an
-oblique orthographic projection (`src/gfx/camera.ts`): `by = (y*cosT - z*sinT)*zoom`.
+oblique orthographic projection (`src/render/camera.ts`): `by = (y*cosT - z*sinT)*zoom`.
 
 ### Gameplay data flow
 `App.frame` → `PlayerControl.update` (orders) → N × (`World.step`: AI → `Vessel.preStep` (hydro forces)
-→ projectiles → `physics.step` → sensors → collisions; `Mission.update`) → `World.submit` (fills sprite
-stacks, lights, particles, hull/splat inputs) → `Renderer.frame` → `Hud.draw`.
+→ projectiles → `physics.step` → sensors → collisions; `Mission.update`) → `World.submit` (fills
+`world.scene`: stacks, lights, particles, hulls/splats) → `RenderBackend.render(scene, params)` → `Hud.draw`.
 Events (`world.bus`): `sunk`, `damaged`, `torpedoFired`, `torpedoHit`, `ping`, `echo`, `explosion`,
 `message`, `lootPicked`, `dcDrop`, `gunFired`, `splash`, `starShell`, `reinforce`, …
 

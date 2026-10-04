@@ -1,8 +1,9 @@
 // In-mission HUD on the low-res overlay canvas: compass, status, depth gauge, ability bar,
 // tactical plot, contact markers, solution lines, loot labels, messages and warnings.
 
-import type { Screen } from '../gfx/screen';
-import type { Camera } from '../gfx/camera';
+import type { Screen } from '../render/screen';
+import type { Camera } from '../render/camera';
+import type { RenderBackend } from '../render/types';
 import type { Mission } from '../game/mission';
 import type { PlayerControl } from '../game/player';
 import { CHARGE_DEPTHS } from '../game/player';
@@ -31,6 +32,8 @@ export class Hud {
   private fpsAcc = 0; private fpsN = 0;
   showPlot = true;
   tactical = false;
+  /** active renderer (perf line + backend name next to the FPS) */
+  backend: RenderBackend | null = null;
 
   constructor(private screen: Screen, private cam: Camera, private input: Input) {}
 
@@ -68,9 +71,9 @@ export class Hud {
     // time compression + fps
     const ts = pc.timeScale;
     if (ts > 1) drawText(g, `TIME x${ts}`, W / 2, 30, C.warn, { align: 'center' });
-    if (dev.bool('display.showFps')) drawText(g, `${Math.round(this.fps)} fps`, W - 4, H - 10, C.dim, { align: 'right' });
-    if (dev.bool('debug.perf')) {
-      const R = w.renderer.stats;
+    if (dev.bool('display.showFps')) drawText(g, `${Math.round(this.fps)} fps ${this.backend?.info.kind ?? ''}`.trimEnd(), W - 4, H - 10, C.dim, { align: 'right' });
+    if (dev.bool('debug.perf') && this.backend) {
+      const R = this.backend.stats;
       drawText(g, `slices ${R.stackInstances}  particles ${R.particles}  lights ${R.lights}  bodies ${w.vessels.length}  shells ${w.projectiles.shells.length}`, 4, H - 10, C.dim);
     }
   }

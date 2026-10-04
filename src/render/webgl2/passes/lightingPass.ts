@@ -7,9 +7,8 @@
 // Irradiance is quantized into bands with world-anchored dithering for a pixel-art look.
 
 import { drawFullscreen, FULLSCREEN_VS, Program, type GL } from '../gl';
-import { CAMERA_GLSL, DITHER_GLSL, MAT_GLSL } from '../shaders/common';
-
-export const MAX_LIGHTS = 64;
+import { CAMERA_GLSL, DITHER_GLSL, MAT_GLSL } from '../glsl/common';
+import { MAX_LIGHTS } from '../../lights';
 
 const FS = /* glsl */ `#version 300 es
 precision highp float;

@@ -5,7 +5,8 @@
 import type { ConfigStore } from '../core/config';
 
 export class Screen {
-  readonly canvas: HTMLCanvasElement;
+  /** the game canvas; replaced (not reused) when a backend falls back, see replaceCanvas */
+  canvas: HTMLCanvasElement;
   readonly hud: HTMLCanvasElement;
   readonly hudCtx: CanvasRenderingContext2D;
   /** internal pixels */
@@ -18,8 +19,7 @@ export class Screen {
   private listeners: (() => void)[] = [];
 
   constructor(readonly root: HTMLElement, private cfg: ConfigStore) {
-    this.canvas = document.createElement('canvas');
-    this.canvas.id = 'game';
+    this.canvas = Screen.makeCanvas();
     this.hud = document.createElement('canvas');
     this.hud.id = 'hud';
     root.append(this.canvas, this.hud);
@@ -32,6 +32,24 @@ export class Screen {
     cfg.on('display.pixelScale', () => this.resize());
     cfg.on('display.targetHeight', () => this.resize());
     this.resize();
+  }
+
+  private static makeCanvas() {
+    const c = document.createElement('canvas');
+    c.id = 'game';
+    return c;
+  }
+
+  /**
+   * Swap in a fresh <canvas id="game">. A canvas keeps the first context type it was asked for,
+   * so each backend attempt (WebGPU, then WebGL2) needs its own canvas. Input listens on `root`.
+   */
+  replaceCanvas(): HTMLCanvasElement {
+    const c = Screen.makeCanvas();
+    c.width = this.pw; c.height = this.ph;
+    this.canvas.replaceWith(c);
+    this.canvas = c;
+    return c;
   }
 
   onResize(f: () => void) { this.listeners.push(f); }
