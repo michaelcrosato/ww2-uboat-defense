@@ -30,12 +30,13 @@ export class Aircraft {
   alive = true;
   private runT = 0;
   private dropped = 0;
-  private orbitA = fx.next() * 6.28;
+  private orbitA: number;
   model: StackModel;
   /** patrols orbit something that moves (the convoy); called each update */
   anchor: (() => { x: number; y: number }) | null = null;
   constructor(private w: World, public kind: Kind, x: number, y: number, public cx: number, public cy: number, public life: number, bombs?: number) {
     this.x = x; this.y = y;
+    this.orbitA = w.rng.next() * 6.28;
     const s = SPEC[kind];
     this.z = s.alt;
     this.heading = Math.atan2(cy - y, cx - x);
@@ -69,7 +70,7 @@ export class Aircraft {
         }
         if (d > 600 && this.dropped >= 2) this.dropped = 0;
         // the boat's flak fights back
-        if (t.sub?.surfaced && d < 650 && fx.next() < dt * 0.35) this.hit();
+        if (t.sub?.surfaced && d < 650 && this.w.rng.next() < dt * 0.35) this.hit();
       }
     } else {
       tx = this.x + Math.cos(this.heading) * 1000; ty = this.y + Math.sin(this.heading) * 1000;
@@ -94,9 +95,9 @@ export class Aircraft {
       if (v.sub.surfaced) range = this.leighLight ? 1100 : vis * 0.8;
       else if (v.atPeriscopeDepth && v.sub.periscope > 0.6 && Math.abs(v.hydro.fwdSpeed) > 1.2) range = Math.min(900, vis * 0.3);
       else if (v.submerged && v.keelDepth < w.theater.clarity * 0.9 && w.env.darkness < 0.4) range = 500 * (1 - v.keelDepth / (w.theater.clarity * 0.9));
-      if (range > 0 && d < range && fx.next() < 0.3) {
+      if (range > 0 && d < range && this.w.rng.next() < 0.3) {
         w.sensors.markSeen(v, 'allied');
-        w.sensors.fix('allied', v, v.pos.x + fx.gauss(0, 10), v.pos.y + fx.gauss(0, 10), 25, SRC.AIR, v.submerged ? v.keelDepth : 0);
+        w.sensors.fix('allied', v, v.pos.x + this.w.rng.gauss(0, 10), v.pos.y + this.w.rng.gauss(0, 10), 25, SRC.AIR, v.submerged ? v.keelDepth : 0);
         if (this.bombs > 0) { this.mode = 'attack'; this.target = v; this.runT = 0; }
         w.emit('message', { text: `${this.kind === 'swordfish' ? 'Swordfish' : this.kind === 'catalina' ? 'Catalina' : 'Liberator'}: U-boat sighted, attacking!`, side: 'allied', kind: 'radio' });
         if (v.isPlayer) w.emit('message', { text: 'AIRCRAFT! Alarm — dive, dive!', side: 'axis', kind: 'alert', important: true });

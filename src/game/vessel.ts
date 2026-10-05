@@ -167,7 +167,7 @@ export class Vessel {
     // weapons
     for (const g of cls.guns) {
       const mount = this.mounts.find((m) => m.id === g.mount);
-      if (mount) this.guns.push({ spec: g, mount, reload: fx.range(0, g.reload), aimYaw: mount.restYaw, ready: true });
+      if (mount) this.guns.push({ spec: g, mount, reload: this.world.rng.range(0, g.reload), aimYaw: mount.restYaw, ready: true });
     }
     if (cls.dc) this.dcLeft = cls.dc.capacity;
     if (cls.hedgehog && world.year >= cls.hedgehog.minYear) this.hedgehogLeft = cls.hedgehog.salvos;
@@ -498,7 +498,7 @@ export class Vessel {
       // pow_silent_crit: a silent-running boat picks its moment
       const silentCrit = from.sub && from.sub.silent > 0 ? from.stats.power('pow_silent_crit') : 0;
       const cc = (5 + from.stats.get('crit_chance') + silentCrit) / 100;
-      if (fx.next() < cc) { crit = true; mult *= 2 * from.stats.mul('crit_damage_pct'); }
+      if (this.world.rng.next() < cc) { crit = true; mult *= 2 * from.stats.mul('crit_damage_pct'); }
     }
     const dmg = amount * mult;
     this.hp -= dmg;
@@ -519,15 +519,15 @@ export class Vessel {
       if (this.kind !== 'uboat') this.ignite(loc.x, loc.y, 0.9);
     } else if (kind === 'shell') {
       if (below || this.submerged) this.ingress[ci] += 0.004 * flood * (dmg / 80);
-      if (fx.next() < 0.18 && this.kind !== 'uboat') this.ignite(loc.x, loc.y, 0.4);
+      if (this.world.rng.next() < 0.18 && this.kind !== 'uboat') this.ignite(loc.x, loc.y, 0.4);
     } else if (kind === 'dc' || kind === 'hedgehog' || kind === 'explosion') {
       this.ingress[ci] += 0.012 * flood * (dmg / 300);
       if (this.sub) this.sub.hullStress += dmg / this.maxHp * 0.12;
-      if (this.sub && fx.next() < 0.35) this.engineDamage = Math.min(1, this.engineDamage + 0.15);
+      if (this.sub && this.world.rng.next() < 0.35) this.engineDamage = Math.min(1, this.engineDamage + 0.15);
     } else if (kind === 'ram') {
       this.ingress[ci] += 0.03 * flood * (dmg / 500);
     }
-    if (crit && fx.next() < 0.5) this.engineDamage = Math.min(1, this.engineDamage + 0.3);
+    if (crit && this.world.rng.next() < 0.5) this.engineDamage = Math.min(1, this.engineDamage + 0.3);
     this.world.emit('damaged', { v: this, amount: dmg, kind, from, crit, x: wx, y: wy });
     // a hulk pounded far past zero while still afloat breaks its back at the hit
     if (!this.sub && this.hp < -0.6 * this.maxHp && dev.bool('game.breakup')) this.breakUp(loc.x);
@@ -540,7 +540,7 @@ export class Vessel {
   }
 
   ignite(lx: number, ly: number, power: number) {
-    if (this.fires.length >= 5) { this.fires[(fx.next() * this.fires.length) | 0].power += power * 0.5; return; }
+    if (this.fires.length >= 5) { this.fires[(this.world.rng.next() * this.fires.length) | 0].power += power * 0.5; return; }
     const lz = this.cls.freeboard + 1;
     this.fires.push({ lx, ly: clamp(ly, -this.cls.beam * 0.3, this.cls.beam * 0.3), lz, power, t: 0 });
   }

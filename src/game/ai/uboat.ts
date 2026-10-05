@@ -6,7 +6,7 @@
 import type { World } from '../world';
 import type { Vessel } from '../vessel';
 import type { Contact } from '../sensors';
-import { angleDiff, clamp, fx, KNOT, wrapAngle } from '../../core/math';
+import { angleDiff, clamp, KNOT, wrapAngle } from '../../core/math';
 import { dev } from '../../core/devSettings';
 
 type State = 'transit' | 'setup' | 'attack' | 'evade' | 'reload' | 'flee';
@@ -41,7 +41,7 @@ export function intercept(x: number, y: number, tx: number, ty: number, vx: numb
 export class UboatAI {
   state: State = 'transit';
   debug = '';
-  private side: 1 | -1 = fx.sign() as 1 | -1;
+  private side: 1 | -1;
   private stateT = 0;
   private lastReport = -999;
   private lastDecoy = -999;
@@ -52,7 +52,7 @@ export class UboatAI {
   /** transit sub-mode (debug overlay) */
   private mode = '';
 
-  constructor(private w: World, private v: Vessel, private pack: Wolfpack) { pack.boats.push(this); }
+  constructor(private w: World, private v: Vessel, private pack: Wolfpack) { this.side = w.rng.sign() as 1 | -1; pack.boats.push(this); }
 
   private convoyContacts(): Contact[] {
     // merchants, and the escort carrier sailing with them (a prize worth any risk)
@@ -210,7 +210,7 @@ export class UboatAI {
     const bowOk = Math.abs(rel) < 1.4, sternOk = Math.abs(angleDiff(v.heading + Math.PI, sol.heading)) < 0.7;
     const skill = dev.num('ai.skill');
     if (this.stateT > 2.5 - skill * 1.5 && !this.escortInLine(sol.heading, Math.hypot(t.x - v.pos.x, t.y - v.pos.y))) {
-      const err = fx.gauss(0, (1 - skill) * 0.05 + t.err / 4000);
+      const err = this.w.rng.gauss(0, (1 - skill) * 0.05 + t.err / 4000);
       const n = Math.min(3, v.tubes.filter((tb) => tb.loaded && !tb.stern).length);
       let shot = 0;
       if (bowOk && n > 0) {

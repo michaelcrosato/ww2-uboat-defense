@@ -7,7 +7,7 @@ import type { World } from '../world';
 import type { Vessel } from '../vessel';
 import type { Convoy } from '../convoy';
 import type { Contact } from '../sensors';
-import { angleDiff, clamp, fx, KNOT, wrapAngle } from '../../core/math';
+import { angleDiff, clamp, KNOT, wrapAngle } from '../../core/math';
 import { dev } from '../../core/devSettings';
 
 type State = 'station' | 'investigate' | 'attack' | 'opening' | 'reacquire' | 'surface' | 'rescue';
@@ -19,7 +19,7 @@ export class EscortAI {
   state: State = 'station';
   debug = '';
   target: Contact | null = null;
-  private pingT = fx.range(0, 3);
+  private pingT: number;
   private sweep = -80;
   private sweepDir = 1;
   private runs = 0;
@@ -27,23 +27,26 @@ export class EscortAI {
   private stateT = 0;
   private openAt = { x: 0, y: 0 };
   private flareT = 0;
-  private weave = fx.range(0, 6);
+  private weave: number;
   /** attack-run geometry for the debug overlay */
   private atk = '';
   private depthRun = -1;
   private depthEst = 60;
 
   constructor(private w: World, private v: Vessel, private c: Convoy, public station: { ahead: number; side: number }) {
+    // AI draws come from the mission's seeded RNG (fx is cosmetic), so runs with one seed replay alike
+    this.pingT = w.rng.range(0, 3);
+    this.weave = w.rng.range(0, 6);
     w.bus.on('sunk', (e) => {
       if (e.v.kind !== 'merchant' || !v.alive) return;
       // night attack: illuminate the flank the torpedo came from
-      if (w.env.darkness > 0.55 && v.starShells > 0 && Math.hypot(e.v.pos.x - v.pos.x, e.v.pos.y - v.pos.y) < 1600) this.flareT = fx.range(1, 6);
+      if (w.env.darkness > 0.55 && v.starShells > 0 && Math.hypot(e.v.pos.x - v.pos.x, e.v.pos.y - v.pos.y) < 1600) this.flareT = this.w.rng.range(1, 6);
     });
     w.bus.on('torpedoHit', (e) => {
       if (!v.alive || e.target.side !== v.side) return;
-      if (w.env.darkness > 0.55 && v.starShells > 0 && Math.hypot(e.target.pos.x - v.pos.x, e.target.pos.y - v.pos.y) < 1600) this.flareT = fx.range(1, 5);
+      if (w.env.darkness > 0.55 && v.starShells > 0 && Math.hypot(e.target.pos.x - v.pos.x, e.target.pos.y - v.pos.y) < 1600) this.flareT = this.w.rng.range(1, 5);
       // nearest escorts investigate the attack area
-      if (this.state === 'station' && Math.hypot(e.target.pos.x - v.pos.x, e.target.pos.y - v.pos.y) < 1500 && fx.next() < 0.7) {
+      if (this.state === 'station' && Math.hypot(e.target.pos.x - v.pos.x, e.target.pos.y - v.pos.y) < 1500 && this.w.rng.next() < 0.7) {
         const side = e.target.toLocal(v.pos.x, v.pos.y).y > 0 ? 1 : -1;
         const r = { x: -Math.sin(e.target.heading) * side, y: Math.cos(e.target.heading) * side };
         this.investigate(e.target.pos.x + r.x * 700, e.target.pos.y + r.y * 700);
@@ -67,11 +70,11 @@ export class EscortAI {
     if (this.flareT > 0) {
       this.flareT -= dt;
       if (this.flareT <= 0 && v.starShells > 0) {
-        const side = fx.sign();
+        const side = this.w.rng.sign();
         const f = { x: Math.cos(this.c.heading), y: Math.sin(this.c.heading) };
-        const tx = this.c.x + f.x * fx.range(-600, 300) - f.y * side * fx.range(500, 900);
-        const ty = this.c.y + f.y * fx.range(-600, 300) + f.x * side * fx.range(500, 900);
-        if (w.projectiles.fireStarShell(v, tx, ty)) this.flareT = v.starShells > 2 ? fx.range(6, 12) : 0;
+        const tx = this.c.x + f.x * this.w.rng.range(-600, 300) - f.y * side * this.w.rng.range(500, 900);
+        const ty = this.c.y + f.y * this.w.rng.range(-600, 300) + f.x * side * this.w.rng.range(500, 900);
+        if (w.projectiles.fireStarShell(v, tx, ty)) this.flareT = v.starShells > 2 ? this.w.rng.range(6, 12) : 0;
       }
     }
     // choose the best enemy contact
@@ -142,7 +145,7 @@ export class EscortAI {
     if (this.pingT > 0 || !v.cls.sensors.asdic) return;
     this.pingT = 3.2 / v.stats.mul('ping_rate_pct');
     let brg: number;
-    if (centerBearing !== null) brg = centerBearing + fx.gauss(0, 0.06);
+    if (centerBearing !== null) brg = centerBearing + this.w.rng.gauss(0, 0.06);
     else {
       this.sweep += 12 * this.sweepDir;
       if (Math.abs(this.sweep) >= 84) this.sweepDir *= -1;
@@ -208,7 +211,7 @@ export class EscortAI {
     // under the bow (noise shrinks with ai.skill); drawn once per run so the pattern is consistent
     const tr = t.truth;
     if (tr && tr.alive && this.w.time - t.last < 10) {
-      if (this.depthRun !== this.runs) { this.depthRun = this.runs; this.depthEst = tr.keelDepth + fx.gauss(0, 12 + (1 - dev.num('ai.skill')) * 35); }
+      if (this.depthRun !== this.runs) { this.depthRun = this.runs; this.depthEst = tr.keelDepth + this.w.rng.gauss(0, 12 + (1 - dev.num('ai.skill')) * 35); }
       return clamp(this.depthEst, 25, 220);
     }
     // no depth from the set (pre-1944): assume the boat has been going down at ~0.5 m/s since it was
@@ -286,7 +289,7 @@ export class EscortAI {
     else this.steer(ax, ay, d > 1200 ? 25 : 16);
     for (const g of v.guns) {
       const on = w.projectiles.aimGun(v, g, ax, ay, dt);
-      if (on && g.reload <= 0 && d < g.spec.range) w.projectiles.fireGun(v, g, ax + fx.gauss(0, 8), ay + fx.gauss(0, 8));
+      if (on && g.reload <= 0 && d < g.spec.range) w.projectiles.fireGun(v, g, ax + this.w.rng.gauss(0, 8), ay + this.w.rng.gauss(0, 8));
     }
   }
 }

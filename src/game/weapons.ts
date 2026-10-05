@@ -91,7 +91,7 @@ export class Projectiles {
     if (star) el = Math.max(el, 0.5);
     const yaw = v.heading + g.aimYaw;
     const acc = g.spec.spread / v.stats.mul('gun_accuracy_pct');
-    const yawE = yaw + fx.gauss(0, acc), elE = el * (1 + fx.gauss(0, acc * 3));
+    const yawE = yaw + this.w.rng.gauss(0, acc), elE = el * (1 + this.w.rng.gauss(0, acc * 3));
     const vel = v.body.linvel();
     const cvx = Math.cos(yawE) * Math.cos(elE) * spd, cvy = Math.sin(yawE) * Math.cos(elE) * spd, cvz = Math.sin(elE) * spd;
     const flight = star ? Math.max(1.2, dist / (spd * Math.cos(elE))) : 0;
@@ -119,7 +119,7 @@ export class Projectiles {
     const dmg = 500 * v.stats.mul('dc_damage_pct') * dmgMul * (v.stats.has('ks_hunter_killer') ? 1.3 : 1);
     const radius = 9 * v.stats.mul('dc_radius_pct');
     if (side === 'rail') {
-      const p = v.local(-L * 0.48, fx.range(-1.5, 1.5), v.cls.freeboard);
+      const p = v.local(-L * 0.48, this.w.rng.range(-1.5, 1.5), v.cls.freeboard);
       this.charges.push({ x: p.x, y: p.y, z: p.z, vx: vel.x * 0.9, vy: vel.y * 0.9, vz: 0.5, from: v, fuse: depth, kind: 'dc', damage: dmg, radius, wet: false, sink, alive: true, t: 0 });
     } else {
       const s = side === 'port' ? -1 : 1;
@@ -183,14 +183,14 @@ export class Projectiles {
     const L = v.cls.length;
     const h = v.heading + (opts.stern ? Math.PI : 0);
     const p = v.local((opts.stern ? -1 : 1) * L * 0.47, 0, -v.cls.draft * 0.55);
-    const kind = opts.kind ?? (spec.wake ? (this.w.year < 1942 || fx.next() < 0.5 ? 'steam' : 'electric') : 'electric');
+    const kind = opts.kind ?? (spec.wake ? (this.w.year < 1942 || this.w.rng.next() < 0.5 ? 'steam' : 'electric') : 'electric');
     const spd = spec.speedKn * KNOT * v.stats.mul('torpedo_speed_pct') * (kind === 'steam' ? 1.1 : kind === 'acoustic' ? 0.62 : 1);
     const dudChance = Math.max(0, dev.num('game.duds') - v.stats.get('torpedo_dud_reduction') / 100);
     this.torpedoes.push({
       id: torpedoIds++, x: p.x, y: p.y, z: Math.min(p.z, -2), heading: h, course, speed: spd, from: v,
       left: spec.range * v.stats.mul('torpedo_range_pct'), run: 0, kind,
       damage: spec.damage * v.stats.mul('torpedo_damage_pct') * (opts.damageMul ?? 1),
-      dud: fx.next() < dudChance, depth: opts.depth ?? 4, magnetic: this.w.year >= 1941, seek: kind === 'acoustic' ? 600 : 0,
+      dud: this.w.rng.next() < dudChance, depth: opts.depth ?? 4, magnetic: this.w.year >= 1941, seek: kind === 'acoustic' ? 600 : 0,
       alive: true, target: opts.target ?? null, split: false,
     });
     // compressed-air bubble burst at the tube
@@ -221,15 +221,15 @@ export class Projectiles {
   callAircraft(v: Vessel, duration: number, bombs: number, sorties = 1, kind?: 'swordfish' | 'catalina' | 'liberator') {
     const w = this.w;
     for (let i = 0; i < Math.max(1, sorties); i++) {
-      const k = kind ?? (w.year >= 1943 && fx.next() < 0.4 ? 'liberator' : fx.next() < 0.5 ? 'catalina' : 'swordfish');
-      const a = fx.next() * Math.PI * 2;
+      const k = kind ?? (w.year >= 1943 && this.w.rng.next() < 0.4 ? 'liberator' : this.w.rng.next() < 0.5 ? 'catalina' : 'swordfish');
+      const a = this.w.rng.next() * Math.PI * 2;
       const x = v.pos.x + Math.cos(a) * 2500, y = v.pos.y + Math.sin(a) * 2500;
-      this.aircraft.push(new Aircraft(w, k, x, y, v.pos.x + fx.range(-300, 300), v.pos.y + fx.range(-300, 300), duration, bombs));
+      this.aircraft.push(new Aircraft(w, k, x, y, v.pos.x + this.w.rng.range(-300, 300), v.pos.y + this.w.rng.range(-300, 300), duration, bombs));
     }
   }
   /** a scheduled maritime patrol orbiting a moving point (the convoy) */
   airPatrol(kind: 'swordfish' | 'catalina' | 'liberator', duration: number, anchor: () => { x: number; y: number }, from?: { x: number; y: number; z: number }) {
-    const c = anchor(), a = fx.next() * Math.PI * 2;
+    const c = anchor(), a = this.w.rng.next() * Math.PI * 2;
     const ac = new Aircraft(this.w, kind, from ? from.x : c.x + Math.cos(a) * 3000, from ? from.y : c.y + Math.sin(a) * 3000, c.x, c.y, duration);
     if (from) ac.z = from.z;   // flown off a carrier deck: climbs to patrol height
     ac.anchor = anchor;
@@ -240,10 +240,10 @@ export class Projectiles {
   reinforce(n: number) { this.w.emit('reinforce', { n }); }
 
   layLoot(x: number, y: number, item: Item) {
-    this.crates.push({ x: x + fx.range(-8, 8), y: y + fx.range(-8, 8), vx: fx.range(-0.4, 0.4), vy: fx.range(-0.4, 0.4), item, life: 600, phase: fx.next() * 6 });
+    this.crates.push({ x: x + this.w.rng.range(-8, 8), y: y + this.w.rng.range(-8, 8), vx: this.w.rng.range(-0.4, 0.4), vy: this.w.rng.range(-0.4, 0.4), item, life: 600, phase: this.w.rng.next() * 6 });
   }
   launchBoats(x: number, y: number, n: number, side: 'allied' | 'axis') {
-    for (let i = 0; i < n; i++) this.boats.push({ x: x + fx.range(-30, 30), y: y + fx.range(-30, 30), h: fx.range(0, 6.28), count: fx.int(6, 18), life: 900, side });
+    for (let i = 0; i < n; i++) this.boats.push({ x: x + this.w.rng.range(-30, 30), y: y + this.w.rng.range(-30, 30), h: this.w.rng.range(0, 6.28), count: this.w.rng.int(6, 18), life: 900, side });
   }
 
   // ------------------------------------------------------------------ simulation
@@ -397,7 +397,7 @@ export class Projectiles {
         underwaterBlast(w, hit.x, hit.y, 3, 1);
         if (t.from.stats.power('pow_battery_vamp') && t.from.sub) t.from.sub.battery = Math.min(1, t.from.sub.battery + t.from.stats.power('pow_battery_vamp') / 100);
         const split = t.from.stats.power('pow_split_torpedo');
-        if (split && !t.split && fx.next() < split / 100) {
+        if (split && !t.split && this.w.rng.next() < split / 100) {
           this.torpedoes.push({ ...t, id: torpedoIds++, x: t.x + Math.cos(t.heading) * 60, y: t.y + Math.sin(t.heading) * 60, alive: true, run: 121, left: 900, split: true, damage: t.damage * 0.6 });
         }
         continue;
@@ -456,9 +456,9 @@ export class Projectiles {
     underwaterBlast(w, c.x, c.y, depth, 1);
     this.blastNear(c.x, c.y, -depth, c.radius * 4, c.damage, 'dc', c.from, false, c.radius);
     const chain = c.from.stats.power('pow_chain_charges');
-    if (chain && fx.next() < chain / 100) {
-      const a = fx.next() * Math.PI * 2;
-      this.charges.push({ ...c, x: c.x + Math.cos(a) * 14, y: c.y + Math.sin(a) * 14, z: c.z, fuse: depth + fx.range(-10, 15), alive: true, wet: true, t: 0, vx: 0, vy: 0, vz: 0 });
+    if (chain && this.w.rng.next() < chain / 100) {
+      const a = this.w.rng.next() * Math.PI * 2;
+      this.charges.push({ ...c, x: c.x + Math.cos(a) * 14, y: c.y + Math.sin(a) * 14, z: c.z, fuse: depth + this.w.rng.range(-10, 15), alive: true, wet: true, t: 0, vx: 0, vy: 0, vz: 0 });
     }
   }
 
@@ -487,7 +487,7 @@ export class Projectiles {
       const dx = p.x - x, dy = p.y - y, dz = p.z - z, dl = Math.hypot(dx, dy, dz) || 1;
       const imp = v.cls.displacement * 1000 * 0.35 * k;
       v.body.applyImpulse({ x: (dx / dl) * imp, y: (dy / dl) * imp, z: (dz / dl) * imp * 0.5 }, true);
-      v.body.applyTorqueImpulse({ x: fx.range(-1, 1) * imp * 4, y: fx.range(-1, 1) * imp * 8, z: fx.range(-1, 1) * imp * 4 }, true);
+      v.body.applyTorqueImpulse({ x: this.w.rng.range(-1, 1) * imp * 4, y: this.w.rng.range(-1, 1) * imp * 8, z: this.w.rng.range(-1, 1) * imp * 4 }, true);
     }
   }
 
