@@ -104,7 +104,9 @@ void main() {
     // an orthographic view has one view vector, so a reflection could never form a glitter path:
     // moon glints use a virtual observer mirrored from the moon, which lays a patch of glitter around
     // the view centre stretched toward the moon (low moons give long paths)
-    if (water) spec += uMoonCol * blinn(n, uMoonDir, normalize(vec3(-uMoonDir.xy, uMoonDir.z) * 420.0 - P), 900.0) * sh * 3.0;
+    // (zoomed in, the lobe narrows so glints stay sparkle-sized on screen instead of swelling into blobs)
+    float zk = max(1.0, uCam.z / 1.2);
+    if (water) spec += uMoonCol * blinn(n, uMoonDir, normalize(vec3(-uMoonDir.xy, uMoonDir.z) * 420.0 - P), 900.0 * zk * zk) * sh * 3.0;
     else if (glossy) spec += uMoonCol * blinn(n, uMoonDir, V, shininess * 1.3) * specK * sh * 6.0;
   }
   // ---- dynamic lights

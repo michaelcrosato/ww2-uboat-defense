@@ -5,8 +5,9 @@ context between milestones and tell the next session: **"Continue the plan in do
 The protocol is in `CLAUDE.md` ("Resume protocol"). Milestone details live in `docs/milestones/`.
 
 **Rendering direction (decided):** WebGPU is the primary renderer; WebGL2 is the fallback. Both
-backends consume the same backend-agnostic scene data and must produce visually equivalent frames.
-WebGPU additionally runs the water simulations as compute shaders.
+backends consume the same backend-agnostic scene data. WebGPU additionally runs the water simulations as
+compute shaders. **Update (user, during M12): WebGPU-first** — WebGL2 is best effort: keep it compiling
+and running, but WebGL2 parity, visuals and performance are no longer verified or optimized.
 
 ## Status board
 
@@ -24,7 +25,7 @@ WebGPU additionally runs the water simulations as compute shaders.
 | M9 | Menus & UI shell: title, arena setup, dev settings, pause, controls, touch | DONE | [M09](milestones/M09-menus-ui-shell.md) |
 | M10 | Port & progression UI, contracts → missions, loot drops, save/load | DONE | [M10](milestones/M10-port-progression.md) |
 | M11 | Gameplay completion & tuning, dev-settings wiring audit, weather visuals | DONE | [M11](milestones/M11-gameplay-tuning.md) |
-| M12 | Visual polish, ship art expansion, performance | IN PROGRESS | [M12](milestones/M12-visual-polish.md) |
+| M12 | Visual polish, ship art expansion, performance | DONE | [M12](milestones/M12-visual-polish.md) |
 | M13 | Final QA, README, PR ready for review | TODO | [M13](milestones/M13-qa-release.md) |
 
 Order matters for M1→M6 (renderer). M7 and M8 are independent of the renderer and may be done
@@ -81,10 +82,7 @@ on any failure or later device loss. The active backend shows in the FPS overlay
   0.12–0.27/255 and 0.04–0.20 % of pixels over 24/255 at hours 13/7/23 (thresholds 3/255 and 4 %).
 
 ## Known issues (keep this list current)
-- Water swell bands look streaky at some sea states (tone dominated by long swell). → M12
-- Arctic pack ice is visual only (no drag on ships) and reads as round polka dots; floes need ragged shapes. → M12
-- US East Coast town lighting shows light-band dither speckle on the coarse 3 m coast voxels. → M12
-- `display.hudScale = 2` is cramped below ~900 px tall (panels overlap the ability bar). → M12
+- Arctic pack ice is visual only (ragged floes since M12, but no drag or collisions for ships).
 - AI decisions draw from the cosmetic `fx` RNG, so missions are not reproducible run to run (balance numbers
   are averages over a few seeds); a seeded AI RNG would make replays/tests deterministic. → M13
 - U-boat kills by AI escorts are still rare (1 in 6 autopilot patrols); fine historically, revisit after playtests.
@@ -92,10 +90,15 @@ on any failure or later device loss. The active backend shows in the FPS overlay
   live screenshots differ in particle counts / wake age; use `?scene=lookdev` / `tools/compare.mjs` for parity.
 - Menus: gamepad navigation is code-complete but untested on hardware (headless cannot simulate pads); the
   touch overlay was only checked visually with `?dev.controls.touch=on` (no real touch device). → M13
-- The headline font (`--font-head`: Impact/Haettenschweiler…) is not installed headless, so screenshots show the
-  sans fallback; a bundled stencil webfont would need the user's OK (asset). → M12
+- The headline font (`--font-head`: Impact…, Linux narrow faces since M12) is not installed headless, so
+  screenshots show the sans fallback; a bundled stencil webfont would need the user's OK (asset).
 - Crates still afloat when a contract ends are recovered automatically if the ship survived (keeps
   fast-forward tests and short sessions rewarding); revisit if pickup should matter more.
-- The skill tree canvas has no minimap/legend and nodes are small at 800×600. → M12
-- Touch overlay duplicates the HUD ability bar (both visible on touch devices). → M12
+- Hull pennant numbers are only readable from zoom ≈ 3 (sub-pixel at the default 1.2).
+- Aircraft cast a ground shadow decal only while the sun (or a bright moon) is above ~9°; airborne stacks
+  write no occluder, so a low sun gives them no shadow at all.
+- Slice atlas (2048²) reaches ~80 % (89 % on the US East Coast) with every vessel class in one mission;
+  further big classes need a larger atlas or lower-resolution merchants (overflow drops top layers + warns).
+- Frame times were measured on SwiftShader only (no GPU in the container); real-GPU numbers are unknown.
+- WebGL2 is best effort (user decision): it receives shader changes but is not parity-checked any more.
 - Key taps shorter than one frame can merge in slow headless runs (two taps → one press); real browsers are fine.

@@ -129,7 +129,9 @@ fn blinn(n: vec3f, L: vec3f, V: vec3f, k: f32) -> f32 {
     // an orthographic view has one view vector, so a reflection could never form a glitter path:
     // moon glints use a virtual observer mirrored from the moon, which lays a patch of glitter around
     // the view centre stretched toward the moon (low moons give long paths)
-    if (water) { spec += moonCol * blinn(n, moonDir, normalize(vec3f(-moonDir.xy, moonDir.z) * 420.0 - P), 900.0) * sh * 3.0; }
+    // (zoomed in, the lobe narrows so glints stay sparkle-sized on screen instead of swelling into blobs)
+    let zk = max(1.0, F.cam.z / 1.2);
+    if (water) { spec += moonCol * blinn(n, moonDir, normalize(vec3f(-moonDir.xy, moonDir.z) * 420.0 - P), 900.0 * zk * zk) * sh * 3.0; }
     else if (glossy) { spec += moonCol * blinn(n, moonDir, V, shininess * 1.3) * specK * sh * 6.0; }
   }
   // ---- dynamic lights
