@@ -93,8 +93,9 @@ on any failure or later device loss. The active backend shows in the FPS overlay
   The player's own hull is outlined after dark on every platform (`display.nightOutline`).
 - 2026-10 (M16, user): U-boats start submerged at periscope depth, surfaced only where it makes sense (leaving
   port, the diving lesson, a dark night before the escorts carry radar); `arena.uboatStart` overrides.
-- 2026-10 (M16, user): standard operating procedure: commit → push → PR → merge it yourself → delete the
-  branch, no permission needed; rollback if anything goes badly wrong.
+- 2026-10 (M16, user): standard operating procedure: commit → push → PR → merge it yourself, no permission
+  needed; rollback if anything goes badly wrong. Merged and closed is enough: the head branch stays (sessions
+  cannot delete branches, GitHub answers 403).
 
 ## Known issues (keep this list current)
 - Arctic pack ice is visual only (ragged floes since M12, but no drag or collisions for ships).
