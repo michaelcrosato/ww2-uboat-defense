@@ -54,7 +54,8 @@ Browsers with only WebGL2 still run the game (best effort, see Renderer).
 | Pause / menu | Esc or P | Options |
 
 Every binding can be changed under Settings → Controls. On touch devices the left half of the screen is a
-virtual stick, the right half aims (tap to fire), and finger-sized buttons carry the abilities and actions.
+virtual stick, the right half aims (tap to fire), and finger-sized buttons carry the abilities and actions;
+hold phones in landscape during missions.
 
 ## Playing
 

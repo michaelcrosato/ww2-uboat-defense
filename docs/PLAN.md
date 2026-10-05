@@ -26,7 +26,7 @@ and running, but WebGL2 parity, visuals and performance are no longer verified o
 | M10 | Port & progression UI, contracts → missions, loot drops, save/load | DONE | [M10](milestones/M10-port-progression.md) |
 | M11 | Gameplay completion & tuning, dev-settings wiring audit, weather visuals | DONE | [M11](milestones/M11-gameplay-tuning.md) |
 | M12 | Visual polish, ship art expansion, performance | DONE | [M12](milestones/M12-visual-polish.md) |
-| M13 | Final QA, README, PR ready for review | IN PROGRESS | [M13](milestones/M13-qa-release.md) |
+| M13 | Final QA, README, PR ready for review | DONE | [M13](milestones/M13-qa-release.md) |
 
 Order matters for M1→M6 (renderer). M7 and M8 are independent of the renderer and may be done
 before M1 if preferred; M9 needs nothing else; M10 needs M7 + M9; M11 needs M10; M12/M13 last.
@@ -103,3 +103,7 @@ on any failure or later device loss. The active backend shows in the FPS overlay
 - Only fast-forwards from a `?freeze=1` start are reproducible; live play depends on frame timing and input.
 - `ai.openingGrace` (75 s) keeps AI U-boats from firing at the start; with an idle player the first attacks
   now come after ~3 min. Tune with playtests (U-boat AI pacing in general has only had headless testing).
+- Phones must be held in landscape for missions (a portrait viewport with the touch overlay holds the
+  mission behind a "turn sideways" notice; the HUD needs the width). Menus and the port work in portrait.
+- A new U-boat captain who doesn't dive is sunk within 5–11 minutes (starts surfaced at full ahead toward the
+  convoy); consider a dive prompt or a slower opening for the axis side after playtests.
