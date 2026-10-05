@@ -8,6 +8,8 @@ sides:
 - **The U-Boat**: command a Type VII, IX or XXI boat and attack the convoy with periscope, torpedoes and deck
   gun, using thermal layers, silent running and decoys to survive the hunt.
 
+**Play it: <https://ww2-uboat-defense.vercel.app>** (deployed from `main`; needs a WebGPU or WebGL2 browser)
+
 ![A V&W-class destroyer at noon in the North Atlantic](docs/img/escort-day.png)
 
 Ships are procedural voxel models drawn by sprite stacking, so they roll, pitch, list, burn and break in two.

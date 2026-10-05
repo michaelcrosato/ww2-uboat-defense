@@ -16,9 +16,10 @@ This project is built milestone by milestone, with a context clear between miles
    the screenshots you produce.
 4. Set it to `DONE` in `docs/PLAN.md`, write the milestone's "Notes" (what changed, decisions,
    follow-ups), update "Known issues" in PLAN.md, commit, push, and stop. One milestone per session.
-5. Branch: `claude/cool-bell-er7u0y` (push with `git push -u origin claude/cool-bell-er7u0y`).
-   Draft PR michaelcrosato/ww2-uboat-defense#1 targets `main`; keep pushing to this branch and keep the
-   PR a draft unless the user asks otherwise. Don't create other branches unless the user asks.
+5. `main` is the production branch: Vercel deploys it to https://ww2-uboat-defense.vercel.app, and it is
+   the repository's default branch. Work on the session's feature branch (start it from the latest
+   `main`), then open a PR into `main`; finished work must reach `main` or nobody can play it. PR #1
+   (M1–M13 on `claude/cool-bell-er7u0y`) was merged into `main`.
 
 ## Commands
 
