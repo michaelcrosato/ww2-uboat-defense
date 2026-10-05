@@ -20,6 +20,8 @@ export class TouchOverlay {
   private aimT0 = 0; private aimX0 = 0; private aimY0 = 0;
   private abilityBtns: HTMLElement[] = [];
   private shown = false;
+  /** portrait phones: the HUD needs landscape width, so missions wait behind this notice */
+  private rotate: HTMLElement;
   private readonly coarse = typeof matchMedia === 'function' && (matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0);
 
   constructor(private shell: Shell) {
@@ -94,7 +96,9 @@ export class TouchOverlay {
     };
     aimZone.addEventListener('pointerup', aimUp);
     aimZone.addEventListener('pointercancel', aimUp);
-    document.getElementById('ui')!.append(this.el);
+    this.rotate = h('div', { class: 't-rotate hidden' }, h('div', { class: 't-rotate-icon' }, '⟳'),
+      h('div', null, 'Turn your device sideways'), h('div', { class: 'dim' }, 'The bridge needs a landscape view. The patrol waits.'));
+    document.getElementById('ui')!.append(this.el, this.rotate);
   }
 
   private placeStick(x: number, y: number, dx: number, dy: number) {
@@ -118,6 +122,9 @@ export class TouchOverlay {
       this.shell.app.hud.touchAbilities = show;
       if (!show) { const t = this.shell.app.input.touchAxes; t.x = t.y = 0; t.aiming = false; this.stickId = this.aimId = -1; }
     }
+    const portrait = show && innerHeight > innerWidth * 1.1;
+    this.rotate.classList.toggle('hidden', !portrait);
+    this.shell.app.held = portrait;
     if (!show) return;
     // ability buttons mirror the loadout: glyph, cooldown seconds, charges (empty slots hidden)
     const pc = this.shell.app.player;
