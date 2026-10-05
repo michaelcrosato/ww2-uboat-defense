@@ -81,7 +81,10 @@ void main() {
   float jitter = fract(dth * 7.31 + 0.13);
   bool water = mat == MAT_WATER;
   bool glossy = water || mat == MAT_METAL || mat == MAT_ICE;
-  float shininess = water ? 90.0 : (mat == MAT_ICE ? 40.0 : 18.0);
+  // zoomed in, water glints narrow their lobe so they don't swell into blobs (the lobe is fixed in world
+  // space and the screen magnifies it); sun/light glints only linearly, or they thin out to nothing
+  float zk = max(1.0, uCam.z / 1.2);
+  float shininess = water ? 90.0 * zk : (mat == MAT_ICE ? 40.0 : 18.0);
   float specK = water ? 1.0 : (mat == MAT_METAL ? 0.25 : (mat == MAT_ICE ? 0.4 : 0.0));
 
   vec3 light = uAmbient * uAmbientFill * (0.62 + 0.38 * n.z);
@@ -104,8 +107,6 @@ void main() {
     // an orthographic view has one view vector, so a reflection could never form a glitter path:
     // moon glints use a virtual observer mirrored from the moon, which lays a patch of glitter around
     // the view centre stretched toward the moon (low moons give long paths)
-    // (zoomed in, the lobe narrows so glints stay sparkle-sized on screen instead of swelling into blobs)
-    float zk = max(1.0, uCam.z / 1.2);
     if (water) spec += uMoonCol * blinn(n, uMoonDir, normalize(vec3(-uMoonDir.xy, uMoonDir.z) * 420.0 - P), 900.0 * zk * zk) * sh * 3.0;
     else if (glossy) spec += uMoonCol * blinn(n, uMoonDir, V, shininess * 1.3) * specK * sh * 6.0;
   }

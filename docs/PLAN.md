@@ -26,7 +26,7 @@ and running, but WebGL2 parity, visuals and performance are no longer verified o
 | M10 | Port & progression UI, contracts → missions, loot drops, save/load | DONE | [M10](milestones/M10-port-progression.md) |
 | M11 | Gameplay completion & tuning, dev-settings wiring audit, weather visuals | DONE | [M11](milestones/M11-gameplay-tuning.md) |
 | M12 | Visual polish, ship art expansion, performance | DONE | [M12](milestones/M12-visual-polish.md) |
-| M13 | Final QA, README, PR ready for review | TODO | [M13](milestones/M13-qa-release.md) |
+| M13 | Final QA, README, PR ready for review | IN PROGRESS | [M13](milestones/M13-qa-release.md) |
 
 Order matters for M1→M6 (renderer). M7 and M8 are independent of the renderer and may be done
 before M1 if preferred; M9 needs nothing else; M10 needs M7 + M9; M11 needs M10; M12/M13 last.

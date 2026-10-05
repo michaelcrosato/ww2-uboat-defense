@@ -47,7 +47,9 @@ A. Water look-dev (GLSL + WGSL identical)
 - Arctic ice: domain-warped ragged floes with bright rims (were round polka dots); still visual only.
 - Moon glitter: an orthographic view has a single view vector, so specular from it can't form a path;
   moon glints on water use a virtual observer mirrored from the moon (Blinn exponent 900), which lays a
-  glitter patch around the view centre that stretches toward a low moon.
+  glitter patch around the view centre that stretches toward a low moon. Glint lobes narrow with zoom
+  (moon ∝ zoom², sun and lights ∝ zoom, above 1.2) so zoomed-in views keep small sparkles instead of
+  white blobs (found in the gallery review: at zoom 3 the moon patch buried the ship).
 - Night: ambient floor 0.07/0.085/0.12 (visual only); light bands quantize only the direct light, the flat
   ambient stays smooth (no dither speckle in dark scenes or on the coarse 3 m coast voxels).
 
@@ -130,4 +132,6 @@ every class, carrier, 8 + 8 warships, lighthouse, 1943): 80 % (89 % on the US Ea
 
 H. Verification: `npm run typecheck`, `npm test` (17 pass), `node tools/compare.mjs` passes at 13:00
 and 23:00 (mean 0.136/255 at night) after every shader change; `tools/shot.mjs` gained an `until:<js>`
-step (wait for a page condition, e.g. `until:window.__lookdevDone`).
+step (wait for a page condition, e.g. `until:window.__lookdevDone`). Gallery (`check-output/gallery/`,
+not committed): 6 theaters × 13:00/19:00/23:00 × zoom 0.5/1.2/3 on WebGPU (54 shots) plus a WebGL2
+smoke shot per theater, all with 0 console errors; contact sheets `sheet-<theater>.png`.

@@ -102,7 +102,10 @@ fn blinn(n: vec3f, L: vec3f, V: vec3f, k: f32) -> f32 {
   let jitter = fract(dth * 7.31 + 0.13);
   let water = mat == MAT_WATER;
   let glossy = water || mat == MAT_METAL || mat == MAT_ICE;
-  let shininess = select(select(18.0, 40.0, mat == MAT_ICE), 90.0, water);
+  // zoomed in, water glints narrow their lobe so they don't swell into blobs (the lobe is fixed in world
+  // space and the screen magnifies it); sun/light glints only linearly, or they thin out to nothing
+  let zk = max(1.0, F.cam.z / 1.2);
+  let shininess = select(select(18.0, 40.0, mat == MAT_ICE), 90.0 * zk, water);
   let specK = select(select(select(0.0, 0.4, mat == MAT_ICE), 0.25, mat == MAT_METAL), 1.0, water);
 
   var light = U.ambient.rgb * ambientFill * (0.62 + 0.38 * n.z);
@@ -129,8 +132,6 @@ fn blinn(n: vec3f, L: vec3f, V: vec3f, k: f32) -> f32 {
     // an orthographic view has one view vector, so a reflection could never form a glitter path:
     // moon glints use a virtual observer mirrored from the moon, which lays a patch of glitter around
     // the view centre stretched toward the moon (low moons give long paths)
-    // (zoomed in, the lobe narrows so glints stay sparkle-sized on screen instead of swelling into blobs)
-    let zk = max(1.0, F.cam.z / 1.2);
     if (water) { spec += moonCol * blinn(n, moonDir, normalize(vec3f(-moonDir.xy, moonDir.z) * 420.0 - P), 900.0 * zk * zk) * sh * 3.0; }
     else if (glossy) { spec += moonCol * blinn(n, moonDir, V, shininess * 1.3) * specK * sh * 6.0; }
   }
