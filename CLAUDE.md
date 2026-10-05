@@ -21,8 +21,9 @@ This project is built milestone by milestone, with a context clear between miles
    `main`), then open a PR into `main`; finished work must reach `main` or nobody can play it. PR #1
    (M1–M13 on `claude/cool-bell-er7u0y`) was merged into `main`.
 6. **Standard operating procedure (user, M16):** commit → push → open the PR → merge it yourself (merge
-   commit, "Merge PR #n: …") → delete the head branch. No permission needed; the user rolls back if anything
-   goes badly wrong. Still run the verification checklist below before every push.
+   commit, "Merge PR #n: …"). No permission needed; the user rolls back if anything goes badly wrong. A merged
+   PR closes itself, and that is all the cleanup needed (user): GitHub cannot delete PRs, and sessions cannot
+   delete branches (403), so leave the head branch. Still run the verification checklist below before every push.
 
 ## Commands
 
