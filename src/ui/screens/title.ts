@@ -9,7 +9,7 @@ export function titleScreen(shell: Shell): UiScreen {
   const el = h('div', { class: 'screen title-screen' },
     h('div', { class: 'title-col' },
       h('div', { class: 'game-title' }, 'WOLFPACK', h('span', { class: 'amp' }, '&'), 'ESCORT'),
-      h('div', { class: 'game-sub' }, 'Convoy war in the Atlantic, 1939–1945'),
+      h('div', { class: 'game-sub' }, 'Convoy war in the Atlantic, ', h('span', { class: 'nowrap' }, '1939–1945')),
       h('div', { class: 'menu-list' },
         button('Arena', () => shell.open('arena'), 'btn big', { 'data-autofocus': true, 'data-help': 'Customise a convoy battle and play it as the escort or the U-boat.' }),
         button('Port', () => shell.open('port'), 'btn big', { 'data-help': 'The captain\'s career: contracts, loot, the shipyard and the skill tree.' }),

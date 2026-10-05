@@ -118,6 +118,7 @@ body { -webkit-user-select: none; user-select: none; touch-action: none; overscr
 .game-title { font-family: var(--font-head); font-size: clamp(36px, 6.4vw, 72px); line-height: 0.95; letter-spacing: 0.08em; color: var(--paper); text-shadow: 3px 3px 0 #000, 0 0 18px rgba(0, 0, 0, 0.6); display: flex; flex-direction: column; }
 .game-title .amp { font-size: 0.45em; color: var(--accent); margin: 2px 0; }
 .game-sub { color: var(--ink-dim); letter-spacing: 0.08em; margin-top: -4px; }
+.nowrap { white-space: nowrap; }
 .title-screen .menu-list { margin-top: 10px; width: min(300px, 100%); }
 .stamp { position: absolute; right: 5vw; bottom: 8vh; font-family: var(--font-head); font-size: 26px; letter-spacing: 0.3em; color: rgba(200, 60, 40, 0.55); border: 3px solid rgba(200, 60, 40, 0.5); padding: 4px 12px; transform: rotate(-8deg); pointer-events: none; }
 .credits p { margin: 0; line-height: 1.45; }

@@ -209,7 +209,9 @@ export class UboatAI {
     const rel = angleDiff(v.heading, sol.heading);
     const bowOk = Math.abs(rel) < 1.4, sternOk = Math.abs(angleDiff(v.heading + Math.PI, sol.heading)) < 0.7;
     const skill = dev.num('ai.skill');
-    if (this.stateT > 2.5 - skill * 1.5 && !this.escortInLine(sol.heading, Math.hypot(t.x - v.pos.x, t.y - v.pos.y))) {
+    // boats spawn inside torpedo range: hold fire through the opening grace so the escort can react first
+    const grace = w.time < dev.num('ai.openingGrace');
+    if (!grace && this.stateT > 2.5 - skill * 1.5 && !this.escortInLine(sol.heading, Math.hypot(t.x - v.pos.x, t.y - v.pos.y))) {
       const err = this.w.rng.gauss(0, (1 - skill) * 0.05 + t.err / 4000);
       const n = Math.min(3, v.tubes.filter((tb) => tb.loaded && !tb.stern).length);
       let shot = 0;

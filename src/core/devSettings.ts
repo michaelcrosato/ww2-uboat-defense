@@ -119,6 +119,8 @@ export const DEV_DEFS: SettingDef[] = [
   { key: 'ai.skill', group: 'AI', label: 'AI skill', type: 'range', def: 0.6, min: 0, max: 1, step: 0.05, fmt: pct },
   { key: 'ai.escortAggro', group: 'AI', label: 'Escort aggression', type: 'range', def: 0.6, min: 0, max: 1, step: 0.05, fmt: pct },
   { key: 'ai.uboatAggro', group: 'AI', label: 'U-boat aggression', type: 'range', def: 0.6, min: 0, max: 1, step: 0.05, fmt: pct },
+  { key: 'ai.openingGrace', group: 'AI', label: 'Opening grace', type: 'range', def: 75, min: 0, max: 300, step: 15, unit: 's',
+    help: 'AI U-boats close in but hold fire for the first seconds of a mission (they start inside torpedo range).' },
   { key: 'ai.freeze', group: 'AI', label: 'Freeze AI', type: 'bool', def: false },
   { key: 'ai.rescue', group: 'AI', label: 'AI escorts rescue survivors', type: 'bool', def: true, help: 'Idle escorts with no contact nearby stop for lifeboats.' },
   { key: 'ai.screen', group: 'AI', label: 'Escorts kept screening', type: 'range', def: 1, min: 0, max: 3, step: 1, help: 'AI escorts that never leave the convoy to hunt.' },
