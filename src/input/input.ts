@@ -12,7 +12,7 @@ export type Action =
   | 'ability1' | 'ability2' | 'ability3' | 'ability4' | 'ability5' | 'ability6'
   | 'depthUp' | 'depthDown' | 'periscope' | 'surface' | 'periscopeDepth' | 'searchlight'
   | 'target' | 'tactical' | 'map' | 'pause' | 'timeUp' | 'timeDown' | 'camera' | 'zoomIn' | 'zoomOut' | 'interact'
-  | 'menuUp' | 'menuDown' | 'menuLeft' | 'menuRight' | 'menuAccept' | 'menuBack' | 'menuTabL' | 'menuTabR' | 'abilityMod';
+  | 'menuUp' | 'menuDown' | 'menuLeft' | 'menuRight' | 'menuAccept' | 'menuBack' | 'menuTabL' | 'menuTabR' | 'abilityMod' | 'tutorialNext';
 
 export const ACTION_LABELS: Record<Action, string> = {
   throttleUp: 'Telegraph ahead', throttleDown: 'Telegraph astern', rudderLeft: 'Rudder to port', rudderRight: 'Rudder to starboard',
@@ -23,7 +23,7 @@ export const ACTION_LABELS: Record<Action, string> = {
   searchlight: 'Searchlight', target: 'Cycle target', tactical: 'Tactical plot', map: 'Chart', pause: 'Pause', timeUp: 'Time compression +',
   timeDown: 'Time compression -', camera: 'Camera mode', zoomIn: 'Zoom in', zoomOut: 'Zoom out', interact: 'Collect / interact',
   menuUp: 'Menu up', menuDown: 'Menu down', menuLeft: 'Menu left', menuRight: 'Menu right', menuAccept: 'Accept', menuBack: 'Back',
-  menuTabL: 'Previous tab', menuTabR: 'Next tab', abilityMod: 'Ability set 2 (hold)',
+  menuTabL: 'Previous tab', menuTabR: 'Next tab', abilityMod: 'Ability set 2 (hold)', tutorialNext: 'Tutorial: skip step',
 };
 
 // PS5 standard mapping: 0 Cross, 1 Circle, 2 Square, 3 Triangle, 4 L1, 5 R1, 6 L2, 7 R2, 8 Create,
@@ -70,6 +70,7 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   menuTabL: ['KeyQ', 'Pad4'],
   menuTabR: ['KeyE', 'Pad5'],
   abilityMod: ['Pad4'],
+  tutorialNext: ['Enter'],
 };
 
 const STORE = 'wolfpack.bindings.v1';

@@ -3,6 +3,8 @@
 //                       [--eval "js run in page before shot"] [--steps "key:KeyW:2000,wait:500"] [--init "js"] [--preview]
 //                       (steps: wait:ms, key:Code:ms, press:Code, click:x:y, move:x:y, eval:js, until:js[:timeoutMs];
 //                        js is URI-decoded, so encode commas/colons, e.g. until:window.__lookdevDone)
+//                       [--mobile [--dpr 2.625]]  phone emulation: touch, coarse pointer, device pixel ratio
+//                       (touch steps: tap:x:y, swipe:x0:y0:x1:y1[:ms], hold:x:y:ms, pinch:cx:cy:d0:d1[:ms]; CSS px)
 // Starts Vite in-process, opens Chromium (SwiftShader WebGL2), prints console errors, saves PNG.
 import { createServer, preview } from 'vite';
 import { chromium } from 'playwright';
@@ -31,7 +33,23 @@ const browser = await chromium.launch({
   executablePath: '/opt/pw-browsers/chromium',
   args: ['--enable-unsafe-webgpu', '--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist', '--enable-webgl'],
 });
-const page = await browser.newPage({ viewport: { width: W, height: H } });
+// --mobile: a phone (touch events, pointer: coarse, isMobile layout viewport, device pixel ratio)
+const mobile = args.includes('--mobile');
+const ctx = await browser.newContext(mobile
+  ? { viewport: { width: W, height: H }, deviceScaleFactor: +opt('dpr', 2.625), isMobile: true, hasTouch: true }
+  : { viewport: { width: W, height: H } });
+const page = await ctx.newPage();
+const cdp = mobile ? await ctx.newCDPSession(page) : null;
+/** one finger (or two for pinch) through CDP so Chromium raises real touch + pointer events */
+const touch = async (frames) => {
+  for (let i = 0; i < frames.length; i++) {
+    const pts = frames[i];
+    const type = i === 0 ? 'touchStart' : i === frames.length - 1 ? 'touchEnd' : 'touchMove';
+    await cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : pts.map(([x, y], id) => ({ x, y, id })) });
+    if (i < frames.length - 1) await page.waitForTimeout(16);
+  }
+};
+const lerpFrames = (n, f) => Array.from({ length: n + 1 }, (_, i) => f(i / n));
 // --init: script run in the page before any of its own code (e.g. make localStorage throw)
 const initJs = opt('init', '');
 if (initJs) await page.addInitScript(initJs);
@@ -53,6 +71,13 @@ for (const st of steps ? steps.split(',') : []) {
   else if (kind === 'move') await page.mouse.move(+a, +b);
   else if (kind === 'eval') await page.evaluate(decodeURIComponent(a));
   else if (kind === 'until') await page.waitForFunction(decodeURIComponent(a), null, { timeout: +(b || 180000), polling: 250 });
+  else if (kind === 'tap') await page.touchscreen.tap(+a, +b);
+  else if (kind === 'swipe' || kind === 'hold' || kind === 'pinch') {
+    const p = st.split(':').slice(1).map(Number);
+    if (kind === 'swipe') { const [x0, y0, x1, y1, ms = 300] = p; await touch([...lerpFrames(Math.max(2, Math.round(ms / 16)), (t) => [[x0 + (x1 - x0) * t, y0 + (y1 - y0) * t]]), []]); }
+    else if (kind === 'hold') { const [x, y, ms] = p; await touch([...lerpFrames(Math.max(2, Math.round(ms / 16)), () => [[x, y]]), []]); }
+    else { const [cx, cy, d0, d1, ms = 400] = p; await touch([...lerpFrames(Math.max(2, Math.round(ms / 16)), (t) => { const d = (d0 + (d1 - d0) * t) / 2; return [[cx - d, cy], [cx + d, cy]]; }), []]); }
+  }
 }
 await page.waitForTimeout(wait);
 if (evalJs) { const r = await page.evaluate(evalJs); if (r !== undefined) console.log('eval:', JSON.stringify(r)); }

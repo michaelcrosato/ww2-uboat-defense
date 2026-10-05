@@ -59,7 +59,9 @@ export interface HydroTuning {
   speedMul: number;
 }
 
-const tmp = v3(), tmp2 = v3(), tmp3 = v3();
+// scratch vectors; `right` keeps its own because the submarine block below still reads it after
+// the propeller and trim offsets reuse tmp2 (sharing it turned the pitch torques into a roll)
+const tmp = v3(), tmp2 = v3(), tmp3 = v3(), tmpRight = v3();
 
 export class HullHydro {
   cols: Column[] = [];
@@ -77,6 +79,8 @@ export class HullHydro {
   centerEta = 0;
   totalVolume = 0;       // m^3 if fully submerged
   sternWet = 1;
+  /** centre of mass along the hull (m, + = bow): subs carry it under their submerged centre of buoyancy */
+  comX = 0;
 
   constructor(readonly s: HydroSpec) {
     this.flood = new Float32Array(s.compartments * 2);
@@ -116,9 +120,13 @@ export class HullHydro {
     }
     // calibrate: sum(area_i * draft_i) * RHO = mass (floats at design draft; subs at surfaced draft)
     const k = s.mass / RHO / weightSum;
-    let tv = 0;
-    for (const c of cols) { c.area *= k; tv += c.area * c.h; }
+    let tv = 0, mx = 0;
+    for (const c of cols) { c.area *= k; tv += c.area * c.h; mx += c.area * c.h * c.lx; }
     this.totalVolume = tv;
+    // a submarine is trimmed so that, dived, its buoyancy acts straight above its weight; with the mass
+    // centred amidships the finer bow left the buoyancy ~4 % of the length aft and pitched the boat
+    // bow-down by tens of degrees whenever it was under water
+    if (s.sub && tv > 0) this.comX = mx / tv;
     this.cols = cols;
   }
 
@@ -155,7 +163,7 @@ export class HullHydro {
 
   /** mass properties for Rapier */
   massProps(): { mass: number; com: V3; inertia: V3 } {
-    return { mass: this.s.mass, com: v3(0, 0, this.s.comZ), inertia: v3(this.inertia.x, this.inertia.y, this.inertia.z) };
+    return { mass: this.s.mass, com: v3(this.comX, 0, this.s.comZ), inertia: v3(this.inertia.x, this.inertia.y, this.inertia.z) };
   }
 
   /**
@@ -236,7 +244,7 @@ export class HullHydro {
     const rollW = w.x * fwd.x + w.y * fwd.y;
     const rd = -this.inertia.x * 0.35 * rollW;
     tx += fwd.x * rd; ty += fwd.y * rd;
-    const right = qrot(q, 0, 1, 0, tmp2);
+    const right = qrot(q, 0, 1, 0, tmpRight);
     const pitchW = w.x * right.x + w.y * right.y;
     const pd = -this.inertia.y * 0.6 * pitchW;
     tx += right.x * pd; ty += right.y * pd;

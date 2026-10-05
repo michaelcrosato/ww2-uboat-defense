@@ -120,7 +120,7 @@ const HANDLERS: Partial<Record<AbilityId, Handler>> = {
       const d = Math.hypot(u.pos.x - c.v.pos.x, u.pos.y - c.v.pos.y);
       if (d > 7000) continue;
       const brg = Math.atan2(u.pos.y - c.v.pos.y, u.pos.x - c.v.pos.x) + c.world.rng.gauss(0, (p.accuracy_deg ?? 4) * DEG);
-      c.world.sensors.bearing(c.v.side, u, c.v.pos.x, c.v.pos.y, brg, (p.accuracy_deg ?? 4) * DEG, SRC.HFDF, d);
+      c.world.sensors.bearing(c.v.side, u, c.v.pos.x, c.v.pos.y, brg, (p.accuracy_deg ?? 4) * DEG, SRC.HFDF, d, c.v.id);
       n++;
     }
     c.world.emit('message', { text: n ? `HF/DF: ${n} transmitter bearing${n > 1 ? 's' : ''} plotted.` : 'HF/DF: no transmissions intercepted.', side: c.v.side, kind: 'radio' });

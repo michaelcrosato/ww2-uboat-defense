@@ -6,6 +6,7 @@ import type { App } from '../app';
 import type { Mission } from '../game/mission';
 import { arena } from '../game/arenaConfig';
 import { audio } from '../audio/audio';
+import { dev } from '../core/devSettings';
 import { Ui } from './dom';
 import { TouchOverlay } from './touch';
 import { titleScreen, creditsScreen } from './screens/title';
@@ -17,10 +18,12 @@ import { controlsScreen } from './screens/controls';
 import { missionEndScreen } from './screens/missionEnd';
 import { factionScreen, portScreen } from './screens/port';
 import { afterActionScreen } from './screens/afterAction';
+import { tutorialScreen } from './screens/tutorial';
+import { TUTORIAL_ARENA, tutorialStats, type TutorialSide } from '../game/tutorial';
 import { Career } from '../game/career';
 import type { Contract } from '../meta/index.ts';
 
-export type MenuId = 'title' | 'arena' | 'dev' | 'settings' | 'controls' | 'credits' | 'pause' | 'end' | 'port' | 'faction';
+export type MenuId = 'title' | 'arena' | 'dev' | 'settings' | 'controls' | 'credits' | 'pause' | 'end' | 'port' | 'faction' | 'tutorial';
 
 /** attract-mode looks, picked at random each time the backdrop restarts */
 const ATTRACT: Record<string, number | string | boolean>[] = [
@@ -34,8 +37,8 @@ export class Shell {
   readonly ui: Ui;
   readonly touch: TouchOverlay;
   readonly career = new Career();
-  /** what the current mission counts as: a contract, arena free play, or a URL test mission */
-  private mode: 'career' | 'arena' | 'test' = 'test';
+  /** what the current mission counts as: a contract, arena free play, a tutorial, or a URL test mission */
+  private mode: 'career' | 'arena' | 'tutorial' | 'test' = 'test';
   private attractIdx = Math.floor(Math.random() * ATTRACT.length);
 
   constructor(readonly app: App) {
@@ -46,6 +49,17 @@ export class Shell {
     addEventListener('keydown', (e) => {
       if (e.code === 'F11' || (e.code === 'Enter' && e.altKey)) { e.preventDefault(); void app.screen.toggleFullscreen(); return; }
       if (e.code === 'F1') { e.preventDefault(); this.toggleDev(); }
+    });
+    // touch battles: the system back gesture pauses (or closes the open menu) instead of leaving the game,
+    // and dropping out of fullscreen pauses too; Resume goes back in
+    addEventListener('popstate', () => {
+      if (!this.playing || !this.touch.enabled) return;
+      history.pushState({ wolfpack: true }, '');
+      if (this.ui.active) this.ui.back(); else this.open('pause');
+    });
+    document.addEventListener('fullscreenchange', () => {
+      const m = this.playing;
+      if (!document.fullscreenElement && m && !m.over && this.touch.enabled && !this.ui.active) this.open('pause');
     });
     (window as unknown as { __shell: Shell }).__shell = this;
   }
@@ -81,6 +95,7 @@ export class Shell {
       case 'settings': this.ui.push(settingsScreen(this)); return;
       case 'controls': this.ui.push(controlsScreen(this)); return;
       case 'credits': this.ui.push(creditsScreen(this)); return;
+      case 'tutorial': this.ui.push(tutorialScreen(this)); return;
       case 'pause': if (this.playing) this.ui.push(pauseScreen(this)); return;
       case 'end': if (this.app.mission) this.ui.push(missionEndScreen(this, this.app.mission)); return;
       case 'faction': this.ui.push(factionScreen(this, () => this.open('port'))); return;
@@ -92,22 +107,35 @@ export class Shell {
     }
   }
 
+  /** touch: a battle takes the whole screen in its current orientation (call from a tap: needs the gesture) */
+  gameMode() { if (this.touch.enabled && dev.bool('controls.autoFullscreen')) void this.app.screen.enterGameMode(); }
+
   /** start a mission from the arena store (+ overrides); menus close */
   launch(overrides: Record<string, number | string | boolean> = {}, mode: 'arena' | 'test' = 'arena') {
     this.mode = mode;
+    this.gameMode();
     this.ui.clear();
     this.app.startMission(overrides, { onEnd: (m) => this.onMissionEnd(m) });
+    this.app.paused = false;
+  }
+  /** a guided lesson: the gentle tutorial arena with the coach panel (earns no experience) */
+  launchTutorial(side: TutorialSide) {
+    this.mode = 'tutorial';
+    this.gameMode();
+    this.ui.clear();
+    this.app.startMission(TUTORIAL_ARENA[side], { tutorial: side, stats: tutorialStats(), onEnd: (m) => this.onMissionEnd(m) });
     this.app.paused = false;
   }
   /** fly a contract with the active captain (stats, abilities, mutators, loot drops) */
   launchContract(k: Contract) {
     this.mode = 'career';
+    this.gameMode();
     this.ui.clear();
     const { overrides, hooks } = this.career.contractMission(k);
     this.app.startMission(overrides, { ...hooks, onEnd: (m) => this.onMissionEnd(m) });
     this.app.paused = false;
   }
-  restart() { const ls = this.app.lastStart; this.ui.clear(); this.app.startMission(ls.overrides, ls.hooks); }
+  restart() { const ls = this.app.lastStart; this.gameMode(); this.ui.clear(); this.app.startMission(ls.overrides, ls.hooks); }
   abandon() {
     const career = this.mode === 'career';
     this.career.active = null;
@@ -145,6 +173,8 @@ export class Shell {
     }
     // a menu over a real mission halts it (also on the frame a menu closes, so its keypress stays in the menu)
     app.menuOpen = !!this.playing && (wasActive || ui.active);
+    // touch battles keep one history entry of their own for the back gesture to land on
+    if (this.playing && this.touch.enabled && !(history.state as { wolfpack?: boolean } | null)?.wolfpack) history.pushState({ wolfpack: true }, '');
     this.touch.update();
   }
 }

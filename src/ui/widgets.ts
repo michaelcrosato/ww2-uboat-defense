@@ -114,11 +114,16 @@ export function tabs(names: string[], onPick: (i: number) => void): { el: HTMLEl
   return api;
 }
 
+/** the primary pointer can't hover: a phone or tablet that has not been touched yet still gets no key hints */
+const NO_HOVER = typeof matchMedia === 'function' && matchMedia('(hover: none) and (pointer: coarse)').matches;
+
 /** footer hint line with glyphs for the active device (refreshed by the screen's update) */
 export function hintBar(input: import('../input/input').Input, extra: [import('../input/input').Action, string][] = []): { el: HTMLElement; update(): void } {
   const el = h('div', { class: 'hints' });
   let last = '';
   const update = () => {
+    // a touch screen has nothing to press: the buttons are the hints
+    el.classList.toggle('hidden', input.device === 'touch' || (input.device === 'kbm' && NO_HOVER));
     const pad = input.usingPad;
     const parts: string[] = [pad ? `${input.glyph('menuUp')}${input.glyph('menuDown')} Navigate` : '↑↓←→ Navigate',
       `${input.glyph('menuAccept')} Select`, `${input.glyph('menuBack')} Back`];

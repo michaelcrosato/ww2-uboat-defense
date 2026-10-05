@@ -16,6 +16,8 @@ export class Screen {
   dpr = 1;
   /** internal (game) pixels per HUD pixel: 1, or 1.33-2 with display.hudScale 2 (not always whole) */
   hudScale = 1;
+  /** touch layouts (set by the touch overlay) round the HUD pixel down: see resize() */
+  private touchHud = false;
   /** device pixel size of the drawing buffer */
   pw = 1; ph = 1;
   private listeners: (() => void)[] = [];
@@ -66,8 +68,9 @@ export class Screen {
     const mode = this.cfg.str('display.pixelScale');
     let S: number;
     if (mode === 'auto') {
+      // the target is the short side: a portrait phone (9:16) gets the same pixel size as a landscape screen
       const target = this.cfg.num('display.targetHeight');
-      S = Math.max(1, Math.round(ph / target));
+      S = Math.max(1, Math.round(Math.min(pw, ph) / target));
     } else S = Math.max(1, parseInt(mode, 10) || 3);
     // never let the internal buffer exceed 1280 px wide (cost) or drop below 160 px tall
     while (S > 1 && ph / S < 160) S--;
@@ -79,7 +82,12 @@ export class Screen {
     // sampling: the game pixel normally; display.hudScale 2 takes one size up (about 1.33-1.5x text),
     // which keeps the HUD buffer roomy enough for its panels (a flat 2x left only 320x180)
     const large = (parseInt(this.cfg.str('display.hudScale')) || 1) >= 2;
-    const hp = large ? Math.max(S + 1, Math.round((S * 4) / 3)) : S;
+    let hp = large ? Math.max(S + 1, Math.round((S * 4) / 3)) : S;
+    // a touch HUD fills its whole short side (top panels, thumb controls below): where the game pixel rounded
+    // up (a 4:3 tablet), the HUD pixel rounds down, so the HUD keeps at least the target in HUD pixels
+    if (this.touchHud && mode === 'auto') {
+      hp = Math.min(hp, Math.max(1, Math.floor((Math.min(pw, ph) / this.cfg.num('display.targetHeight')) * (large ? 4 / 3 : 1))));
+    }
     this.hudScale = hp / S;
     this.hud.width = Math.ceil(pw / hp); this.hud.height = Math.ceil(ph / hp);
     this.hud.style.width = (this.hud.width * hp) / dpr + 'px';
@@ -95,6 +103,19 @@ export class Screen {
   }
 
   get isFullscreen() { return !!document.fullscreenElement; }
+  setTouchHud(on: boolean) { if (on !== this.touchHud) { this.touchHud = on; this.resize(); } }
+  /**
+   * Phones: fullscreen without browser chrome (nothing to swipe away) and the current orientation held,
+   * so tilting the phone mid-battle does not flip the layout. Needs a user gesture; refusals (iPhone
+   * Safari has no element fullscreen, the gesture was missing) leave the game playing in the page.
+   */
+  async enterGameMode() {
+    try {
+      if (!document.fullscreenElement) await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+      const o = screen.orientation as ScreenOrientation & { lock?: (type: string) => Promise<void> };
+      await o.lock?.(innerHeight >= innerWidth ? 'portrait' : 'landscape');
+    } catch { /* refused: stay in the page */ }
+  }
   async toggleFullscreen() {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();

@@ -3,16 +3,23 @@
 import type { Shell } from '../shell';
 import { h, type UiScreen } from '../dom';
 import { button, hintBar } from '../widgets';
+import { tutorialsDone } from '../../game/tutorial';
 
 export function titleScreen(shell: Shell): UiScreen {
   const hints = hintBar(shell.app.input);
+  // a new captain gets the tutorial first (and focused) until one of the lessons was flown
+  const fresh = !Object.values(tutorialsDone()).some(Boolean);
+  const tutorial = button('Tutorial', () => shell.open('tutorial'), fresh ? 'btn big' : 'btn',
+    { 'data-help': 'A guided battle for each side: the helm, sensors and weapons, one step at a time.', 'data-autofocus': fresh || undefined });
   const el = h('div', { class: 'screen title-screen' },
     h('div', { class: 'title-col' },
       h('div', { class: 'game-title' }, 'WOLFPACK', h('span', { class: 'amp' }, '&'), 'ESCORT'),
       h('div', { class: 'game-sub' }, 'Convoy war in the Atlantic, ', h('span', { class: 'nowrap' }, '1939–1945')),
       h('div', { class: 'menu-list' },
-        button('Arena', () => shell.open('arena'), 'btn big', { 'data-autofocus': true, 'data-help': 'Customise a convoy battle and play it as the escort or the U-boat.' }),
+        fresh ? tutorial : null,
+        button('Arena', () => shell.open('arena'), 'btn big', { 'data-autofocus': !fresh || undefined, 'data-help': 'Customise a convoy battle and play it as the escort or the U-boat.' }),
         button('Port', () => shell.open('port'), 'btn big', { 'data-help': 'The captain\'s career: contracts, loot, the shipyard and the skill tree.' }),
+        fresh ? null : tutorial,
         button('Settings', () => shell.open('settings'), 'btn', { 'data-help': 'Display, audio and controller options.' }),
         button('Controls', () => shell.open('controls'), 'btn', { 'data-help': 'Rebind keys, mouse buttons and gamepad buttons.' }),
         button('Dev Settings', () => shell.open('dev'), 'btn', { 'data-help': 'Every renderer, water, physics and gameplay knob. Also F1 during a mission.' }),
