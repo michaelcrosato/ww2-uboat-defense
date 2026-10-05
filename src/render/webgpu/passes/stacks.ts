@@ -18,7 +18,7 @@ fn qrot(q: vec4f, v: vec3f) -> vec3f { let t = 2.0 * cross(q.xyz, v); return v +
 
 /**
  * Shared by stacks and the water lookup: 0 occRect (x, y rel origin, w, h) · 4 simRect
- * 8 foamCol (rgb, -) · 12 (waterline, time, simOn, rippleScale)
+ * 8 foamCol (rgb, seaTop = highest possible sea surface, m) · 12 (waterline, time, simOn, rippleScale)
  */
 export const STACK_UBO_FLOATS = 16;
 
@@ -101,7 +101,9 @@ fn stackVert(vi: u32, s: SIn) -> SOut {
     o.normal = vec4f(0.0, 0.0, i.world.z, 0.0);
     return o;
   }
-  let wh = waterAt(i.world.xy);
+  // the sea only reaches slices below its highest possible crest: skip the swell maths above it
+  var wh = -1e4;
+  if (i.world.z < SU.foamCol.w) { wh = waterAt(i.world.xy); }
   if (i.world.z < wh - 0.05) { discard; }
   var n = normalize(qrot(i.rot, nm.rgb * 2.0 - 1.0));
   if (n.z < 0.0) { n = normalize(vec3f(n.xy, 0.05)); }
@@ -143,7 +145,7 @@ struct UOut { @location(0) col: vec4f, @location(1) depth: vec4f, @builtin(frag_
   let c = textureSampleLevel(atlasTex, near, i.uv, 0.0);
   if (c.a < 0.5) { discard; }
   let flags = u32(i.misc.y + 0.5);
-  if ((flags & 4u) != 0u) { discard; }
+  if ((flags & 4u) != 0u || i.world.z > SU.foamCol.w) { discard; }
   let wh = waterAt(i.world.xy);
   var dep = wh - i.world.z;
   if (dep < 0.0) { discard; }
@@ -272,11 +274,11 @@ export class StackPassGPU {
 
   /** per-frame uniforms + instance data */
   write(occRel: [number, number, number, number], sim: { x: number; y: number; size: number; on: boolean; rippleScale: number },
-    foamCol: [number, number, number], waterline: boolean, time: number, data: Float32Array<ArrayBuffer>, count: number) {
+    foamCol: [number, number, number], waterline: boolean, time: number, data: Float32Array<ArrayBuffer>, count: number, seaTop: number) {
     const f = this.ubo.f;
     f.set(occRel, 0);
     f[4] = sim.x; f[5] = sim.y; f[6] = sim.size; f[7] = sim.size;
-    f[8] = foamCol[0]; f[9] = foamCol[1]; f[10] = foamCol[2]; f[11] = 0;
+    f[8] = foamCol[0]; f[9] = foamCol[1]; f[10] = foamCol[2]; f[11] = seaTop;
     f[12] = waterline ? 1 : 0; f[13] = time; f[14] = sim.on ? 1 : 0; f[15] = sim.rippleScale;
     this.ubo.write();
     this.inst.write(data, count * STACK_FLOATS);

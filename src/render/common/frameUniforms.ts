@@ -64,6 +64,17 @@ export function lightParams(f: FrameParams): LightParams {
   };
 }
 
+/**
+ * Highest the sea surface can reach this frame (m): every swell crest and ring at once plus a margin
+ * for ripple-sim waves. Sprite-stack fragments above it skip the per-fragment swell maths.
+ */
+export function seaTop(waveA: Float32Array, waveCount: number, rings: Float32Array, ringCount: number, rippleScale: number): number {
+  let h = 0;
+  for (let i = 0; i < waveCount; i++) h += Math.abs(waveA[i * 4 + 3]);
+  for (let i = 0; i < ringCount; i++) h += Math.abs(rings[i * 4 + 3]);
+  return h + 1.5 * rippleScale + 0.4;
+}
+
 /** occluder heightmap window: world aligned, snapped to texels so shadows do not shimmer */
 export function occluderRect(cam: Camera, occRes: number): { x: number; y: number; s: number } {
   const view = cam.viewRect(0);

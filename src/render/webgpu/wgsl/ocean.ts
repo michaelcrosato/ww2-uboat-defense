@@ -69,6 +69,18 @@ fn oceanSample(p: vec2f) -> OceanOut {
   return o;
 }
 
+// undisplaced swell height (no Gerstner inversion, no rings): a cheap first guess for the parallax solve
+fn oceanHeightFast(p: vec2f) -> f32 {
+  let wc = i32(OC.count.x + 0.5);
+  var h = 0.0;
+  for (var i = 0; i < ${MAX_WAVES}; i++) {
+    if (i >= wc) { break; }
+    let a = OC.a[i];
+    h += a.w * cos(a.z * dot(a.xy, p) + OC.b[i].x);
+  }
+  return h;
+}
+
 fn oceanHeight(p: vec2f) -> f32 {
   let wc = i32(OC.count.x + 0.5);
   let q = gerstnerQ(p, wc);

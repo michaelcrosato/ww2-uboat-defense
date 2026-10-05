@@ -51,6 +51,7 @@ uniform sampler2D uWave;
 uniform vec4 uSimRect;
 uniform int uSimOn;
 uniform float uRippleScale;
+uniform float uSeaTop;   // highest possible sea surface this frame (m)
 float waterAt(vec2 p) {
   float h = oceanHeight(p);
   if (uSimOn == 1) {
@@ -92,7 +93,8 @@ void main() {
     oNormal = vec4(0.0, 0.0, vWorld.z, 0.0);
     return;
   }
-  float wh = waterAt(vWorld.xy);
+  // the sea only reaches slices below its highest possible crest: skip the swell maths above it
+  float wh = vWorld.z < uSeaTop ? waterAt(vWorld.xy) : -1e4;
   if (vWorld.z < wh - 0.05) discard;
   vec3 n = normalize(qrot(vRot, nm.rgb * 2.0 - 1.0));
   if (n.z < 0.0) n = normalize(vec3(n.xy, 0.05));
@@ -143,7 +145,7 @@ void main() {
   vec4 c = texture(uAtlas, vUv);
   if (c.a < 0.5) discard;
   int flags = int(vMisc.y + 0.5);
-  if ((flags & 4) != 0) discard;
+  if ((flags & 4) != 0 || vWorld.z > uSeaTop) discard;
   float wh = waterAt(vWorld.xy);
   float dep = wh - vWorld.z;
   if (dep < 0.0) discard;

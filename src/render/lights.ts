@@ -51,6 +51,10 @@ export function packLights(lights: LightList, ox: number, oy: number, view: View
   }
   cand.sort((a, b) => b.score - a.score);
   const n = Math.min(cand.length, max, MAX_LIGHTS);
+  // shadow ray budget by importance: the four strongest shadow casters march every step, weaker or
+  // more distant ones a share that falls with the square root of their score (at least 30 %)
+  let ref = 0, nsh = 0;
+  for (let i = 0; i < n && nsh < 4; i++) if (cand[i].l.shadow) { ref = cand[i].score; nsh++; }
   const D = out;
   D.fill(0);
   for (let i = 0; i < n; i++) {
@@ -62,7 +66,8 @@ export function packLights(lights: LightList, ox: number, oy: number, view: View
       const len = Math.hypot(l.dx ?? 1, l.dy ?? 0, l.dz ?? 0) || 1;
       D[b + 8] = (l.dx ?? 1) / len; D[b + 9] = (l.dy ?? 0) / len; D[b + 10] = (l.dz ?? 0) / len; D[b + 11] = l.cosOuter!;
     } else { D[b + 11] = -2; }
-    D[b + 12] = l.shadow ? 1 : 0; D[b + 13] = (l.beam ?? 0) * lights.beamScale;
+    D[b + 12] = l.shadow ? Math.max(0.3, Math.min(1, Math.sqrt(cand[i].score / Math.max(ref, 1e-6)))) : 0;
+    D[b + 13] = (l.beam ?? 0) * lights.beamScale;
     D[b + 14] = spot ? (l.cosInner ?? Math.min(0.9999, l.cosOuter! + (1 - l.cosOuter!) * 0.5)) : 0;
     D[b + 15] = (l.size ?? 0.6) * lights.sizeScale;
   }

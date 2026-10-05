@@ -18,6 +18,7 @@ ${MAT_GLSL}
 uniform sampler2D uAlbedo, uNormal, uOcc, uLights;
 uniform int uLightCount;
 uniform vec4 uOccRect;
+uniform float uOccTop;   // highest occluder or smoke this frame (m)
 uniform vec3 uAmbient, uSky, uFogCol;
 uniform vec3 uSunDir, uSunCol, uMoonDir, uMoonCol;
 uniform float uReach, uStrength, uAmbientFill, uSoft, uBands, uDitherAmt, uBeams, uSpec, uReflect, uFog, uLightning, uHaze;
@@ -51,10 +52,15 @@ float shadowTo(vec3 p, vec3 lp, float jitter, int steps) {
   return s * trans;
 }
 
+// the ray climbs L.z / hz per metre: past the tallest occluder (or smoke) nothing can block it, so
+// the march ends there and its step count shrinks with it
 float shadowDir(vec3 p, vec3 L, float maxD, float jitter, int steps) {
   float hz = length(L.xy);
   if (hz < 1e-3) return 1.0;
-  return shadowTo(p, p + L * (maxD / hz), jitter, steps);
+  float D = maxD;
+  if (L.z > 1e-3) D = min(D, (uOccTop - p.z) * hz / L.z);
+  if (D <= 0.4) return 1.0;
+  return shadowTo(p, p + L * (D / hz), jitter, max(4, int(float(steps) * D / maxD + 0.5)));
 }
 
 float blinn(vec3 n, vec3 L, vec3 V, float k) {
@@ -128,7 +134,7 @@ void main() {
           float k = 1.0 - smoothstep(0.0, rb, r);
           if (k > 0.0) {
             float fall = (1.0 - t / R); fall *= fall;
-            float shs = uShadows == 1 && l3.x > 0.5 ? shadowTo(bpnt, l0.xyz, jitter, max(4, uSteps / 3)) : 1.0;
+            float shs = uShadows == 1 && l3.x > 0.0 ? shadowTo(bpnt, l0.xyz, jitter, max(4, int(float(uSteps) * l3.x / 3.0 + 0.5))) : 1.0;
             haze += Lc * k * k * fall * l3.y * uBeams * uHaze * 0.55 * shs;
           }
         } else {
@@ -148,9 +154,12 @@ void main() {
       float cone = 1.0;
       if (spot) cone = smoothstep(l2.w, l3.z, dot(-Ld, l2.xyz));
       if (cone * att <= 0.001) continue;
+      vec3 c = Lc * att * cone;
+      // contributions too faint to show skip the shadow march entirely
+      if (max(c.r, max(c.g, c.b)) < 0.004) continue;
       float ndl = clamp((dot(n, Ld) + 0.35) / 1.35, 0.0, 1.0);
-      float sh = uShadows == 1 && l3.x > 0.5 ? shadowTo(P + n * 0.15, l0.xyz, jitter, uSteps) : 1.0;
-      vec3 c = Lc * att * cone * sh;
+      // shadow steps by the light's importance (l3.x, ranked on the CPU) and how much of it lands here
+      if (uShadows == 1 && l3.x > 0.0) c *= shadowTo(P + n * 0.15, l0.xyz, jitter, max(4, int(float(uSteps) * l3.x * (0.4 + 0.6 * sqrt(att)) + 0.5)));
       light += c * ndl;
       if (glossy) spec += c * blinn(n, Ld, V, shininess) * specK * 3.0;
     }

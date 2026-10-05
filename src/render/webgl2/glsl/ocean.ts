@@ -55,6 +55,17 @@ float oceanSample(vec2 p, out vec3 n, out float jac) {
   return h + ringHeight(p);
 }
 
+// undisplaced swell height (no Gerstner inversion, no rings): a cheap first guess for the parallax solve
+float oceanHeightFast(vec2 p) {
+  float h = 0.0;
+  for (int i = 0; i < MAX_WAVES; i++) {
+    if (i >= uWaveCount) break;
+    vec4 a = uWaveA[i]; vec4 b = uWaveB[i];
+    h += a.w * cos(a.z * dot(a.xy, p) + b.x);
+  }
+  return h;
+}
+
 float oceanHeight(vec2 p) {
   vec2 q = p;
   for (int it = 0; it < 2; it++) {

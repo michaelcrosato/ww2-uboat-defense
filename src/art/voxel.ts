@@ -114,6 +114,8 @@ export interface StackModel {
   slices: Slice[];
   length: number; beam: number; height: number;
   zMin: number; zMax: number;
+  /** bounding-sphere radius about the model origin (m), for view culling */
+  radius: number;
   /** footprint at the waterline for physics/sims */
   model: VoxelModel;
 }
@@ -175,7 +177,12 @@ export class SliceAtlas {
         u0: ax / S, v0: ay / S, u1: (ax + w) / S, v1: (ay + h) / S,
       });
     }
-    const sm: StackModel = { name: m.name, slices, length: m.nx * m.res, beam: m.ny * m.res, height: m.nz * m.zres, zMin, zMax, model: m };
+    let r2 = 0;
+    for (const sl of slices) {
+      const ex = Math.max(Math.abs(sl.x0), Math.abs(sl.x0 + sl.w)), ey = Math.max(Math.abs(sl.y0), Math.abs(sl.y0 + sl.h));
+      r2 = Math.max(r2, ex * ex + ey * ey + sl.z * sl.z);
+    }
+    const sm: StackModel = { name: m.name, slices, length: m.nx * m.res, beam: m.ny * m.res, height: m.nz * m.zres, zMin, zMax, radius: Math.sqrt(r2), model: m };
     this.models.set(m.name, sm);
     this.version++;
     return sm;

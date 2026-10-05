@@ -20,7 +20,7 @@ import { FluidSim } from './water/fluidSim';
 import { dev } from '../../core/devSettings';
 import { CAMERA_GLSL } from './glsl/common';
 import { postParams } from '../common/post';
-import { lightParams, occluderRect, occluderRes, waterParams } from '../common/frameUniforms';
+import { lightParams, occluderRect, occluderRes, seaTop, waterParams } from '../common/frameUniforms';
 
 const DEBUG_FS = /* glsl */ `#version 300 es
 precision highp float;
@@ -64,6 +64,8 @@ export class WebGL2Backend implements RenderBackend {
   private ringCount = 0;
   origin = { x: 0, y: 0 };
   occRect = { x: 0, y: 0, s: 1 };
+  /** highest occluder or smoke top this frame (m): shadow rays stop climbing past it */
+  private occTop = 0;
   stats: BackendStats = { stackInstances: 0, particles: 0, lights: 0, gpuMs: 0 };
   simsOk: boolean;
   private zeroTex: WebGLTexture;
@@ -132,8 +134,9 @@ export class WebGL2Backend implements RenderBackend {
     p.tex('uWave', unit, this.wave.heightTex)
       .f4('uSimRect', w.ox - this.origin.x, w.oy - this.origin.y, w.size, w.size)
       .i1('uSimOn', this.simsOk && dev.bool('water.sim') ? 1 : 0)
-      .f1('uRippleScale', dev.num('water.rippleScale'));
+      .f1('uRippleScale', dev.num('water.rippleScale')).f1('uSeaTop', this.seaTop);
   }
+  private seaTop = 0;
 
   render(scene: RenderScene, f: FrameParams) {
     const gl = this.gl, cam = f.camera, sc = this.screen;
@@ -150,6 +153,7 @@ export class WebGL2Backend implements RenderBackend {
     // ---- ocean uniforms (origin folded into wave phases on the CPU, in double precision)
     this.waveCount = f.ocean.pack(O.x, O.y, this.waveA, this.waveB);
     this.ringCount = f.ocean.packRings(O.x, O.y, this.rings);
+    this.seaTop = seaTop(this.waveA, dev.bool('water.swell') ? this.waveCount : 0, this.rings, this.ringCount, dev.num('water.rippleScale'));
 
     // ---- water sims
     const simOn = this.simsOk && dev.bool('water.sim');
@@ -187,7 +191,9 @@ export class WebGL2Backend implements RenderBackend {
     gl.enable(gl.BLEND);
     gl.blendEquationSeparate(gl.MAX, gl.FUNC_ADD);
     gl.blendFunc(gl.ONE, gl.ONE);
-    const st = packStacks(scene.stacks, O.x, O.y, this.stackData);
+    // only what can be seen or shade the view: the occluder window is the view plus a shadow margin
+    const cull = { x0: ocx, y0: ocy, x1: ocx + span, y1: ocy + span };
+    const st = packStacks(scene.stacks, O.x, O.y, this.stackData, cull);
     this.stackData = st.data;
     this.stacks.set(st.data, st.count);
     this.stats.stackInstances = st.count;
@@ -195,8 +201,9 @@ export class WebGL2Backend implements RenderBackend {
     ps.i1('uOccluder', 1).f4('uOccRect', ...occRel).tex('uAtlas', 0, this.stacks.atlasTex);
     this.setCam(ps, cam);
     this.stacks.draw();
-    const pk = packParticles(scene.particles, O.x, O.y, f.time, this.partData);
+    const pk = packParticles(scene.particles, O.x, O.y, f.time, this.partData, cull);
     this.partData = pk.data;
+    this.occTop = Math.max(st.top, pk.top) + 1;
     this.particles.upload(pk.data, pk.count);
     this.stats.particles = pk.count;
     const po = this.particles.progOcc.use();
@@ -264,7 +271,7 @@ export class WebGL2Backend implements RenderBackend {
     const pl = this.lighting.prog.use();
     this.setCam(pl, cam);
     pl.tex('uAlbedo', 0, this.gbuf.tex[0]).tex('uNormal', 1, this.gbuf.tex[1]).tex('uOcc', 2, this.occ.t).tex('uLights', 3, this.lightTex)
-      .i1('uLightCount', this.lightCount).f4('uOccRect', ...occRel)
+      .i1('uLightCount', this.lightCount).f4('uOccRect', ...occRel).f1('uOccTop', this.occTop)
       .f3('uAmbient', ...L.ambient).f3('uSky', ...L.sky).f3('uFogCol', ...L.fogCol)
       .f3('uSunDir', ...L.sunDir).f3('uSunCol', ...L.sunCol).f3('uMoonDir', ...L.moonDir).f3('uMoonCol', ...L.moonCol)
       .f1('uReach', L.reach).f1('uStrength', L.strength).f1('uAmbientFill', L.ambientFill)

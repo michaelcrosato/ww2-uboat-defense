@@ -249,6 +249,7 @@ export class App {
       m.world.submit(halted ? 0 : dt * tempo);
       this.hud.weather.update(m.world, this.cam, halted ? 0 : dt * tempo);
       const ps = this.scene.particles;
+      ps.density = dev.num('display.particles');
       ps.wind.x = Math.cos(m.world.ocean.params.windDir) * m.world.ocean.windSpeed * 0.5;
       ps.wind.y = Math.sin(m.world.ocean.params.windDir) * m.world.ocean.windSpeed * 0.5;
       if (!halted) ps.update(dt * tempo, (x, y) => m.world.ocean.height(x, y));

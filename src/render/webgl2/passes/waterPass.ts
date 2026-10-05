@@ -44,13 +44,12 @@ float surfaceH(vec2 p) { return oceanHeight(p) + simH(p); }
 
 void main() {
   vec2 bp = gl_FragCoord.xy;
-  // solve for the surface point seen through this pixel (vertical displacement in tilted views)
+  // solve for the surface point seen through this pixel (vertical displacement in tilted views): a
+  // cheap step on the undisplaced swell, then an exact one (the fixed point gains ~5x per step)
   vec2 p = pixToWorld(bp, 0.0);
   if (uParallax == 1 && uTilt.y > 0.01) {
-    for (int i = 0; i < 3; i++) {
-      float h = surfaceH(p);
-      p = pixToWorld(bp, h);
-    }
+    p = pixToWorld(bp, oceanHeightFast(p));
+    p = pixToWorld(bp, surfaceH(p));
   }
   vec3 n; float jac;
   float hs = oceanSample(p, n, jac);

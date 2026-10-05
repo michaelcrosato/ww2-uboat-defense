@@ -21,6 +21,8 @@ export const DEV_DEFS: SettingDef[] = [
     options: opts(['auto', 'Auto'], ['webgpu', 'WebGPU'], ['webgl2', 'WebGL2']),
     help: 'WebGPU with WebGL2 fallback; change needs reload.' },
   { key: 'display.weather', group: 'Display', label: 'Rain & snow effects', type: 'bool', def: true },
+  { key: 'display.particles', group: 'Display', label: 'Particle density', type: 'range', def: 1, min: 0.25, max: 1, step: 0.05, fmt: pct,
+    help: 'Share of smoke, spray and debris particles spawned. Lower cuts overdraw on slow GPUs.' },
   { key: 'display.hudScale', group: 'Display', label: 'HUD text size', type: 'select', def: '1', options: opts(['1', 'Normal'], ['2', 'Large']) },
 
   // ---------------------------------------------------------------- Camera
@@ -149,12 +151,19 @@ export const DEV_DEFS: SettingDef[] = [
 ];
 
 export const DEV_PRESETS: Preset[] = [
+  // the three quality presets set the same keys, so switching between them never leaves one behind
   { id: 'cinematic', label: 'Cinematic', help: 'Everything on, big sims, soft shadows.', values: {
-    'water.simRes': '1024', 'water.fluidRes': '384', 'light.shadowSteps': 40, 'light.shadowRes': '2048', 'light.bloom': 0.9, 'light.beams': 1.2, 'display.grain': 0.2 } },
+    'water.simRes': '1024', 'water.fluidRes': '384', 'water.pressureIters': 24, 'water.waveCount': 12, 'water.parallax': true,
+    'light.shadowSteps': 40, 'light.shadowRes': '2048', 'light.bloom': 0.9, 'light.beams': 1.2, 'light.maxLights': 64,
+    'display.grain': 0.2, 'display.particles': 1 } },
   { id: 'balanced', label: 'Balanced', help: 'Defaults.', values: {
-    'water.simRes': '768', 'water.fluidRes': '256', 'light.shadowSteps': 28, 'light.shadowRes': '1024', 'light.bloom': 0.6 } },
-  { id: 'performance', label: 'Performance', help: 'Low-end GPUs and laptops.', values: {
-    'water.simRes': '384', 'water.fluidRes': '128', 'water.pressureIters': 8, 'light.shadowSteps': 12, 'light.shadowRes': '512', 'water.waveCount': 8, 'light.bloom': 0, 'light.maxLights': 24 } },
+    'water.simRes': '768', 'water.fluidRes': '256', 'water.pressureIters': 18, 'water.waveCount': 12, 'water.parallax': true,
+    'light.shadowSteps': 28, 'light.shadowRes': '1024', 'light.bloom': 0.6, 'light.beams': 0.8, 'light.maxLights': 48,
+    'display.grain': 0.15, 'display.particles': 1 } },
+  { id: 'performance', label: 'Performance', help: 'Low-end GPUs and laptops: small sims, flat water parallax, fewer particles.', values: {
+    'water.simRes': '384', 'water.fluidRes': '128', 'water.pressureIters': 8, 'water.waveCount': 8, 'water.parallax': false,
+    'light.shadowSteps': 12, 'light.shadowRes': '512', 'light.bloom': 0, 'light.beams': 0.8, 'light.maxLights': 24,
+    'display.grain': 0.15, 'display.particles': 0.6 } },
   { id: 'authentic', label: 'Authentic sim', help: 'Real-time, heavy handling, authentic ASDIC and manual torpedoes.', values: {
     'phys.tempo': 1, 'phys.handling': 'authentic', 'game.asdic': 'authentic', 'game.tdc': 'manual', 'game.duds': 0.15, 'game.autoDepth': false } },
   { id: 'arcade', label: 'Arcade', help: 'Fast, forgiving, 360° sonar pulses.', values: {

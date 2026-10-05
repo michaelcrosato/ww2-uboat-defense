@@ -16,6 +16,9 @@ export class ParticleSystem {
   /** impact points of spray hitting the water this frame (for ripples) */
   impacts: { x: number; y: number; s: number }[] = [];
   wind = { x: 0, y: 0 };
+  /** share of cosmetic particles actually spawned (display.particles): thins smoke, spray and
+   * debris to cut overdraw; fire, sparks, flashes and tracers always spawn */
+  density = 1;
 
   constructor(cap = 24000) {
     this.cap = cap;
@@ -27,6 +30,7 @@ export class ParticleSystem {
   }
 
   spawn(kind: number, x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, size: number, col: [number, number, number], opts?: { drag?: number; grav?: number; grow?: number }) {
+    if (this.density < 1 && THINNABLE[kind] && fx.next() > this.density) return;
     let i = this.n;
     if (i >= this.cap) {
       // recycle a random old particle rather than dropping new effects
@@ -88,6 +92,9 @@ export class ParticleSystem {
     this.drag[to] = this.drag[from]; this.grav[to] = this.grav[from];
   }
 }
+
+/** kinds that display.particles may thin out (purely atmospheric; none carry gameplay meaning) */
+const THINNABLE: Record<number, boolean> = { [PK.SPRAY]: true, [PK.MIST]: true, [PK.SMOKE]: true, [PK.STEAM]: true, [PK.DEBRIS]: true, [PK.FOAMBIT]: true, [PK.SHEET]: true };
 
 const DEFAULTS: Record<number, { drag: number; grav: number; grow: number }> = {
   [PK.SPRAY]: { drag: 0.4, grav: 9.81, grow: 0 },

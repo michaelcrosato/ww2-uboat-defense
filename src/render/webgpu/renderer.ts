@@ -7,7 +7,7 @@ import type { Screen } from '../screen';
 import type { RenderScene } from '../scene';
 import type { BackendInfo, BackendStats, FrameParams, RenderBackend } from '../types';
 import { postParams } from '../common/post';
-import { lightParams, occluderRect, occluderRes, waterParams } from '../common/frameUniforms';
+import { lightParams, occluderRect, occluderRes, seaTop, waterParams } from '../common/frameUniforms';
 import { LIGHT_FLOATS, MAX_LIGHTS, packLights } from '../lights';
 import { MAX_WAVES } from '../../water/ocean';
 import { dev } from '../../core/devSettings';
@@ -213,14 +213,17 @@ export class WebGPUBackend implements RenderBackend {
     const L = lightParams(f);
     const lp = packLights(scene.lights, O.x, O.y, cam.viewRect(40), dev.num('light.maxLights'), L.reach, this.lightData);
     this.lightData = lp.data;
-    P.lighting.write(L, occRel, lp.data, lp.count);
     this.stats.lights = lp.count;
-    const st = packStacks(scene.stacks, O.x, O.y, this.stackData);
+    // only what can be seen or shade the view: the occluder window is the view plus a shadow margin
+    const R = this.occRect, cull = { x0: R.x, y0: R.y, x1: R.x + R.s, y1: R.y + R.s };
+    const st = packStacks(scene.stacks, O.x, O.y, this.stackData, cull);
     this.stackData = st.data;
-    P.stacks.write(occRel, { ...simRel, rippleScale: W.rippleScale }, W.foamCol, dev.bool('water.waterline'), f.time, st.data, st.count);
+    const top = seaTop(this.waveA, W.swell ? waveCount : 0, this.rings, ringCount, W.rippleScale);
+    P.stacks.write(occRel, { ...simRel, rippleScale: W.rippleScale }, W.foamCol, dev.bool('water.waterline'), f.time, st.data, st.count, top);
     this.stats.stackInstances = st.count;
-    const pk = packParticles(scene.particles, O.x, O.y, f.time, this.partData);
+    const pk = packParticles(scene.particles, O.x, O.y, f.time, this.partData, cull);
     this.partData = pk.data;
+    P.lighting.write(L, occRel, lp.data, lp.count, Math.max(st.top, pk.top) + 1);
     P.particles.write(occRel, occRes, 24, pk.data, pk.count);
     this.stats.particles = pk.count;
 

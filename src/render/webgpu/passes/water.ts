@@ -61,13 +61,12 @@ struct WOut { @location(0) albedo: vec4f, @location(1) normal: vec4f, @builtin(f
   let bp = i.pos.xy;
   let clarity = W.p0.x; let uHs = W.p0.y; let contrast = W.p0.z; let detail = W.p0.w;
   let crestFoam = W.p1.x; let time = W.p1.y; let rippleScale = W.p1.z; let simCell = W.p1.w;
-  // solve for the surface point seen through this pixel (vertical displacement in tilted views)
+  // solve for the surface point seen through this pixel (vertical displacement in tilted views): a
+  // cheap step on the undisplaced swell, then an exact one (the fixed point gains ~5x per step)
   var p = pixToWorld(bp, 0.0);
   if (W.parallax > 0.5 && F.tilt.y > 0.01) {
-    for (var k = 0; k < 3; k++) {
-      let h = surfaceH(p);
-      p = pixToWorld(bp, h);
-    }
+    p = pixToWorld(bp, oceanHeightFast(p));
+    p = pixToWorld(bp, surfaceH(p));
   }
   let os = oceanSample(p);
   var n = os.n;

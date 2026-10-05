@@ -1,6 +1,8 @@
 // Headless screenshot + console check.
 //   node tools/shot.mjs [--url /?scene=x] [--wait 4000] [--out check-output/shot.png] [--w 1280 --h 720]
 //                       [--eval "js run in page before shot"] [--steps "key:KeyW:2000,wait:500"]
+//                       (steps: wait:ms, key:Code:ms, press:Code, click:x:y, move:x:y, eval:js, until:js[:timeoutMs];
+//                        js is URI-decoded, so encode commas/colons, e.g. until:window.__lookdevDone)
 // Starts Vite in-process, opens Chromium (SwiftShader WebGL2), prints console errors, saves PNG.
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
@@ -43,6 +45,7 @@ for (const st of steps ? steps.split(',') : []) {
   else if (kind === 'click') await page.mouse.click(+a, +b);
   else if (kind === 'move') await page.mouse.move(+a, +b);
   else if (kind === 'eval') await page.evaluate(decodeURIComponent(a));
+  else if (kind === 'until') await page.waitForFunction(decodeURIComponent(a), null, { timeout: +(b || 180000), polling: 250 });
 }
 await page.waitForTimeout(wait);
 if (evalJs) { const r = await page.evaluate(evalJs); if (r !== undefined) console.log('eval:', JSON.stringify(r)); }

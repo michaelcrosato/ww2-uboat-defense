@@ -25,13 +25,33 @@ export function ensure(out: F32, n: number): F32 {
   return g;
 }
 
-/** one instance per voxel slice; returns the (possibly regrown) buffer and the instance count */
-export function packStacks(stacks: StackInstance[], ox: number, oy: number, out: F32): { data: F32; count: number } {
-  let n = 0;
-  for (const it of stacks) n += it.model.slices.length;
+/** world-space rect that instances must touch to be drawn (the occluder window: the view plus a
+ * shadow margin, so everything that is visible or can cast a shadow into view survives) */
+export interface CullRect { x0: number; y0: number; x1: number; y1: number }
+
+const kept: StackInstance[] = [];
+
+/**
+ * One instance per voxel slice; returns the (possibly regrown) buffer, the instance count and `top`,
+ * the highest world z any kept instance reaches (bounds the shadow rays). Instances whose bounding
+ * sphere misses `cull` are skipped (height adds margin: the oblique view lifts tall things up-screen).
+ */
+export function packStacks(stacks: StackInstance[], ox: number, oy: number, out: F32, cull?: CullRect): { data: F32; count: number; top: number } {
+  let n = 0, top = -50;
+  kept.length = 0;
+  for (const it of stacks) {
+    const m = it.model;
+    if (cull) {
+      const r = m.radius + Math.max(0, it.z) * 0.5;
+      if (it.x + r < cull.x0 || it.x - r > cull.x1 || it.y + r < cull.y0 || it.y - r > cull.y1) continue;
+    }
+    kept.push(it);
+    n += m.slices.length;
+    if (!((it.flags ?? 0) & 20)) top = Math.max(top, it.z + m.radius);
+  }
   const d = ensure(out, n * STACK_FLOATS);
   let o = 0;
-  for (const it of stacks) {
+  for (const it of kept) {
     for (const s of it.model.slices) {
       d[o] = it.x - ox; d[o + 1] = it.y - oy; d[o + 2] = it.z; d[o + 3] = s.z;
       d[o + 4] = it.q.x; d[o + 5] = it.q.y; d[o + 6] = it.q.z; d[o + 7] = it.q.w;
@@ -43,14 +63,21 @@ export function packStacks(stacks: StackInstance[], ox: number, oy: number, out:
       o += STACK_FLOATS;
     }
   }
-  return { data: d, count: n };
+  kept.length = 0;
+  return { data: d, count: n, top };
 }
 
-/** particles relative to the origin with their per-kind look (alpha, material, emissive) resolved */
-export function packParticles(ps: ParticleSystem, ox: number, oy: number, time: number, out: F32): { data: F32; count: number } {
+/**
+ * Particles inside `cull` (see packStacks); `top` is the highest smoke-casting particle (smoke
+ * shades the occluder map, so shadow rays must reach it).
+ */
+export function packParticles(ps: ParticleSystem, ox: number, oy: number, time: number, out: F32, cull?: CullRect): { data: F32; count: number; top: number } {
   const B = ensure(out, ps.n * PARTICLE_FLOATS);
+  let n = 0, top = -50;
   for (let i = 0; i < ps.n; i++) {
-    const o = i * PARTICLE_FLOATS, k = ps.kind[i], t = ps.max[i] > 0 ? ps.life[i] / ps.max[i] : 0;
+    const sz = ps.size[i] + Math.max(0, ps.pz[i]) * 0.5;
+    if (cull && (ps.px[i] + sz < cull.x0 || ps.px[i] - sz > cull.x1 || ps.py[i] + sz < cull.y0 || ps.py[i] - sz > cull.y1)) continue;
+    const o = n++ * PARTICLE_FLOATS, k = ps.kind[i], t = ps.max[i] > 0 ? ps.life[i] / ps.max[i] : 0;
     B[o] = ps.px[i] - ox; B[o + 1] = ps.py[i] - oy; B[o + 2] = ps.pz[i]; B[o + 3] = ps.size[i];
     let r = ps.r[i], g = ps.g[i], b = ps.b[i], a = 1, mat: number = MAT.SPRAY, em = 0, up = 0.3, smoke = 0;
     switch (k) {
@@ -75,8 +102,9 @@ export function packParticles(ps: ParticleSystem, ox: number, oy: number, time: 
     }
     B[o + 4] = r; B[o + 5] = g; B[o + 6] = b; B[o + 7] = a;
     B[o + 8] = mat; B[o + 9] = em; B[o + 10] = up; B[o + 11] = smoke;
+    if (smoke > 0) top = Math.max(top, ps.pz[i] + ps.size[i]);
   }
-  return { data: B, count: ps.n };
+  return { data: B, count: n, top };
 }
 
 /**

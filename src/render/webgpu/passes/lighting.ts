@@ -13,7 +13,7 @@ import type { LightParams } from '../../common/frameUniforms';
  * Lighting uniforms (float offsets): 0 ambient · 4 sky · 8 fogCol · 12 sunDir · 16 sunCol · 20 moonDir
  * 24 moonCol (all rgb/xyz, -) · 28 occRect (x, y rel origin, w, h) · 32 (reach, strength, ambientFill, soft)
  * 36 (bands, ditherAmt, beams, spec) · 40 (reflect, fog, lightning, haze)
- * 44 (steps, shadows, celShadows, lightsOn) · 48 (view, lightCount, -, -)
+ * 44 (steps, shadows, celShadows, lightsOn) · 48 (view, lightCount, occTop, -)
  */
 export const LIGHTING_FLOATS = 52;
 
@@ -31,7 +31,7 @@ struct Lighting {
   p1: vec4f,   // bands, ditherAmt, beams, spec
   p2: vec4f,   // reflect, fog, lightning, haze
   p3: vec4f,   // steps, shadows, celShadows, lightsOn
-  p4: vec4f,   // view, lightCount
+  p4: vec4f,   // view, lightCount, occTop (highest occluder or smoke, m)
 };
 @group(0) @binding(1) var<uniform> U: Lighting;
 @group(0) @binding(2) var albedoTex: texture_2d<f32>;
@@ -68,10 +68,15 @@ fn shadowTo(p: vec3f, lp: vec3f, jitter: f32, steps: i32) -> f32 {
   return s * trans;
 }
 
+// the ray climbs L.z / hz per metre: past the tallest occluder (or smoke) nothing can block it, so
+// the march ends there and its step count shrinks with it
 fn shadowDir(p: vec3f, L: vec3f, maxD: f32, jitter: f32, steps: i32) -> f32 {
   let hz = length(L.xy);
   if (hz < 1e-3) { return 1.0; }
-  return shadowTo(p, p + L * (maxD / hz), jitter, steps);
+  var D = maxD;
+  if (L.z > 1e-3) { D = min(D, (U.p4.z - p.z) * hz / L.z); }
+  if (D <= 0.4) { return 1.0; }
+  return shadowTo(p, p + L * (D / hz), jitter, max(4, i32(f32(steps) * D / maxD + 0.5)));
 }
 
 fn blinn(n: vec3f, L: vec3f, V: vec3f, k: f32) -> f32 {
@@ -155,7 +160,7 @@ fn blinn(n: vec3f, L: vec3f, V: vec3f, k: f32) -> f32 {
           if (k > 0.0) {
             var fall = (1.0 - t / R); fall *= fall;
             var shs = 1.0;
-            if (shadows && l3.x > 0.5) { shs = shadowTo(bpnt, l0.xyz, jitter, max(4, steps / 3)); }
+            if (shadows && l3.x > 0.0) { shs = shadowTo(bpnt, l0.xyz, jitter, max(4, i32(f32(steps) * l3.x / 3.0 + 0.5))); }
             haze += Lc * k * k * fall * l3.y * beams * hazeAmt * 0.55 * shs;
           }
         } else {
@@ -175,10 +180,12 @@ fn blinn(n: vec3f, L: vec3f, V: vec3f, k: f32) -> f32 {
       var cone = 1.0;
       if (spot) { cone = smoothstep(l2.w, l3.z, dot(-Ld, l2.xyz)); }
       if (cone * att <= 0.001) { continue; }
+      var c = Lc * att * cone;
+      // contributions too faint to show skip the shadow march entirely
+      if (max(c.r, max(c.g, c.b)) < 0.004) { continue; }
       let ndl = clamp((dot(n, Ld) + 0.35) / 1.35, 0.0, 1.0);
-      var sh = 1.0;
-      if (shadows && l3.x > 0.5) { sh = shadowTo(P + n * 0.15, l0.xyz, jitter, steps); }
-      let c = Lc * att * cone * sh;
+      // shadow steps by the light's importance (l3.x, ranked on the CPU) and how much of it lands here
+      if (shadows && l3.x > 0.0) { c *= shadowTo(P + n * 0.15, l0.xyz, jitter, max(4, i32(f32(steps) * l3.x * (0.4 + 0.6 * sqrt(att)) + 0.5))); }
       light += c * ndl;
       if (glossy) { spec += c * blinn(n, Ld, V, shininess) * specK * 3.0; }
     }
@@ -257,8 +264,8 @@ export class LightingPassGPU {
     });
   }
 
-  /** occRel: occluder window relative to the render origin; lights: packLights output */
-  write(L: LightParams, occRel: [number, number, number, number], lights: Float32Array<ArrayBuffer>, lightCount: number) {
+  /** occRel: occluder window relative to the render origin; lights: packLights output; occTop: shadow ray ceiling (m) */
+  write(L: LightParams, occRel: [number, number, number, number], lights: Float32Array<ArrayBuffer>, lightCount: number, occTop: number) {
     const f = this.ubo.f;
     const v3 = (o: number, c: [number, number, number]) => { f[o] = c[0]; f[o + 1] = c[1]; f[o + 2] = c[2]; f[o + 3] = 0; };
     v3(0, L.ambient); v3(4, L.sky); v3(8, L.fogCol); v3(12, L.sunDir); v3(16, L.sunCol); v3(20, L.moonDir); v3(24, L.moonCol);
@@ -267,7 +274,7 @@ export class LightingPassGPU {
     f[36] = L.bands; f[37] = L.ditherAmt; f[38] = L.beams; f[39] = L.spec;
     f[40] = L.reflect; f[41] = L.fog; f[42] = L.lightning; f[43] = L.haze;
     f[44] = L.steps; f[45] = L.shadows ? 1 : 0; f[46] = L.celShadows ? 1 : 0; f[47] = L.lightsOn ? 1 : 0;
-    f[48] = L.view; f[49] = lightCount;
+    f[48] = L.view; f[49] = lightCount; f[50] = occTop;
     this.ubo.write();
     this.g.device.queue.writeBuffer(this.lightBuf, 0, lights, 0, MAX_LIGHTS * LIGHT_FLOATS);
   }
