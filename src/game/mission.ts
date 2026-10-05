@@ -43,6 +43,8 @@ export class Mission {
   /** the convoy's escort carrier (arena.aircraft = carrier, 1941+) */
   carrier: Vessel | null = null;
   private carrierLostSaid = false;
+  /** a crew line for the player once the HUD listens (why the boat starts on the surface) */
+  private startNote: string | null = null;
   private reinforced = 0;
   /** seconds to the next scheduled air patrol (first one after a short delay) */
   private airT = 60;
@@ -170,21 +172,34 @@ export class Mission {
     // ---- U-boats: wolfpack ahead of the convoy, player among them
     const uNames = [...UBOAT_NAMES].sort(() => rng.next() - 0.5);
     const nU = num('arena.uboats');
+    // Every boat starts at periscope depth with the scope up, the safe way to wait ahead of a convoy. On the
+    // surface only where a captain would be: leaving port (no mission starts in port yet; one that does sets
+    // arena.uboatStart = surfaced, like the diving lesson), or a dark night before the escorts carry radar
+    // (1939-40), when the wolfpacks closed and attacked surfaced.
+    const nightSurface = () => w.env.darkness > 0.6 && w.year < 1941;
+    const startsSurfaced = () => str('arena.uboatStart') === 'surfaced' || (str('arena.uboatStart') === 'auto' && nightSurface());
     const spawnU = (i: number, isPlayer: boolean, ahead = rng.range(1800, 3200), abeam = rng.range(-1500, 1500) + (isPlayer ? 0 : (i % 2 ? 900 : -900))) => {
       let x = conv.x + ahead, y = conv.y + abeam;
       // never spawn on top of another boat (two hulls in one spot sink each other on the first step)
       for (let k = 0; k < 12 && w.vessels.some((o) => Math.hypot(o.pos.x - x, o.pos.y - y) < 350); k++) { x += rng.range(-500, 500); y += rng.range(-500, 500); }
       const cls = VESSELS[isPlayer ? str('arena.uboatClass') : (w.year >= 1945 && rng.chance(0.3) ? 'type21' : rng.chance(0.25) ? 'type9' : 'type7')] ?? VESSELS.type7;
-      const depth = isPlayer ? 0 : (w.env.darkness > 0.5 ? 0 : 13);
-      const u = w.spawn(cls, x, y, Math.PI + rng.range(-0.6, 0.6), { name: uNames[i % uNames.length], submerged: depth });
-      if (u.sub) u.sub.orderedDepth = depth;
+      const keel = startsSurfaced() ? 0 : cls.sub!.periscopeDepth;
+      // `submerged` places the hull origin, depth orders are keel depths
+      const u = w.spawn(cls, x, y, Math.PI + rng.range(-0.6, 0.6), { name: uNames[i % uNames.length], submerged: keel > 0 ? keel - cls.draft : 0 });
+      if (u.sub) {
+        u.sub.orderedDepth = keel;
+        if (keel > 0) { u.sub.periscopeUp = true; u.sub.periscope = 1; }
+      }
       return u;
     };
     if (this.side === 'axis' && !this.spectator) {
       const u = spawnU(0, true);
       u.isPlayer = true;
       w.player = u;
-      u.setTelegraph(4);
+      // slow ahead submerged (quiet, easy on the battery), half ahead on the surface
+      const surfaced = u.sub!.orderedDepth === 0;
+      u.setTelegraph(surfaced ? 4 : 3);
+      if (surfaced && str('arena.uboatStart') === 'auto') this.startNote = 'A dark night and the escorts have no radar: we close on the surface.';
     }
     for (let i = 0; i < nU; i++) {
       const u = spawnU(i + 1, false);
@@ -289,6 +304,7 @@ export class Mission {
     if (this.over) return;
     const w = this.world;
     this.elapsed += dt;
+    if (this.startNote && this.elapsed > 1) { w.emit('message', { text: this.startNote, side: 'axis', kind: 'crew' }); this.startNote = null; }
     this.convoy.update(dt);
     this.airCover(dt);
     this.convoyRepair(dt);

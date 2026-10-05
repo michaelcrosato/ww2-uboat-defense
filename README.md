@@ -75,7 +75,7 @@ Screen for a fullscreen app).
   solution, the guns engage surfaced U-boats, the ASDIC keeps pinging a fresh contact and charge depths
   follow the plot.
 
-After dark your own boat gets a faint outline (Settings → Display → Night outline).
+After dark, and whenever it is submerged, your own boat gets a faint outline (Settings → Display → Night outline).
 
 ## Playing
 
@@ -85,6 +85,8 @@ After dark your own boat gets a faint outline (Settings → Display → Night ou
 - **Arena** (free play): pick the side, theater (North Atlantic, Arctic, Mediterranean, US East Coast,
   Caribbean, Indian Ocean), year (1939–1945 sets the technology), time of day, weather, sea state, convoy
   size, escorts, wolfpack size, air cover (air gap, occasional, escort carrier, constant) and more.
+  U-boats start at periscope depth, surfaced only on a dark night before the escorts carry radar
+  (Mission → U-boats start).
 - **Career**: one captain per side with a port hub (Liverpool / Lorient). Contracts carry mutators and
   bounties; the shipyard sells vessels and components; the armory holds loot with affix tiers, rerolls and
   salvage. Each side has an 85-node passive skill tree, and there are 25 active abilities. An after-action

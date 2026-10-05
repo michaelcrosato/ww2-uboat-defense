@@ -110,6 +110,9 @@ export class Screen {
    * Safari has no element fullscreen, the gesture was missing) leave the game playing in the page.
    */
   async enterGameMode() {
+    // without a user gesture the browser refuses (and logs a warning); the next tap tries again
+    const ua = (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation;
+    if (ua && !ua.isActive) return;
     try {
       if (!document.fullscreenElement) await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
       const o = screen.orientation as ScreenOrientation & { lock?: (type: string) => Promise<void> };
