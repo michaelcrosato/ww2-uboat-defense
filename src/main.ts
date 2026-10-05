@@ -1,7 +1,8 @@
 // Boot: init Rapier (WASM), pick a render backend (WebGPU → WebGL2 fallback), then hand over to the app.
 // With no parameters the title screen opens over the attract mode. URL parameters that set arena
 // values jump straight into a mission (tests), e.g. ?side=uboat&hour=12&seaState=6, and
-// ?menu=title|arena|dev|settings|controls|credits|pause|end (+ &tab=Lighting) opens a screen directly.
+// ?menu=title|arena|dev|settings|controls|credits|pause|end|tutorial (+ &tab=Lighting) opens a screen directly,
+// ?tutorial=uboat|escort starts a lesson.
 import RAPIER from '@dimforge/rapier3d-compat';
 import { App } from './app';
 import { arena } from './game/arenaConfig';
@@ -44,7 +45,9 @@ async function boot() {
       const shell = new Shell(app);
       const inMission = Object.keys(overrides).length > 0 || menu === 'pause' || menu === 'end';
       if (params.has('faction')) shell.career.faction = params.get('faction') === 'uboat' ? 'uboat' : 'escort';
-      if (inMission) shell.launch(overrides, 'test'); else shell.openTitle();
+      const lesson = params.get('tutorial');
+      if (lesson === 'uboat' || lesson === 'escort') shell.launchTutorial(lesson);
+      else if (inMission) shell.launch(overrides, 'test'); else shell.openTitle();
       if (menu && menu !== 'title') shell.open(menu, params.get('tab') ?? undefined);
     }
     app.start();

@@ -11,15 +11,16 @@ import type { PlayerControl } from '../game/player';
 import { CHARGE_DEPTHS } from '../game/player';
 import type { Input } from '../input/input';
 import { TELEGRAPH, type Vessel } from '../game/vessel';
-import { drawText, textWidth, pxLine, pxCircle, pxRect, pxFill, panel, bar, wrapText, hasGlyphs } from './pixelFont';
+import { drawText, textWidth, pxLine, pxLineClip, pxCircle, pxRect, pxFill, panel, bar, wrapText, hasGlyphs } from './pixelFont';
 import { clamp, fmtInt, formatTime, toBearing, KNOT } from '../core/math';
 import { dev } from '../core/devSettings';
 import { ABILITIES } from '../meta/abilities';
 import { hullPoints } from '../game/vessel';
 import { WeatherFx } from '../game/weatherFx';
-import { SRC } from '../game/sensors';
+import { SRC, type BearingLine } from '../game/sensors';
 import { RARITY_BEAM } from '../game/weapons';
 import { BEAUFORT_NAME } from '../water/ocean';
+import type { Tutorial } from '../game/tutorial';
 
 const C = {
   text: '#e8e2cf', dim: '#a49f8c', allied: '#8fc4e8', axis: '#e8c070', danger: '#ff6a4a', good: '#8ad89a', warn: '#ffc040',
@@ -47,6 +48,9 @@ export class Hud {
   backend: RenderBackend | null = null;
   /** CPU frame ms + sim steps this frame (debug.perf) */
   perf: { cpuMs: number; steps: number } | null = null;
+  /** lesson coach (tutorial missions) and the bottom edge of its panel this frame */
+  tutorial: Tutorial | null = null;
+  private tutBottom = 0;
 
   constructor(private screen: Screen, private cam: Camera, private input: Input) {}
 
@@ -61,7 +65,8 @@ export class Hud {
     w.bus.on('torpedoFired', (e) => { if (e.by.side !== w.playerSide) { const p = w.player; if (p && Math.hypot(e.x - p.pos.x, e.y - p.pos.y) < 2000 && (p.kind === 'escort' || p.kind === 'merchant')) this.warn('TORPEDO IN THE WATER!'); } });
     w.bus.on('ping', (e) => { if (w.player?.sub && e.by.side !== w.playerSide && Math.hypot(e.by.pos.x - w.player.pos.x, e.by.pos.y - w.player.pos.y) < 2500) this.warn('ASDIC! WE ARE BEING PINGED'); });
     w.bus.on('dcDrop', (e) => { if (w.player?.sub && e.by.side !== w.playerSide && Math.hypot(e.x - w.player.pos.x, e.y - w.player.pos.y) < 900) this.warn('WASSERBOMBEN! DEPTH CHARGES!'); });
-    w.bus.on('greenWater', () => this.warn('GREEN WATER OVER THE BOW', 1.5));
+    // a surfaced U-boat's casing is awash in any sea, so only surface ships get the warning
+    w.bus.on('greenWater', (e) => { if (!e.v.sub) this.warn('GREEN WATER OVER THE BOW', 1.5); });
   }
 
   warn(text: string, dur = 3) { this.warnings.set(text, performance.now() / 1000 + dur); }
@@ -82,6 +87,7 @@ export class Hud {
     if (v) this.drawStatus(g, v, pc, H);
     this.drawAbilities(g, pc, W, H);
     if (this.showPlot) this.drawPlot(g, m, W);
+    this.drawTutorial(g, W);
     this.drawMessages(g, H);
     this.drawWarnings(g, m, W, H);
     // time compression + fps
@@ -179,24 +185,70 @@ export class Hud {
     }
   }
 
+  /**
+   * Passive bearings (`display.bearings`). Every listener on the player's side feeds the shared plot,
+   * but drawing all their lines (six jittery copies per contact, 3.2 km each, from every boat of the
+   * wolfpack) buried the screen. By default only the player's own hydrophones show: a tick per heard
+   * contact on a ring around the boat, plus one ray to the contact under the reticle or locked.
+   * HF/DF bearings are rare and their cross is the point, so each listener's latest one is drawn.
+   */
+  private drawBearings(g: CanvasRenderingContext2D, m: Mission, pc: PlayerControl) {
+    const mode = dev.str('display.bearings');
+    if (mode === 'off') return;
+    const w = m.world, v = w.player, side = w.playerSide, now = w.time, cam = this.cam;
+    const W = this.screen.hud.width, H = this.screen.hud.height;
+    const S = (x: number, y: number) => this.ts(x, y, 0);
+    const colOf = (l: BearingLine) => l.src === SRC.HFDF ? '#d890ff' : side === 'allied' ? '#ff8a6a' : C.axis;
+    const fadeOf = (l: BearingLine) => clamp(1 - (now - l.t) / 25, 0, 1);
+    const ray = (l: BearingLine, len: number, alpha: number, from = 0) => {
+      if (alpha <= 0) return;
+      g.globalAlpha = alpha;
+      const dx = Math.cos(l.bearing), dy = Math.sin(l.bearing);
+      const [x0, y0] = S(l.x + dx * from, l.y + dy * from), [x1, y1] = S(l.x + dx * len, l.y + dy * len);
+      pxLineClip(g, x0, y0, x1, y1, colOf(l), 3, W, H);
+    };
+    const alive = !!v && v.alive;
+    const aimed = alive ? pc.target ?? pc.hoverTarget() : null;
+    // ring radius (m): clears the hull at any zoom; a world circle, so ticks point along true bearings
+    const pxPerM = cam.zoom / this.screen.hudScale;
+    const R = mode === 'ring' && alive ? Math.max(26, v!.cls.length * 0.5 * pxPerM + 10) / pxPerM : 0;
+    const ticks: { l: BearingLine; a: number; aimed: boolean }[] = [];
+    for (const c of w.sensors.list(side)) {
+      if (mode === 'all') { for (const l of c.lines) ray(l, 3200, fadeOf(l) * 0.7); continue; }
+      for (const l of c.heard.values()) if (l.src === SRC.HFDF) ray(l, 3200, fadeOf(l) * 0.7);
+      const own = v ? c.heard.get(v.id) : undefined;
+      if (!own || own.src === SRC.HFDF) continue;
+      const isAimed = !!aimed && c.truth === aimed;
+      // out to the far side of the estimate, not across the whole map
+      if (mode === 'lines' || isAimed) ray(own, clamp(Math.hypot(c.x - own.x, c.y - own.y) + c.err, 300, 3200), fadeOf(own) * (isAimed ? 0.85 : 0.6), R);
+      if (mode === 'ring') ticks.push({ l: own, a: fadeOf(own), aimed: isAimed });
+    }
+    if (R > 0 && v) {
+      const [cx, cy] = S(v.pos.x, v.pos.y);
+      g.globalAlpha = ticks.length ? 0.3 : 0.12;
+      pxCircle(g, cx, cy, R * pxPerM, C.dim, 3, cam.cosT);
+      for (const t of ticks) {
+        const b = t.l.bearing, len = (t.aimed ? 9 : 5) / pxPerM;
+        const [x0, y0] = S(v.pos.x + Math.cos(b) * R, v.pos.y + Math.sin(b) * R);
+        const [x1, y1] = S(v.pos.x + Math.cos(b) * (R + len), v.pos.y + Math.sin(b) * (R + len));
+        g.globalAlpha = 0.35 + 0.65 * t.a;
+        pxLine(g, x0, y0, x1, y1, t.aimed ? C.text : colOf(t.l));
+      }
+    }
+    g.globalAlpha = 1;
+  }
+
   private worldOverlays(g: CanvasRenderingContext2D, m: Mission, pc: PlayerControl) {
     const w = m.world, cam = this.cam, v = w.player;
     const S = (x: number, y: number, z = 0) => this.ts(x, y, z);
     const side = w.playerSide;
     const now = w.time;
+    this.drawBearings(g, m, pc);
     // contacts
     for (const c of w.sensors.list(side)) {
       const age = now - c.last;
       const fade = clamp(1 - age / 90, 0.15, 1);
       const enemyVisible = c.truth && w.isVisibleToPlayer(c.truth) && c.truth.alive && !c.truth.submerged;
-      g.globalAlpha = fade;
-      for (const l of c.lines) {
-        const la = clamp(1 - (now - l.t) / 25, 0, 1) * 0.7;
-        if (la <= 0) continue;
-        g.globalAlpha = la;
-        const [x0, y0] = S(l.x, l.y), [x1, y1] = S(l.x + Math.cos(l.bearing) * 3200, l.y + Math.sin(l.bearing) * 3200);
-        pxLine(g, x0, y0, x1, y1, l.src === SRC.HFDF ? '#d890ff' : side === 'allied' ? '#ff8a6a' : '#e8c070', 3);
-      }
       g.globalAlpha = fade;
       if (enemyVisible && c.kind === 'surface') continue;
       const [sx, sy] = S(c.x, c.y);
@@ -479,6 +531,27 @@ export class Hud {
     lines.forEach(([t, c], i) => drawText(g, t, x + 4, y + 4 + i * 10, c));
   }
 
+  /** the tutorial coach: step title, instruction (keys highlighted) and the skip hint, under the compass */
+  private drawTutorial(g: CanvasRenderingContext2D, W: number) {
+    this.tutBottom = 0;
+    const view = this.tutorial?.view();
+    if (!view) return;
+    // between the objectives and the plot; a narrow (large-text) HUD gets the full width below the objectives
+    const narrow = W < 460;
+    const w = narrow ? W - 8 : Math.min(300, W - 16), x = narrow ? 4 : Math.round(W / 2 - w / 2), y = narrow ? 52 : 34;
+    const body = wrapText(view.body, w - 10);
+    const h = 17 + body.length * 10 + (view.footer ? 11 : 2);
+    const a = g.globalAlpha;
+    g.globalAlpha = view.alpha;
+    panel(g, x, y, w, h, 0.85);
+    drawText(g, view.title.toUpperCase(), x + 5, y + 4, view.done ? C.good : C.warn, { alpha: view.alpha });
+    drawText(g, `TUTORIAL ${view.n}/${view.total}`, x + w - 5, y + 4, C.dim, { align: 'right', alpha: view.alpha });
+    body.forEach((line, i) => drawKeys(g, line, x + 5, y + 16 + i * 10, C.text, '#a0ffd0', view.alpha));
+    if (view.footer) drawKeys(g, view.footer, x + w - 5 - textWidth(view.footer), y + h - 11, C.dim, C.dim, view.alpha);
+    g.globalAlpha = a;
+    this.tutBottom = y + h;
+  }
+
   private drawMessages(g: CanvasRenderingContext2D, H: number) {
     const now = performance.now() / 1000;
     const recent = this.msgs.filter((m) => now - m.t < (m.important ? 10 : 7)).slice(-6);
@@ -496,7 +569,7 @@ export class Hud {
     if (v?.sub && v.keelDepth > v.cls.sub!.testDepth) this.warn('BELOW TEST DEPTH', 0.3);
     if (v && v.hydro.floodTotal() > 0.15 && v.alive) this.warn('FLOODING', 0.3);
     if (v?.sub && v.sub.battery < 0.12 && v.submerged) this.warn('BATTERY LOW', 0.3);
-    let y = H * 0.22;
+    let y = Math.max(H * 0.22, this.tutBottom + 8);
     for (const [t, until] of this.warnings) {
       if (now > until) { this.warnings.delete(t); continue; }
       const blink = Math.floor(now * 4) % 2 === 0;
@@ -508,6 +581,17 @@ export class Hud {
       drawText(g, t, W / 2, H * 0.4, m.outcome === 'victory' ? C.good : C.danger, { align: 'center', scale: 2 });
       drawText(g, m.overReason, W / 2, H * 0.4 + 22, C.text, { align: 'center' });
     }
+  }
+}
+
+/** one line of text with [key] tokens picked out in their own colour */
+function drawKeys(g: CanvasRenderingContext2D, s: string, x: number, y: number, col: string, keyCol: string, alpha: number) {
+  let cx = x;
+  for (const part of s.split(/(\[[^\]]*\])/)) {
+    if (!part) continue;
+    drawText(g, part, cx, y, part.startsWith('[') ? keyCol : col, { alpha });
+    // segments meet mid-line: add back the inter-glyph gap that textWidth trims off the end
+    cx += textWidth(part) + 1;
   }
 }
 

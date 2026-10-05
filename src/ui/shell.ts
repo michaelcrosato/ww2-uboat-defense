@@ -17,10 +17,12 @@ import { controlsScreen } from './screens/controls';
 import { missionEndScreen } from './screens/missionEnd';
 import { factionScreen, portScreen } from './screens/port';
 import { afterActionScreen } from './screens/afterAction';
+import { tutorialScreen } from './screens/tutorial';
+import { TUTORIAL_ARENA, tutorialStats, type TutorialSide } from '../game/tutorial';
 import { Career } from '../game/career';
 import type { Contract } from '../meta/index.ts';
 
-export type MenuId = 'title' | 'arena' | 'dev' | 'settings' | 'controls' | 'credits' | 'pause' | 'end' | 'port' | 'faction';
+export type MenuId = 'title' | 'arena' | 'dev' | 'settings' | 'controls' | 'credits' | 'pause' | 'end' | 'port' | 'faction' | 'tutorial';
 
 /** attract-mode looks, picked at random each time the backdrop restarts */
 const ATTRACT: Record<string, number | string | boolean>[] = [
@@ -34,8 +36,8 @@ export class Shell {
   readonly ui: Ui;
   readonly touch: TouchOverlay;
   readonly career = new Career();
-  /** what the current mission counts as: a contract, arena free play, or a URL test mission */
-  private mode: 'career' | 'arena' | 'test' = 'test';
+  /** what the current mission counts as: a contract, arena free play, a tutorial, or a URL test mission */
+  private mode: 'career' | 'arena' | 'tutorial' | 'test' = 'test';
   private attractIdx = Math.floor(Math.random() * ATTRACT.length);
 
   constructor(readonly app: App) {
@@ -81,6 +83,7 @@ export class Shell {
       case 'settings': this.ui.push(settingsScreen(this)); return;
       case 'controls': this.ui.push(controlsScreen(this)); return;
       case 'credits': this.ui.push(creditsScreen(this)); return;
+      case 'tutorial': this.ui.push(tutorialScreen(this)); return;
       case 'pause': if (this.playing) this.ui.push(pauseScreen(this)); return;
       case 'end': if (this.app.mission) this.ui.push(missionEndScreen(this, this.app.mission)); return;
       case 'faction': this.ui.push(factionScreen(this, () => this.open('port'))); return;
@@ -97,6 +100,13 @@ export class Shell {
     this.mode = mode;
     this.ui.clear();
     this.app.startMission(overrides, { onEnd: (m) => this.onMissionEnd(m) });
+    this.app.paused = false;
+  }
+  /** a guided lesson: the gentle tutorial arena with the coach panel (earns no experience) */
+  launchTutorial(side: TutorialSide) {
+    this.mode = 'tutorial';
+    this.ui.clear();
+    this.app.startMission(TUTORIAL_ARENA[side], { tutorial: side, stats: tutorialStats(), onEnd: (m) => this.onMissionEnd(m) });
     this.app.paused = false;
   }
   /** fly a contract with the active captain (stats, abilities, mutators, loot drops) */

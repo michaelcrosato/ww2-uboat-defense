@@ -57,7 +57,7 @@ export class EscortAI {
   private investigate(x: number, y: number) {
     this.state = 'investigate';
     this.stateT = 0;
-    this.target = { key: -1, side: this.v.side, kind: 'sub', x, y, err: 400, vx: 0, vy: 0, depth: null, last: this.w.time, firstSeen: this.w.time, sources: 0, lines: [], decoy: false, truth: null, strength: 0.3, classified: 'U-boat?' };
+    this.target = { key: -1, side: this.v.side, kind: 'sub', x, y, err: 400, vx: 0, vy: 0, depth: null, last: this.w.time, firstSeen: this.w.time, sources: 0, lines: [], heard: new Map(), decoy: false, truth: null, strength: 0.3, classified: 'U-boat?' };
   }
 
   update(dt: number) {

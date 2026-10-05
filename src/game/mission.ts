@@ -60,6 +60,8 @@ export class Mission {
 
   /** attract mode: no player vessel, every ship AI, fog of war off */
   readonly spectator: boolean;
+  /** a tutorial is still talking: sinking the last U-boat does not end the battle yet */
+  holdVictory = false;
 
   constructor(scene: RenderScene, arena: ConfigStore, overrides: Record<string, number | string | boolean> = {}, opts: { spectator?: boolean; enemyStats?: StatBlock } = {}) {
     this.spectator = !!opts.spectator;
@@ -299,7 +301,7 @@ export class Mission {
       this.end(this.side === 'allied' ? 'defeat' : 'victory', 'Every merchant ship has been sunk.');
     }
     const subs = w.vessels.filter((v) => v.alive && v.kind === 'uboat');
-    if (this.side === 'allied' && subs.length === 0 && this.elapsed > 20) this.end('victory', 'The wolfpack has been destroyed.');
+    if (this.side === 'allied' && subs.length === 0 && this.elapsed > 20 && !this.holdVictory) this.end('victory', 'The wolfpack has been destroyed.');
     // U-boat player escapes once far from the convoy and its escorts after attacking
     const p = w.player;
     if (p && p.alive && this.side === 'axis') {

@@ -68,6 +68,8 @@ export class World {
   /** arena bounds (m) */
   bounds = { x0: -4000, y0: -2500, x1: 4000, y1: 2500 };
   layerDepth = 70;
+  /** AI U-boats loiter at periscope depth and hold their fire (escort tutorial, until the attack lesson) */
+  holdFire = false;
   islands: { x: number; y: number; r: number; model: StackModel }[] = [];
   /** static scenery stacks (coastline chunks, lighthouse tower) */
   scenery: { x: number; y: number; z: number; model: StackModel }[] = [];

@@ -27,6 +27,7 @@ and running, but WebGL2 parity, visuals and performance are no longer verified o
 | M11 | Gameplay completion & tuning, dev-settings wiring audit, weather visuals | DONE | [M11](milestones/M11-gameplay-tuning.md) |
 | M12 | Visual polish, ship art expansion, performance | DONE | [M12](milestones/M12-visual-polish.md) |
 | M13 | Final QA, README, PR ready for review | DONE | [M13](milestones/M13-qa-release.md) |
+| M14 | Playtest fixes: capsizing U-boats, bearing-line clutter, tutorial for both sides | DONE | [M14](milestones/M14-playtest-fixes.md) |
 
 Order matters for M1→M6 (renderer). M7 and M8 are independent of the renderer and may be done
 before M1 if preferred; M9 needs nothing else; M10 needs M7 + M9; M11 needs M10; M12/M13 last.
@@ -80,10 +81,19 @@ on any failure or later device loss. The active backend shows in the FPS overlay
 - 2026-10 (M2): `auto` stayed on WebGL2 until the WebGPU backend rendered the full scene.
 - 2026-10 (M6): `auto` → WebGPU (`WEBGPU_DEFAULT = true`). Parity on the look-dev scene: mean abs diff
   0.12–0.27/255 and 0.04–0.20 % of pixels over 24/255 at hours 13/7/23 (thresholds 3/255 and 4 %).
+- 2026-10 (M14, after the first live playtest): the HUD draws only the player's own hydrophone bearings by
+  default (ticks on a ring around the boat + a ray to the aimed contact); the full every-listener picture is
+  the `all` option of `display.bearings`. New captains are steered to a guided tutorial from the title screen.
 
 ## Known issues (keep this list current)
 - Arctic pack ice is visual only (ragged floes since M12, but no drag or collisions for ships).
-- U-boat kills by AI escorts are still rare (1 in 6 autopilot patrols); fine historically, revisit after playtests.
+- U-boat kills by AI escorts are still rare (none in the M14 fast-forwards); fine historically, revisit after playtests.
+- Since M14 the AI U-boats no longer capsize, so the wolfpack is deadlier: an idle escort player loses 2–5 merchants
+  per 15 min (was 1–3) and 1 of 4 full crossings ended in defeat. Retune AI U-boat lethality after playtests.
+- `arena.difficulty` is declared and set by contracts, but no gameplay code reads it.
+- The HUD FPS readout sums capped frame times (≤ 0.1 s), so below 10 fps it still shows 10 (headless runs).
+- Default night scenes (23:00, full moon) are busy with moon glitter around the boat; an art call for the user.
+- The tutorial's gamepad and touch prompts were checked on screen only (no hardware), like the rest of the pad/touch UI.
 - Headless runs simulate only ~2–5 s of game time per 15 s real time (WebGPU gets further than WebGL2), so
   live screenshots differ in particle counts / wake age; use `?scene=lookdev` / `tools/compare.mjs` for parity.
 - Menus: gamepad navigation is code-complete but untested on hardware (headless cannot simulate pads); the
@@ -105,5 +115,5 @@ on any failure or later device loss. The active backend shows in the FPS overlay
   now come after ~3 min. Tune with playtests (U-boat AI pacing in general has only had headless testing).
 - Phones must be held in landscape for missions (a portrait viewport with the touch overlay holds the
   mission behind a "turn sideways" notice; the HUD needs the width). Menus and the port work in portrait.
-- A new U-boat captain who doesn't dive is sunk within 5–11 minutes (starts surfaced at full ahead toward the
-  convoy); consider a dive prompt or a slower opening for the axis side after playtests.
+- A new U-boat captain who doesn't dive is sunk within 5–11 minutes in the arena (starts surfaced at half ahead
+  toward the convoy); the tutorial now teaches diving and going deep, the arena opening is unchanged.

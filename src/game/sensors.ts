@@ -17,7 +17,8 @@ import { dev } from '../core/devSettings';
 
 export const SRC = { VISUAL: 1, ASDIC: 2, HYDRO: 4, RADAR: 8, HFDF: 16, AIR: 32, PERISCOPE: 64 } as const;
 
-export interface BearingLine { x: number; y: number; bearing: number; err: number; t: number; src: number }
+/** a passive bearing taken from (x, y); `by` is the listener's vessel id (-1: unknown) */
+export interface BearingLine { x: number; y: number; bearing: number; err: number; t: number; src: number; by: number }
 
 export interface Contact {
   key: number;                 // target vessel id (or decoy key)
@@ -31,6 +32,8 @@ export interface Contact {
   firstSeen: number;
   sources: number;             // SRC bits of the latest updates
   lines: BearingLine[];
+  /** the latest bearing from each listener (vessel id): what the HUD shows of that listener's ears */
+  heard: Map<number, BearingLine>;
   decoy: boolean;              // ground truth (for debug only)
   truth: Vessel | null;
   strength: number;
@@ -149,7 +152,7 @@ export class Sensors {
           if (d < R && this.w.rng.next() < 0.7) {
             const errDeg = (2 + (d / R) * 7) / obs.stats.mul('sonar_accuracy_pct');
             const brg = Math.atan2(dy, dx) + this.w.rng.gauss(0, errDeg * Math.PI / 180);
-            this.bearing(obs.side, tgt, obs.pos.x, obs.pos.y, brg, errDeg * Math.PI / 180, SRC.HYDRO, d);
+            this.bearing(obs.side, tgt, obs.pos.x, obs.pos.y, brg, errDeg * Math.PI / 180, SRC.HYDRO, d, obs.id);
           }
         }
       }
@@ -160,7 +163,7 @@ export class Sensors {
       for (const obs of w.vessels) {
         if (!obs.alive || obs.side === tr.v.side || !obs.cls.sensors.hfdf || w.year < 1941) continue;
         const brg = Math.atan2(tr.v.pos.y - obs.pos.y, tr.v.pos.x - obs.pos.x) + this.w.rng.gauss(0, 0.03);
-        this.bearing(obs.side, tr.v, obs.pos.x, obs.pos.y, brg, 0.035, SRC.HFDF, Math.hypot(tr.v.pos.x - obs.pos.x, tr.v.pos.y - obs.pos.y));
+        this.bearing(obs.side, tr.v, obs.pos.x, obs.pos.y, brg, 0.035, SRC.HFDF, Math.hypot(tr.v.pos.x - obs.pos.x, tr.v.pos.y - obs.pos.y), obs.id);
       }
     }
     // age contacts
@@ -172,6 +175,7 @@ export class Sensors {
         // without fresh fixes a submerged contact's course is a guess: stop extrapolating it
         if (c.kind === 'sub' && age > 5) { const k = Math.exp(-step / 15); c.vx *= k; c.vy *= k; }
         c.lines = c.lines.filter((l) => w.time - l.t < 25);
+        for (const [by, l] of c.heard) if (w.time - l.t >= 25) c.heard.delete(by);
         if (age > 110 || (c.truth && !c.truth.alive && age > 4)) this.contacts[side].delete(k);
       }
     }
@@ -213,7 +217,7 @@ export class Sensors {
     let c = map.get(k);
     const now = this.w.time;
     if (!c) {
-      c = { key: k, side, kind: t ? (t.kind === 'uboat' ? 'sub' : 'surface') : 'sub', x, y, err, vx: 0, vy: 0, depth, last: now, firstSeen: now, sources: src, lines: [], decoy, truth: t, strength: 1, classified: t ? this.classify(t) : 'U-boat?' };
+      c = { key: k, side, kind: t ? (t.kind === 'uboat' ? 'sub' : 'surface') : 'sub', x, y, err, vx: 0, vy: 0, depth, last: now, firstSeen: now, sources: src, lines: [], heard: new Map(), decoy, truth: t, strength: 1, classified: t ? this.classify(t) : 'U-boat?' };
       map.set(k, c);
       if (side === this.w.playerSide && (src & (SRC.ASDIC | SRC.VISUAL | SRC.RADAR | SRC.PERISCOPE))) this.w.emit('message', { text: this.contactCall(c, src), side, kind: 'crew' });
       return c;
@@ -251,19 +255,21 @@ export class Sensors {
   }
 
   /** passive bearing: refine a contact from intersecting bearing lines */
-  bearing(side: Side, t: Vessel, ox: number, oy: number, brg: number, err: number, src: number, trueDist: number) {
+  bearing(side: Side, t: Vessel, ox: number, oy: number, brg: number, err: number, src: number, trueDist: number, by = -1) {
     const map = this.contacts[side];
     let c = map.get(t.id);
     const now = this.w.time;
-    const line: BearingLine = { x: ox, y: oy, bearing: brg, err, t: now, src };
+    const line: BearingLine = { x: ox, y: oy, bearing: brg, err, t: now, src, by };
     if (!c) {
       // place the estimate along the bearing at a guessed range
       const guess = clamp(trueDist * this.w.rng.range(0.6, 1.5), 300, 4000);
       c = this.fix(side, t, ox + Math.cos(brg) * guess, oy + Math.sin(brg) * guess, Math.max(250, guess * 0.5), src, null);
       c.lines.push(line);
+      c.heard.set(by, line);
       return;
     }
     c.lines.push(line);
+    c.heard.set(by, line);
     if (c.lines.length > 6) c.lines.shift();
     // cross-fix: intersect with an older line from a different position
     for (const l of c.lines) {

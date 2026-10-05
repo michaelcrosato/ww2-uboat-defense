@@ -65,6 +65,8 @@ export class UboatAI {
   update(dt: number) {
     const v = this.v, w = this.w;
     const s = v.sub!;
+    // the escort tutorial's boat waits quietly at periscope depth until the lesson reaches the attack
+    if (w.holdFire) { s.orderedDepth = 13; s.periscopeUp = false; v.course = v.heading; v.speedCmd = 0.15; this.debug = 'lesson hold'; return; }
     this.stateT += dt;
     const aggro = dev.num('ai.uboatAggro');
     // ---- update the shared convoy estimate from our own contacts

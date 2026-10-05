@@ -54,6 +54,7 @@ Browsers with only WebGL2 still run the game (best effort, see Renderer).
 | Zoom; camera mode | wheel or PgUp / PgDn; C | —; L3 |
 | Collect salvage | G | D-pad ← |
 | Pause / menu | Esc or P | Options |
+| Tutorial: skip step | Enter | pause menu |
 
 Every binding can be changed under Settings → Controls. On touch devices the left half of the screen is a
 virtual stick, the right half aims (tap to fire), and finger-sized buttons carry the abilities and actions;
@@ -61,6 +62,9 @@ hold phones in landscape during missions.
 
 ## Playing
 
+- **Tutorial**: a guided battle for each side (title screen → Tutorial). A panel under the compass says what
+  to do next (helm, hydrophones, diving, periscope, torpedoes and going deep; or ASDIC and depth-charge
+  attacks for the escort) and ticks each step off as you do it.
 - **Arena** (free play): pick the side, theater (North Atlantic, Arctic, Mediterranean, US East Coast,
   Caribbean, Indian Ocean), year (1939–1945 sets the technology), time of day, weather, sea state, convoy
   size, escorts, wolfpack size, air cover (air gap, occasional, escort carrier, constant) and more.
@@ -69,7 +73,8 @@ hold phones in landscape during missions.
   salvage. Each side has an 85-node passive skill tree, and there are 25 active abilities. An after-action
   report tallies XP and loot.
 - **Fog of war**: AI and HUD only know what your side has detected (lookouts, radar, ASDIC, hydrophones,
-  Huff-Duff, aircraft). Ships flood, list, burn, break in two and sink; their crews take to the boats.
+  Huff-Duff, aircraft). Your own hydrophone bearings show as ticks on a ring around your boat, with a line to
+  the contact you aim at (Settings → Display → Hydrophone bearings switches to lines or the full plot). Ships flood, list, burn, break in two and sink; their crews take to the boats.
 
 ![Port hub](docs/img/port.png)
 ![Skill tree](docs/img/skill-tree.png)

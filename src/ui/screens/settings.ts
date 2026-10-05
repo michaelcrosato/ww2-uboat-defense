@@ -6,7 +6,7 @@ import { h, type UiScreen } from '../dom';
 import { bindRows, button, helpPanel, hintBar, renderSetting, tabs, type SettingRow } from '../widgets';
 
 const SECTIONS: [string, string[]][] = [
-  ['Display', ['display.pixelScale', 'display.targetHeight', 'display.renderer', 'display.hudScale', 'display.showFps', 'display.grade', 'camera.shake', 'camera.roll']],
+  ['Display', ['display.pixelScale', 'display.targetHeight', 'display.renderer', 'display.hudScale', 'display.bearings', 'display.showFps', 'display.grade', 'camera.shake', 'camera.roll']],
   ['Audio', ['audio.master', 'audio.sfx', 'audio.ambience', 'audio.music', 'audio.chatter']],
   ['Controls', ['controls.scheme', 'controls.mouseSteer', 'controls.deadzone', 'controls.rumble', 'controls.glyphs', 'controls.touch', 'game.aimAssist']],
 ];

@@ -24,6 +24,9 @@ export const DEV_DEFS: SettingDef[] = [
   { key: 'display.particles', group: 'Display', label: 'Particle density', type: 'range', def: 1, min: 0.25, max: 1, step: 0.05, fmt: pct,
     help: 'Share of smoke, spray and debris particles spawned. Lower cuts overdraw on slow GPUs.' },
   { key: 'display.hudScale', group: 'Display', label: 'HUD text size', type: 'select', def: '1', options: opts(['1', 'Normal'], ['2', 'Large']) },
+  { key: 'display.bearings', group: 'Display', label: 'Hydrophone bearings', type: 'select', def: 'ring',
+    options: opts(['ring', 'Ring around your boat'], ['lines', 'Lines from your boat'], ['all', 'Every friendly listener (busy)'], ['off', 'Off']),
+    help: 'How passive sonar bearings are drawn. Ring: a tick around your boat for each ship your own hydrophones hear, and a line to the contact under the reticle.' },
 
   // ---------------------------------------------------------------- Camera
   { key: 'camera.tilt', group: 'Camera', label: 'Camera tilt', type: 'range', def: 24, min: 0, max: 50, step: 1, unit: '°',

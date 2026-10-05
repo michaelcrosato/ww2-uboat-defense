@@ -19,6 +19,7 @@ import { StatBlock } from './meta/stats';
 import { buildFleet, buildLookdev } from './game/lookdev';
 import { audio } from './audio/audio';
 import { AudioBridge } from './game/audioBridge';
+import { Tutorial, type TutorialSide } from './game/tutorial';
 
 export interface MissionHooks {
   stats?: StatBlock;
@@ -33,6 +34,8 @@ export interface MissionHooks {
   hullDamage?: number;
   /** called once the mission exists (career hooks: loot drops) */
   onStart?: (m: Mission) => void;
+  /** coach the player through this side's lessons (src/game/tutorial.ts) */
+  tutorial?: TutorialSide;
 }
 
 const DEFAULT_LOADOUT: Record<'allied' | 'axis', AbilityId[]> = {
@@ -50,6 +53,8 @@ export class App {
   hud: Hud;
   mission: Mission | null = null;
   player: PlayerControl | null = null;
+  /** the lesson coach when the mission is a tutorial */
+  tutorial: Tutorial | null = null;
   paused = false;
   private last = performance.now();
   private acc = 0;
@@ -115,7 +120,9 @@ export class App {
       this.player.abilities.setLoadout(hooks.loadout ?? DEFAULT_LOADOUT[m.side], hooks.abilities ?? {});
       this.cam.x = p.pos.x; this.cam.y = p.pos.y;
       this.player.aimX = p.pos.x + 200; this.player.aimY = p.pos.y;
+      if (hooks.tutorial) this.tutorial = new Tutorial(hooks.tutorial, m, this.player, this.input);
     }
+    this.hud.tutorial = this.tutorial;
     this.cam.zoom = this.cam.targetZoom = dev.num('camera.zoom');
     if (m.spectator) {
       this.cam.x = m.convoy.x; this.cam.y = m.convoy.y;
@@ -176,6 +183,8 @@ export class App {
     if (this.mission) this.mission.dispose();
     this.mission = null;
     this.player = null;
+    this.tutorial = null;
+    this.hud.tutorial = null;
   }
 
   start() {
@@ -227,7 +236,7 @@ export class App {
     if (m) {
       const pc = this.player;
       const halted = this.paused || this.menuOpen || this.frozen || this.held;
-      if (pc && !halted) pc.update(dt);
+      if (pc && !halted) { pc.update(dt); this.tutorial?.update(dt); }
       // fixed-step simulation
       const hz = parseInt(dev.str('phys.hz')) || 60;
       m.world.physics.setRate(hz);
