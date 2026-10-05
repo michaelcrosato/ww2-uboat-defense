@@ -91,3 +91,36 @@ save/load round-trip (in-memory), equip/unequip moves items.
 `Meta layer: items, loot, skill trees, economy, contracts, profile + tests`
 
 ## Notes (fill in when done)
+Done. `npm test` (= `node --test src/meta/meta.test.ts`): 16 tests pass (abilities, 2000 random items, tiers,
+uniques/powers, reroll, loot scaling, both trees (85 nodes, symmetric links, reachability, spacing ≥ 55,
+all keystone flags), refund connectivity, economy curves, ARENA_SPEC vs arenaConfig.ts, 200 contracts per
+faction with valid arena values, contract evaluation incl. defeat, profile round trip). Typecheck passes.
+
+What was added
+- `items.ts`: 9/10 slots, 62 bases with implicits and ilvl gates, per-faction slot pools, 5 tiers
+  (T1 ilvl 40 … T5 ilvl 1; values signed by `STAT_INFO.good`), rarity rules, prefix/suffix magic names,
+  two-word rare names, 16 legendary powers (exact gameplay ids, % values, `{v}` text), 16 uniques (never repeat
+  their implicit), `rollRarity`, `rerollAffix` + `rerollCost` (×1.6 per reroll), `itemStats`, `affixText`.
+- `loot.ts`: sources merchant/tanker/escort/uboat/contract/boss with count, drop chance and rarity multipliers;
+  `mult` adds whole extra rolls and shifts rarity; `RARITY_COLORS`.
+- `tree.ts`: generated constellation (4 diagonal branches: spine with 2 notables + end keystone, left arm with a
+  notable or second keystone, right arm ending in a notable, a side loop, bridges between branches).
+  Keystones with stat downsides where gameplay has no flag hook (ks_shepherd, ks_wolf_leader, ks_iron_coffin,
+  ks_night_surface carry stats too).
+- `economy.ts`: vessel offers (starter corvette / type7), 6 components per side with period tier names and linear
+  bonuses, `upgradeCost` (∝ tier^1.7), `repairCost`, `xpForLevel` (300·L^1.55, cap 50), `levelGrants`
+  (+1/+1, +2/+2 every 5th level), `levelStats`.
+- `contracts.ts`: `ARENA_SPEC` mirror + `sanitizeArenaValue`/`isValidArenaValue`, 20 mutators (some
+  faction-specific: new optional `Mutator.faction`), tiered generation (theater, full arena, 0–3 mutators that
+  never set the same key, main + 1–2 optional objectives), evaluation with itemised breakdown, 25 % pay on
+  defeat, `funds_pct`/`xp_pct`.
+- `profile.ts`: `newProfile/newCaptain`, `computeStats`, `addXp`, `applyMissionResult` (pay, XP, record, carried
+  damage, loot with cap 60 → overflow salvaged, board ageing/refill), equip/unequip/salvage, tree, abilities,
+  loadout, repair, upgrades, `buyVessel` (keeps half the tiers), `metaStorage` (localStorage or memory),
+  `saveProfile/loadProfile` with version + migration hook.
+- `tsconfig.json` excludes `*.test.ts` (no @types/node; Node runs the tests directly). `npm test` now runs the
+  meta tests (it pointed at a missing tools/smoke.mjs); `npm run compare` runs the parity tool.
+
+Follow-ups (M10): drop crates on sinkings using `rollDrops`, feed `computeStats` into missions, show
+`affixText`/`powerText` in the UI. Powers without gameplay hooks yet: pow_flare_aura, pow_ram_shield,
+pow_convoy_heal, pow_silent_crit, pow_ghost_decoy, pow_hunter_reload (→ M11).

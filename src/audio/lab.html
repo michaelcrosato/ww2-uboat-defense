@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Audio Lab</title>
+  <link rel="icon" href="data:," />
+  <style>
+    :root { --bg: #0c1116; --fg: #d9e2ea; --dim: #7d8b98; --ok: #6fd08c; --bad: #ff6b6b; --btn: #1b2630; }
+    body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 13px/1.4 ui-monospace, monospace; }
+    h1 { font-size: 16px; margin: 0 0 8px; }
+    h2 { font-size: 13px; color: var(--dim); margin: 16px 0 6px; text-transform: uppercase; letter-spacing: .08em; }
+    .grid { display: flex; flex-wrap: wrap; gap: 6px; }
+    button { background: var(--btn); color: var(--fg); border: 1px solid #2c3a46; border-radius: 4px; padding: 4px 8px; font: inherit; cursor: pointer; }
+    button.on { border-color: var(--ok); }
+    #results { white-space: pre; margin-top: 12px; }
+    .ok { color: var(--ok); } .bad { color: var(--bad); }
+  </style>
+</head>
+<body>
+  <h1>Wolfpack &amp; Escort — audio lab</h1>
+  <div id="status">click anywhere to unlock audio · self-test running…</div>
+  <h2>Sounds</h2><div class="grid" id="sounds"></div>
+  <h2>Loops</h2><div class="grid" id="loops"></div>
+  <h2>Music</h2><div class="grid" id="music"></div>
+  <div id="results"></div>
+  <script type="module" src="./lab.ts"></script>
+</body>
+</html>

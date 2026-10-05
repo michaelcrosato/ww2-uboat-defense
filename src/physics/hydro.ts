@@ -270,7 +270,8 @@ export class HullHydro {
         const pitchT = c.planes * Math.min(Math.abs(vf), 6) * this.inertia.y * 0.012;
         tx -= right.x * pitchT; ty -= right.y * pitchT;
         const kV = s.mass * 0.25;
-        fz += -kV * v.z * Math.abs(v.z) * 0.3 - s.mass * 0.05 * v.z;
+        // (linear term kept small: a trimmed-heavy boat must still sink ~0.5 m/s at creep speed)
+        fz += -kV * v.z * Math.abs(v.z) * 0.3 - s.mass * 0.02 * v.z;
       }
       // self-righting: keep the boat near level in pitch when submerged.
       // (positive rotation about the starboard axis pitches the bow down)

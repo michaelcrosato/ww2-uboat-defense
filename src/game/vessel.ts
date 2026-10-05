@@ -11,8 +11,17 @@ import type { StackModel } from '../art/voxel';
 import type { World } from './world';
 import type { HullInput } from '../water/simInputs';
 import { StatBlock } from '../meta/stats';
-import { PK } from '../gfx/particles';
+import { PK } from '../render/materials';
 import { dev } from '../core/devSettings';
+
+/** `phys.buoyancy` → buoyancy columns along × across the hull */
+const BUOYANCY_COLUMNS: Record<string, { columnsX: number; columnsY: number }> = {
+  coarse: { columnsX: 6, columnsY: 2 }, normal: { columnsX: 8, columnsY: 3 }, fine: { columnsX: 12, columnsY: 4 },
+};
+/** `phys.handling` → acceleration / turn multipliers */
+const HANDLING: Record<string, { accel: number; turn: number }> = {
+  authentic: { accel: 1, turn: 1 }, arcade: { accel: 2, turn: 1.8 }, twitchy: { accel: 3, turn: 3 },
+};
 
 export const TELEGRAPH = [
   { name: 'Full astern', frac: -0.55 }, { name: 'Half astern', frac: -0.3 }, { name: 'Stop', frac: 0 },
@@ -107,11 +116,18 @@ export class Vessel {
   tag = '';
   // fx bookkeeping
   private smokeAcc = 0;
+  private woundAcc = 0;
   private sprayAcc = 0;
   private lastBowSub = 0;
   readonly controls: HydroControls = { thrust: 0, rudder: 0, ballast: 0, planes: 0, trim: 0 };
 
-  constructor(readonly world: World, cls: VesselClass, x: number, y: number, heading: number, opts: { name?: string; submerged?: number } = {}) {
+  /** up to two damage centres along the hull (local x, radius m): scorching and shell holes in the shader */
+  hits: { x: number; r: number }[] = [];
+  /** broken in two: the local x range this body still carries (rendering clip, buoyancy, collider) */
+  clip: [number, number] | null = null;
+  broken = false;
+
+  constructor(readonly world: World, cls: VesselClass, x: number, y: number, heading: number, opts: { name?: string; submerged?: number; fragment?: [number, number] } = {}) {
     this.cls = cls; this.side = cls.side; this.kind = cls.kind;
     this.name = opts.name ?? cls.name;
     const art = world.artFor(cls);
@@ -125,10 +141,10 @@ export class Vessel {
       comZ: isSub ? -cls.draft + (cls.sub!.hullHeight * 0.42) : -cls.draft * 0.28,
       maxSpeed: cls.maxSpeedKn * KNOT, reverseFrac: 0.45, accelTime: cls.accelTime, turnRadius: cls.turnRadius,
       bowTaper: cls.kind === 'merchant' ? 0.55 : 0.35,
-      columnsX: 8, columnsY: 3, compartments: 5,
+      ...BUOYANCY_COLUMNS[dev.str('phys.buoyancy')] ?? BUOYANCY_COLUMNS.normal, compartments: 5,
       sub: isSub ? { reserveFrac: 0.13, hullHeight: cls.sub!.hullHeight } : undefined,
     });
-    this.applyBuoyancyDetail();
+    this.retuneHydro();
     const mp = this.hydro.massProps();
     const depth = opts.submerged ?? 0;
     const desc = R.RigidBodyDesc.dynamic()
@@ -151,7 +167,7 @@ export class Vessel {
     // weapons
     for (const g of cls.guns) {
       const mount = this.mounts.find((m) => m.id === g.mount);
-      if (mount) this.guns.push({ spec: g, mount, reload: fx.range(0, g.reload), aimYaw: mount.restYaw, ready: true });
+      if (mount) this.guns.push({ spec: g, mount, reload: this.world.rng.range(0, g.reload), aimYaw: mount.restYaw, ready: true });
     }
     if (cls.dc) this.dcLeft = cls.dc.capacity;
     if (cls.hedgehog && world.year >= cls.hedgehog.minYear) this.hedgehogLeft = cls.hedgehog.salvos;
@@ -170,10 +186,100 @@ export class Vessel {
       };
     }
     if (cls.grt) this.grt = cls.grt;
+    // the bow half of a hull that broke in two: already lost, sinking, never scored again
+    if (opts.fragment) {
+      this.alive = false; this.sinking = true; this.sunkTime = world.time; this.removeAt = world.time + 90;
+      this.hp = -this.maxHp; this.tubes = []; this.dcLeft = 0;
+      this.makeFragment(opts.fragment);
+    }
+  }
+
+  /** remember where the big hits landed (merging nearby ones) so the damage shading clusters there */
+  private recordHit(lx: number, dmg: number) {
+    const L = this.cls.length;
+    const r = clamp(3 + (dmg / this.maxHp) * 28, 3, L * 0.25);
+    const near = this.hits.find((h) => Math.abs(h.x - lx) < h.r);
+    if (near) { near.r = Math.min(L * 0.3, Math.max(near.r, r) + r * 0.3); return; }
+    if (this.hits.length < 2) { this.hits.push({ x: lx, r }); return; }
+    const small = this.hits[0].r < this.hits[1].r ? 0 : 1;
+    if (this.hits[small].r < r) this.hits[small] = { x: lx, r };
+  }
+
+  /** the hull fails at local x `lx`: this body keeps the stern part, a new sinking body takes the bow */
+  breakUp(lx: number) {
+    if (this.broken || this.sub || this.clip) return;
+    this.broken = true;
+    const w = this.world, L = this.cls.length;
+    const cut = clamp(lx, -L * 0.3, L * 0.3);
+    const p = this.pos, q = this.rot, lv = this.body.linvel(), av = this.body.angvel(), f = this.fwd();
+    const fore = w.spawn(this.cls, p.x, p.y, this.heading, { name: this.name, fragment: [cut, L / 2 + 5] });
+    fore.body.setTranslation({ x: p.x, y: p.y, z: p.z }, true);
+    fore.body.setRotation(q, true);
+    // the halves drift apart a little
+    fore.body.setLinvel({ x: lv.x + f.x * 0.7, y: lv.y + f.y * 0.7, z: lv.z }, true);
+    fore.body.setAngvel(av, true);
+    this.body.setLinvel({ x: lv.x - f.x * 0.7, y: lv.y - f.y * 0.7, z: lv.z }, true);
+    fore.fires = this.fires.filter((fr) => fr.lx > cut);
+    this.fires = this.fires.filter((fr) => fr.lx <= cut);
+    fore.hits = this.hits.map((h) => ({ ...h }));
+    fore.damageLook = this.damageLook;
+    fore.lastAttacker = this.lastAttacker;
+    this.makeFragment([-L / 2 - 5, cut]);
+    const c = this.local(cut, 0, 0);
+    w.emit('explosion', { x: c.x, y: c.y, z: 0, power: 0.8, kind: 'breakup' });
+    w.emit('message', { text: `${this.name} has broken in two!`, kind: 'alert', important: true });
+  }
+
+  /** become a hull fragment over local x [x0, x1]: clipped rendering, its own buoyancy, a box collider */
+  private makeFragment(range: [number, number]) {
+    this.clip = range;
+    const L = this.cls.length;
+    const a = Math.max(range[0], -L / 2), b = Math.min(range[1], L / 2);
+    const inside = (x: number) => x >= a && x <= b;
+    // weight follows buoyancy: each half keeps the share of displacement its columns carry (a fine bow
+    // weighs less than its length suggests), so both float with the intact ship's reserve until they flood
+    const vol = (cs: { area: number; h: number }[]) => cs.reduce((s, c) => s + c.area * c.h, 0);
+    const total = vol(this.hydro.cols);
+    this.hydro.cols = this.hydro.cols.filter((c) => inside(c.lx));
+    const frac = total > 0 ? vol(this.hydro.cols) / total : (b - a) / L;
+    this.mounts = this.mounts.filter((m) => inside(m.x));
+    this.guns = this.guns.filter((g) => inside(g.mount.x));
+    this.funnels = this.funnels.filter((fn) => inside(fn[0]));
+    this.lamps = this.lamps.filter((l) => inside(l[0]));
+    const physics = this.world.physics;
+    physics.owners.delete(this.collider.handle);
+    physics.world.removeCollider(this.collider, false);
+    const top = this.cls.freeboard, bot = -this.cls.draft;
+    const cd = R.ColliderDesc.cuboid((b - a) / 2, this.cls.beam * 0.45, (top - bot) / 2)
+      .setTranslation((a + b) / 2, 0, (top + bot) / 2)
+      .setDensity(0).setFriction(0.3).setRestitution(0.05)
+      .setCollisionGroups(GROUPS.ship);
+    this.collider = physics.world.createCollider(cd, this.body);
+    physics.owners.set(this.collider.handle, this);
+    // its share of the weight, centred a little toward the break so the broken end goes down first
+    const cutAtA = range[0] > -L / 2;
+    const mp = this.hydro.massProps();
+    const cx = (a + b) / 2 + (cutAtA ? -1 : 1) * 0.15 * (b - a);
+    this.body.setAdditionalMassProperties(mp.mass * frac, { x: cx, y: 0, z: mp.com.z },
+      { x: mp.inertia.x * frac, y: mp.inertia.y * frac ** 3, z: mp.inertia.z * frac ** 3 }, { x: 0, y: 0, z: 0, w: 1 }, true);
+    // only its own compartments flood, fastest next to the break
+    const nC = this.ingress.length / 2, cut = cutAtA ? a : b;
+    for (let i = 0; i < this.ingress.length; i++) {
+      const cxi = ((Math.floor(i / 2) + 0.5) / nC * 2 - 1) * L / 2;
+      if (cxi < a || cxi > b) { this.ingress[i] = 0; this.hydro.flood[i] = 0; continue; }
+      this.hydro.flood[i] = Math.min(this.hydro.flood[i], 0.35);
+      this.ingress[i] = Math.abs(cxi - cut) < L * 0.2 ? 0.012 : 0.003;
+    }
+    // wreck halves grinding together are not rams
+    this.collisionCooldown = 1e9;
   }
 
   /** refine buoyancy for subs: casing/tower add little volume */
-  private applyBuoyancyDetail() { /* columns already calibrated */ }
+  /** live physics settings: wave forces, handling preset and heel (column count is fixed at spawn) */
+  retuneHydro() {
+    const h = HANDLING[dev.str('phys.handling')] ?? HANDLING.arcade;
+    this.hydro.retune({ waves: dev.bool('phys.waveForces'), accelMul: h.accel, turnMul: h.turn, heelMul: dev.num('phys.heel'), speedMul: 1 });
+  }
 
   // ------------------------------------------------------------------ state accessors
   get pos() { return this.body.translation(); }
@@ -213,7 +319,16 @@ export class Vessel {
   // ------------------------------------------------------------------ simulation step (before physics)
   preStep(dt: number) {
     const w = this.world;
-    if (!this.alive) { this.controls.thrust = 0; this.controls.rudder = 0; this.hydro.apply(this.body, w.ocean, this.controls, dt); return; }
+    if (!this.alive) {
+      this.controls.thrust = 0; this.controls.rudder = 0;
+      this.hydro.apply(this.body, w.ocean, this.controls, dt);
+      // a broken half lingers, rears up as its open end fills, then slips under within about a minute
+      if (this.clip) {
+        const k = clamp((w.time - this.sunkTime - 20) / 40, 0, 0.6);
+        if (k > 0) this.body.addForce({ x: 0, y: 0, z: -this.body.mass() * 9.81 * k }, true);
+      }
+      return;
+    }
     // steering
     if (this.course !== null) {
       const err = angleDiff(this.heading, this.course);
@@ -240,6 +355,7 @@ export class Vessel {
   /** reload timers for guns, tubes and racks */
   private updateWeapons(dt: number) {
     for (const g of this.guns) if (g.reload > 0) g.reload -= dt;
+    if (this.ramShieldT > 0) this.ramShieldT -= dt;
     const spec = this.cls.torpedoes;
     if (spec) {
       // one tube reloads at a time (torpedo crews), only while submerged or on the surface at low speed
@@ -266,6 +382,8 @@ export class Vessel {
   flankBoost = 0;
   collisionCooldown = 0;
   ramBrace = 0;
+  /** pow_ram_shield seconds left after a ram */
+  ramShieldT = 0;
   ramBraceMult = 1;
   ramBraceReduction = 0;
   /** deck gun barrage ability */
@@ -312,8 +430,9 @@ export class Vessel {
         const sp = Math.abs(this.hydro.fwdSpeed);
         // planes do the work at speed; trim tanks at low speed
         s.planes = clamp(-vzErr * 0.9, -1, 1) * (sp > 0.8 ? 1 : 0.3);
-        const trimTarget = 1.0 + clamp(vzErr * 0.03, -0.035, 0.05) * (sp > 1.5 ? 0.4 : 1) + (s.crash > 0 ? 0.08 : 0);
-        s.ballast = approach(s.ballast, trimTarget, dt * 0.05);
+        // trim tanks: enough authority to make ~1 m/s at creep speed (a hunted boat must be able to go deep)
+        const trimTarget = 1.0 + clamp(vzErr * 0.12, -0.12, 0.2) * (sp > 1.5 ? 0.6 : 1) + (s.crash > 0 ? 0.08 : 0);
+        s.ballast = approach(s.ballast, trimTarget, dt * 0.12);
       }
     }
     // hull stress below test depth
@@ -351,21 +470,42 @@ export class Vessel {
 
   // ------------------------------------------------------------------ damage
   /** damage at a world point. kind decides flooding/fire behaviour */
+  /**
+   * Escort-player auras on merchants: convoy_aura_pct (Shepherd keystone and gear) within 600 m of
+   * the player, pow_flare_aura while a star shell burns within 900 m.
+   */
+  private protection(): number {
+    const p = this.world.player;
+    if (this.kind !== 'merchant' || !p || !p.alive || p.side !== this.side) return 1;
+    let k = 1;
+    const aura = p.stats.get('convoy_aura_pct');
+    if (aura && Math.hypot(p.pos.x - this.pos.x, p.pos.y - this.pos.y) < 600) k *= 1 - clamp(aura, 0, 60) / 100;
+    const fa = p.stats.power('pow_flare_aura');
+    if (fa && this.world.projectiles.flares.some((f) => Math.hypot(f.x - this.pos.x, f.y - this.pos.y) < 900)) k *= 1 - clamp(fa, 0, 60) / 100;
+    return k;
+  }
+
   damage(amount: number, wx: number, wy: number, wz: number, kind: 'torpedo' | 'shell' | 'dc' | 'hedgehog' | 'ram' | 'fire' | 'crush' | 'explosion', from: Vessel | null) {
     if (!this.alive) return 0;
     if (this.isPlayer && dev.bool('game.god')) return 0;
     let mult = this.stats.mul('damage_taken_pct') * (this.isPlayer ? dev.num('game.playerDamage') : 1);
     if (from?.isPlayer) mult *= dev.num('game.enemyDamage');
+    mult *= this.protection();
+    // pow_ram_shield: braced after a ram
+    if (this.ramShieldT > 0) mult *= 1 - clamp(this.stats.power('pow_ram_shield'), 0, 80) / 100;
     let crit = false;
     if (from && (kind === 'shell' || kind === 'torpedo' || kind === 'hedgehog')) {
-      const cc = (5 + from.stats.get('crit_chance')) / 100;
-      if (fx.next() < cc) { crit = true; mult *= 2 * from.stats.mul('crit_damage_pct'); }
+      // pow_silent_crit: a silent-running boat picks its moment
+      const silentCrit = from.sub && from.sub.silent > 0 ? from.stats.power('pow_silent_crit') : 0;
+      const cc = (5 + from.stats.get('crit_chance') + silentCrit) / 100;
+      if (this.world.rng.next() < cc) { crit = true; mult *= 2 * from.stats.mul('crit_damage_pct'); }
     }
     const dmg = amount * mult;
     this.hp -= dmg;
     this.lastAttacker = from ?? this.lastAttacker;
     this.damageLook = Math.min(1, this.damageLook + dmg / this.maxHp * 0.9);
     const loc = this.toLocal(wx, wy);
+    if (kind !== 'fire' && kind !== 'crush') this.recordHit(clamp(loc.x, -this.cls.length / 2, this.cls.length / 2), dmg);
     const along = clamp((loc.x / this.cls.length + 0.5), 0, 0.999);
     const ci = Math.floor(along * 5) * 2 + (loc.y < 0 ? 0 : 1);
     const flood = this.stats.mul('flooding_pct');
@@ -379,17 +519,19 @@ export class Vessel {
       if (this.kind !== 'uboat') this.ignite(loc.x, loc.y, 0.9);
     } else if (kind === 'shell') {
       if (below || this.submerged) this.ingress[ci] += 0.004 * flood * (dmg / 80);
-      if (fx.next() < 0.18 && this.kind !== 'uboat') this.ignite(loc.x, loc.y, 0.4);
+      if (this.world.rng.next() < 0.18 && this.kind !== 'uboat') this.ignite(loc.x, loc.y, 0.4);
     } else if (kind === 'dc' || kind === 'hedgehog' || kind === 'explosion') {
       this.ingress[ci] += 0.012 * flood * (dmg / 300);
       if (this.sub) this.sub.hullStress += dmg / this.maxHp * 0.12;
-      if (this.sub && fx.next() < 0.35) this.engineDamage = Math.min(1, this.engineDamage + 0.15);
+      if (this.sub && this.world.rng.next() < 0.35) this.engineDamage = Math.min(1, this.engineDamage + 0.15);
     } else if (kind === 'ram') {
       this.ingress[ci] += 0.03 * flood * (dmg / 500);
     }
-    if (crit && fx.next() < 0.5) this.engineDamage = Math.min(1, this.engineDamage + 0.3);
+    if (crit && this.world.rng.next() < 0.5) this.engineDamage = Math.min(1, this.engineDamage + 0.3);
     this.world.emit('damaged', { v: this, amount: dmg, kind, from, crit, x: wx, y: wy });
-    if (this.hp <= 0) {
+    // a hulk pounded far past zero while still afloat breaks its back at the hit
+    if (!this.sub && this.hp < -0.6 * this.maxHp && dev.bool('game.breakup')) this.breakUp(loc.x);
+    if (this.hp <= 0 && !this.clip) {
       // structural failure: the hull opens up everywhere
       for (let i = 0; i < this.ingress.length; i++) this.ingress[i] += 0.06;
       if (this.sub) this.destroy('destroyed');
@@ -398,7 +540,7 @@ export class Vessel {
   }
 
   ignite(lx: number, ly: number, power: number) {
-    if (this.fires.length >= 5) { this.fires[(fx.next() * this.fires.length) | 0].power += power * 0.5; return; }
+    if (this.fires.length >= 5) { this.fires[(this.world.rng.next() * this.fires.length) | 0].power += power * 0.5; return; }
     const lz = this.cls.freeboard + 1;
     this.fires.push({ lx, ly: clamp(ly, -this.cls.beam * 0.3, this.cls.beam * 0.3), lz, power, t: 0 });
   }
@@ -424,6 +566,11 @@ export class Vessel {
       f.power -= dt * 0.012 * repair * (this.hp > 0 ? 1 : 0.2);
       if (f.power <= 0 || (this.hydro.submergedAll && this.sinking)) this.fires.splice(i, 1);
     }
+    // a fire that burns a wreck far past zero breaks it too (tankers)
+    if (this.alive && !this.sub && !this.broken && this.hp < -0.6 * this.maxHp && dev.bool('game.breakup')) {
+      const biggest = this.hits.reduce((m, h) => (h.r > m.r ? h : m), { x: 0, r: 0 });
+      this.breakUp(biggest.x);
+    }
     // sinking: deck under water and still going down
     if (this.alive && !this.sub) {
       const p = this.pos;
@@ -448,7 +595,7 @@ export class Vessel {
     this.sinking = true;
     this.sunkTime = this.world.time;
     this.removeAt = this.world.time + (this.kind === 'uboat' ? 40 : 90);
-    for (let i = 0; i < this.ingress.length; i++) this.ingress[i] = Math.max(this.ingress[i], 0.02);
+    for (let i = 0; i < this.ingress.length; i++) if (!this.clip) this.ingress[i] = Math.max(this.ingress[i], 0.02);
     this.searchlightOn = false;
     this.course = null; this.speedCmd = 0; this.telegraph = TEL_STOP;
     this.world.emit('sunk', { v: this, reason, by: this.lastAttacker });
@@ -456,20 +603,25 @@ export class Vessel {
 
   // ------------------------------------------------------------------ cosmetic + render submission
   submit(dt: number) {
-    const w = this.world, R = w.renderer;
+    const w = this.world, R = w.scene;
     const p = this.pos, q = this.rot;
     const removedSoon = !this.alive && w.time > this.removeAt - 3;
     if (removedSoon) return;
     const visible = w.isVisibleToPlayer(this);
     const flags = (this.searchlightOn ? 1 : 0) | (this.isPlayer && this.sub ? 2 : 0);
     if (visible) {
-      R.stacks.add({ model: this.hullModel, x: p.x, y: p.y, z: p.z, q, damage: this.damageLook, flags });
+      const h0 = this.hits[0], h1 = this.hits[1];
+      R.stacks.push({
+        model: this.hullModel, x: p.x, y: p.y, z: p.z, q, damage: this.damageLook, flags,
+        hits: [h0 ? h0.x : 0, h0 ? h0.r : 0, h1 ? h1.x : 0, h1 ? h1.r : 0],
+        clipX0: this.clip ? this.clip[0] : undefined, clipX1: this.clip ? this.clip[1] : undefined,
+      });
       for (const m of this.mounts) {
         if (m.raise <= 0.02) continue;
         const lz = m.z - (1 - m.raise) * 5.5;
         const mp = qrot(q, m.x, m.y, lz);
         const mq = quatMul(q, quatFromYaw(m.yaw));
-        R.stacks.add({ model: m.model, x: p.x + mp.x, y: p.y + mp.y, z: p.z + mp.z, q: mq, damage: this.damageLook * 0.7, flags });
+        R.stacks.push({ model: m.model, x: p.x + mp.x, y: p.y + mp.y, z: p.z + mp.z, q: mq, damage: this.damageLook * 0.7, flags });
       }
     }
     // water interaction
@@ -477,19 +629,23 @@ export class Vessel {
     const v = this.body.linvel();
     const isSub = !!this.sub;
     const depth = this.depth;
+    // a fragment's footprint is only its own part of the hull
+    const L2 = this.cls.length / 2;
+    const ca = this.clip ? Math.max(this.clip[0], -L2) : -L2, cb = this.clip ? Math.min(this.clip[1], L2) : L2;
+    const hc = this.clip ? this.local((ca + cb) / 2, 0, 0) : p;
     const hull: HullInput = {
-      x: p.x, y: p.y, fx: f.x, fy: f.y, halfLen: this.cls.length / 2, halfBeam: this.cls.beam / 2,
+      x: hc.x, y: hc.y, fx: f.x, fy: f.y, halfLen: (cb - ca) / 2, halfBeam: this.cls.beam / 2,
       vx: v.x, vy: v.y, angVel: this.body.angvel().z, thrust: this.thrust, draft: this.cls.draft,
       depth, foam: this.alive ? 1 : 0.4, oil: this.oilLeak(), fire: this.fires.length ? Math.min(1, this.fires.reduce((a, b) => a + b.power, 0)) : 0,
       kind: isSub && depth > 1.5 ? 3 : 0,
     };
-    if (!(isSub && depth > 25)) w.hulls.push(hull);
+    if (!(isSub && depth > 25)) w.scene.hulls.push(hull);
     // periscope feather
     if (isSub && this.sub!.periscope > 0.6 && this.atPeriscopeDepth) {
       const sp = this.mounts.find((m) => m.id === 'periscope');
       if (sp) {
         const wp = this.local(sp.x, 0, 0);
-        w.hulls.push({ ...hull, x: wp.x, y: wp.y, halfLen: 1.5, halfBeam: 0.4, draft: 0, depth: 0, kind: 2 });
+        w.scene.hulls.push({ ...hull, x: wp.x, y: wp.y, halfLen: 1.5, halfBeam: 0.4, draft: 0, depth: 0, kind: 2 });
       }
     }
     if (!visible && !this.isPlayer) return;
@@ -505,6 +661,17 @@ export class Vessel {
           const g = dark + fx.next() * 0.08;
           R.particles.spawn(PK.SMOKE, wp.x + fx.range(-0.5, 0.5), wp.y + fx.range(-0.5, 0.5), wp.z, v.x * 0.6, v.y * 0.6, 2.2, fx.range(5, 9), isSub ? 1.4 : 2.2, [g, g, g + 0.01]);
         }
+      }
+    }
+    // heavy damage smokes from the wounds even without open fire, while there is a hull above water
+    if (this.damageLook > 0.45 && !this.hydro.submergedAll) {
+      this.woundAcc += dt * (this.damageLook - 0.35) * 5;
+      while (this.woundAcc > 1) {
+        this.woundAcc -= 1;
+        const h = this.hits.length ? this.hits[(fx.next() * this.hits.length) | 0] : { x: 0, r: 6 };
+        const wp = this.local(h.x + fx.range(-h.r, h.r) * 0.5, fx.range(-1, 1), this.cls.freeboard);
+        const g = 0.05 + fx.next() * 0.05;
+        R.particles.spawn(PK.SMOKE, wp.x, wp.y, wp.z, v.x * 0.5, v.y * 0.5, 2.6, fx.range(7, 12), 2.6, [g, g, g + 0.01]);
       }
     }
     // fires
@@ -577,7 +744,7 @@ export function quatMul(a: Quat, b: Quat): Quat {
 }
 
 /** convex hull points of a ship-shaped prism from keel to deck */
-function hullPoints(L: number, B: number, z0: number, z1: number): Float32Array {
+export function hullPoints(L: number, B: number, z0: number, z1: number): Float32Array {
   const pts: number[] = [];
   const outline: [number, number][] = [];
   for (let i = 0; i <= 10; i++) {

@@ -6,7 +6,7 @@
 import { hexToRgb } from '../core/math';
 
 export const VM = {
-  METAL: 2, WOOD: 3, LAMP: 7, GLASS: 7, RUST: 2, CANVAS: 3, BLACK: 2,
+  METAL: 2, WOOD: 3, LAMP: 7, GLASS: 7, RUST: 2, CANVAS: 3, BLACK: 2, LAND: 11,
 } as const;
 
 export class VoxelModel {
@@ -114,6 +114,8 @@ export interface StackModel {
   slices: Slice[];
   length: number; beam: number; height: number;
   zMin: number; zMax: number;
+  /** bounding-sphere radius about the model origin (m), for view culling */
+  radius: number;
   /** footprint at the waterline for physics/sims */
   model: VoxelModel;
 }
@@ -122,24 +124,66 @@ export class SliceAtlas {
   readonly size: number;
   readonly albedo: Uint8Array;
   readonly normal: Uint8Array;
-  private shelfX = 0; private shelfY = 0; private shelfH = 0;
-  dirty = true;
+  /** skyline packer: the atlas' top edge as segments sorted by x, covering [0, size) */
+  private sky: { x: number; y: number; w: number }[];
+  /** bumped on every change; each render backend re-uploads when it differs from what it last sent */
+  version = 1;
   models = new Map<string, StackModel>();
   constructor(size = 2048) {
     this.size = size;
     this.albedo = new Uint8Array(size * size * 4);
     this.normal = new Uint8Array(size * size * 4);
+    this.sky = [{ x: 0, y: 0, w: size }];
   }
 
+  /**
+   * Bottom-left skyline packing: each rect goes where its top edge ends lowest. Mixed slice sizes (long
+   * hull strips, small gun mounts) pack far tighter than fixed-height shelves, which wasted ~30 %.
+   */
   private alloc(w: number, h: number): [number, number] {
-    const pad = 1;
-    if (this.shelfX + w + pad > this.size) { this.shelfX = 0; this.shelfY += this.shelfH + pad; this.shelfH = 0; }
-    if (this.shelfY + h + pad > this.size) throw new Error('slice atlas full');
-    const x = this.shelfX, y = this.shelfY;
-    this.shelfX += w + pad;
-    this.shelfH = Math.max(this.shelfH, h);
-    return [x, y];
+    const pad = 1, S = this.size, sky = this.sky;
+    const rw = w + pad, rh = h + pad;
+    let best = -1, bx = 0, by = Infinity;
+    for (let i = 0; i < sky.length; i++) {
+      const x = sky[i].x;
+      if (x + rw > S) break;
+      // the rect rests on the highest segment it spans
+      let y = 0, span = 0;
+      for (let j = i; j < sky.length && span < rw; j++) { y = Math.max(y, sky[j].y); span += sky[j].w; }
+      if (y < by && y + rh <= S) { best = i; bx = x; by = y; }
+    }
+    if (best < 0) throw new Error('slice atlas full');
+    // raise the skyline under the new rect: cut the segments it covers, merge equal neighbours
+    const top = by + rh, x1 = bx + rw, next: { x: number; y: number; w: number }[] = [];
+    for (const g of sky) {
+      const gx1 = g.x + g.w;
+      if (gx1 <= bx || g.x >= x1) { next.push(g); continue; }
+      if (g.x < bx) next.push({ x: g.x, y: g.y, w: bx - g.x });
+      if (g.x <= bx) next.push({ x: bx, y: top, w: rw });
+      if (gx1 > x1) next.push({ x: x1, y: g.y, w: gx1 - x1 });
+    }
+    this.sky = [];
+    for (const g of next) {
+      const last = this.sky[this.sky.length - 1];
+      if (last && last.y === g.y && last.x + last.w === g.x) last.w += g.w; else this.sky.push({ ...g });
+    }
+    return [bx, by];
   }
+
+  /**
+   * Drop every model. Called at each mission start, so the atlas only ever holds one mission's models
+   * (it never fills up over a long session, and per-mission shapes cached by name, like the islands
+   * whose radius changes from mission to mission, are rebuilt).
+   */
+  reset() {
+    this.models.clear();
+    this.sky = [{ x: 0, y: 0, w: this.size }];
+    this.albedo.fill(0); this.normal.fill(0);
+    this.version++;
+  }
+
+  /** share of the atlas height used so far (0..1): the highest point of the skyline */
+  get fill() { let y = 0; for (const g of this.sky) y = Math.max(y, g.y); return Math.min(1, y / this.size); }
 
   add(m: VoxelModel): StackModel {
     const existing = this.models.get(m.name);
@@ -155,7 +199,12 @@ export class SliceAtlas {
       }
       if (i1 < 0) continue;
       const w = i1 - i0 + 1, h = j1 - j0 + 1;
-      const [ax, ay] = this.alloc(w, h);
+      let ax: number, ay: number;
+      try { [ax, ay] = this.alloc(w, h); } catch {
+        // out of room: keep the slices that fit (the model loses its top) rather than abort the mission
+        console.warn(`slice atlas full: ${m.name} drawn without ${m.nz - k} upper layers`);
+        break;
+      }
       for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
         const t = ((ay + j - j0) * S + (ax + i - i0)) * 4;
         if (!m.filled(i, j, k)) { this.albedo[t + 3] = 0; continue; }
@@ -174,9 +223,15 @@ export class SliceAtlas {
         u0: ax / S, v0: ay / S, u1: (ax + w) / S, v1: (ay + h) / S,
       });
     }
-    const sm: StackModel = { name: m.name, slices, length: m.nx * m.res, beam: m.ny * m.res, height: m.nz * m.zres, zMin, zMax, model: m };
+    if (!slices.length) zMin = zMax = 0;
+    let r2 = 0;
+    for (const sl of slices) {
+      const ex = Math.max(Math.abs(sl.x0), Math.abs(sl.x0 + sl.w)), ey = Math.max(Math.abs(sl.y0), Math.abs(sl.y0 + sl.h));
+      r2 = Math.max(r2, ex * ex + ey * ey + sl.z * sl.z);
+    }
+    const sm: StackModel = { name: m.name, slices, length: m.nx * m.res, beam: m.ny * m.res, height: m.nz * m.zres, zMin, zMax, radius: Math.sqrt(r2), model: m };
     this.models.set(m.name, sm);
-    this.dirty = true;
+    this.version++;
     return sm;
   }
 }

@@ -10,7 +10,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node tools/smoke.mjs",
+    "test": "node --test src/meta/meta.test.ts",
+    "compare": "node tools/compare.mjs",
     "shot": "node tools/shot.mjs",
     "probe:gpu": "node tools/gpu-probe.mjs"
   },

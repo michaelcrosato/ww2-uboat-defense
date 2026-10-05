@@ -104,7 +104,9 @@ export class Environment {
     this.sky = sky;
     // ambient: hemispheric sky light at the surface
     const amb = scale3(sky, 0.55 + 0.25 * day);
-    this.ambient = [Math.max(amb[0], 0.025), Math.max(amb[1], 0.03), Math.max(amb[2], 0.045)];
+    // a night floor bright enough that hulls still read as shapes against the sea (visual only:
+    // lookout ranges use `darkness`, not this)
+    this.ambient = [Math.max(amb[0], 0.07), Math.max(amb[1], 0.085), Math.max(amb[2], 0.12)];
     const fog = hex01(T.fog);
     this.fogColor = mix3(scale3(fog, 0.12), fog, day * 0.9 + twilight * 0.3);
     this.fogColor = add3(this.fogColor, scale3([0.05, 0.06, 0.09], this.moonIntensity));

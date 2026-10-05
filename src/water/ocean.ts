@@ -1,12 +1,14 @@
 // The open-ocean surface: a sum of Gerstner (trochoidal) waves whose amplitudes follow a
 // Pierson-Moskowitz wind-sea spectrum for the Beaufort sea state, plus a long background swell.
-// The exact same math runs in GLSL (OCEAN_GLSL) for rendering and here on the CPU for buoyancy,
+// The exact same math runs in GLSL (src/render/webgl2/glsl/ocean.ts) for rendering and here on the CPU for buoyancy,
 // so ships ride the waves you see.
 
 import { Rng, TAU } from '../core/math';
 
 export const G = 9.81;
 export const MAX_WAVES = 16;
+/** shortest Gerstner wavelength drawn/simulated (rad/m): 6 m */
+const K_MAX = TAU / 6;
 
 export interface WaveComp {
   dx: number; dy: number;   // unit travel direction
@@ -70,13 +72,17 @@ export class Ocean {
     for (let i = 0; i < nWind; i++) {
       const t0 = i / nWind, t1 = (i + 1) / nWind;
       const wa = w0 * Math.pow(w1 / w0, t0), wb = w0 * Math.pow(w1 / w0, t1);
-      const w = Math.sqrt(wa * wb) * (1 + rng.range(-0.08, 0.08));
+      let w = Math.sqrt(wa * wb) * (1 + rng.range(-0.08, 0.08));
       const S = (alpha * G * G) / Math.pow(w, 5) * Math.exp(-1.25 * Math.pow(wp / w, 4));
       let A = Math.sqrt(2 * S * (wb - wa));
       if (U < 1.5) A = Math.max(A, 0.02 + 0.03 * rng.next()); // glassy calm still has tiny ripples
       A *= P.ampScale;
+      let k = (w * w) / G;
+      // the ~1 m pixel grid cannot show waves much shorter than ~6 m: they alias into per-pixel noise
+      // (light airs put the whole wind sea there). Fold them onto the shortest drawable wavelength with
+      // a gentle steepness; the shader's capillary detail stands in for the real ripples.
+      if (k > K_MAX) { k = K_MAX * (0.75 + 0.25 * ((i * 0.618) % 1)); w = Math.sqrt(G * k); A = Math.min(A, 0.12 / k); }
       m0 += (A * A) / 2;
-      const k = (w * w) / G;
       // directional spreading widens for short waves
       const spread = (0.35 + 0.65 * t0) * 1.05;
       const dir = P.windDir + rng.gauss(0, spread * 0.6) + (i % 2 ? 1 : -1) * spread * 0.25;
@@ -208,77 +214,3 @@ export class Ocean {
     return n;
   }
 }
-
-/** GLSL twin of Ocean.sample. Positions are relative to the render origin (uOrigin). */
-export const OCEAN_GLSL = /* glsl */ `
-#define MAX_WAVES ${MAX_WAVES}
-uniform vec4 uWaveA[MAX_WAVES];  // dir.xy, k, A
-uniform vec4 uWaveB[MAX_WAVES];  // phase (origin+time folded), Q, omega, -
-uniform int uWaveCount;
-uniform vec4 uRings[8];          // x, y (rel), age, amp
-uniform int uRingCount;
-uniform float uSwellScale;       // global visual scale (1)
-
-float ringHeight(vec2 p) {
-  float h = 0.0;
-  for (int i = 0; i < 8; i++) {
-    if (i >= uRingCount) break;
-    vec4 r = uRings[i];
-    float d = length(p - r.xy);
-    float u = (d - r.z * 9.0) / 6.0;
-    if (u < -6.0 || u > 2.0) continue;
-    float decay = r.w / (1.0 + r.z * 0.6) / sqrt(1.0 + d * 0.05);
-    h += decay * cos(u * 2.2) * exp(-u * u * 0.15);
-  }
-  return h;
-}
-
-// returns height and fills normal + jacobian
-float oceanSample(vec2 p, out vec3 n, out float jac) {
-  vec2 q = p;
-  for (int it = 0; it < 2; it++) {
-    vec2 d = vec2(0.0);
-    for (int i = 0; i < MAX_WAVES; i++) {
-      if (i >= uWaveCount) break;
-      vec4 a = uWaveA[i]; vec4 b = uWaveB[i];
-      d += a.xy * (sin(a.z * dot(a.xy, q) + b.x) * b.y * a.w);
-    }
-    q = p + d;
-  }
-  float h = 0.0, jxx = 1.0, jyy = 1.0, jxy = 0.0, hx = 0.0, hy = 0.0;
-  for (int i = 0; i < MAX_WAVES; i++) {
-    if (i >= uWaveCount) break;
-    vec4 a = uWaveA[i]; vec4 b = uWaveB[i];
-    float th = a.z * dot(a.xy, q) + b.x;
-    float cs = cos(th), sn = sin(th);
-    float kA = a.z * a.w;
-    h += a.w * cs;
-    hx -= a.x * kA * sn; hy -= a.y * kA * sn;
-    float qka = b.y * kA * cs;
-    jxx -= qka * a.x * a.x; jyy -= qka * a.y * a.y; jxy -= qka * a.x * a.y;
-  }
-  n = normalize(vec3(jxy * hy - hx * jyy, hx * jxy - jxx * hy, jxx * jyy - jxy * jxy));
-  jac = jxx * jyy - jxy * jxy;
-  return h + ringHeight(p);
-}
-
-float oceanHeight(vec2 p) {
-  vec2 q = p;
-  for (int it = 0; it < 2; it++) {
-    vec2 d = vec2(0.0);
-    for (int i = 0; i < MAX_WAVES; i++) {
-      if (i >= uWaveCount) break;
-      vec4 a = uWaveA[i]; vec4 b = uWaveB[i];
-      d += a.xy * (sin(a.z * dot(a.xy, q) + b.x) * b.y * a.w);
-    }
-    q = p + d;
-  }
-  float h = 0.0;
-  for (int i = 0; i < MAX_WAVES; i++) {
-    if (i >= uWaveCount) break;
-    vec4 a = uWaveA[i]; vec4 b = uWaveB[i];
-    h += a.w * cos(a.z * dot(a.xy, q) + b.x);
-  }
-  return h + ringHeight(p);
-}
-`;

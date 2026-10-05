@@ -52,3 +52,33 @@ with bounty payout, XP, level-ups → spend in the shipyard, armory, skill tree 
 `Port and progression: contracts, shipyard, armory, skill tree, abilities, loot, after-action`
 
 ## Notes (fill in when done)
+**Done.** What changed:
+- `src/game/career.ts` (`Career`): loads/creates the profile at boot (`window.__shell.career`), autosaves after
+  every change; `faction` stored in `profile.settings`. `contractMission(contract)` → overrides (contract arena,
+  mutator arena, the captain's current hull class) + `MissionHooks` (`computeStats(captain, player mutators)`,
+  enemy mutator `StatBlock`, loadout, ability states, carried hull damage, `onStart` loot hook).
+  `attachLoot` rolls `rollDrops` on every enemy-side sinking (merchants count for U-boat captains; ilvl =
+  `contractIlvl`, `mult = lootMult × game.lootRate`, `lootFind = loot_find_pct`), fans the crates around the
+  wreck, legendary/unique → screen flash + rarity-coloured alert; pickups print "Recovered: …" in rarity colour.
+  `finish(mission, freePlay)` builds the `MissionResult`, recovers crates still afloat (if the ship survived),
+  calls `applyMissionResult` and saves.
+- Meta: `applyMissionResult(…, opts)` gains `inMissionDrops` (no double sinking rolls) and `freePlay` (half XP, no
+  pay/loot/board change); new `rerollItem(captain, uid, index, rng)` (cost, inventory or equipped). +1 test (17).
+- Mission/App: `Mission(…, { enemyStats })` sets the stats of enemy warships; `MissionHooks.enemyStats`,
+  `hullDamage` (ship sails with `1 − 0.6·damage` hull), `onStart`. HUD messages accept a `color`.
+- UI: `screens/port.ts` (faction picker, hub header with XP bar/funds/points, tabs Contracts / Shipyard / Records),
+  `armory.ts` (fitted slots, sorted stores grid, item card that follows focus via `onShow`, Equip / Unequip /
+  Re-roll affix / Salvage menus via the new `Ui.choose`), `skillTree.ts` (canvas: pan/zoom/hover/click/right-click
+  refund; keyboard/pad walk nodes through the new `NavHooks.move`, right stick pans), `portAbilities.ts` (rank up,
+  rank-3 modifier choice, slot assignment, loadout bar), `afterAction.ts` (typed patrol report: outcome,
+  objectives, payout breakdown, XP bar + promotions, loot one by one; first accept skips), `itemCard.ts`
+  (tier pips, roll ranges, implicit, power, flavour, comparison vs equipped).
+- Shell: title *Port* enabled; modes `career | arena | test` — contracts end in the after-action report, arena free
+  play shows the summary plus half XP for that side's captain, URL test missions touch nothing. Abandoning a
+  contract returns to the port. `?menu=port&faction=escort|uboat` for tests.
+
+Acceptance (all 0 page errors, `check-output/m10/`): every port tab at 1280×720 (+ armory at 800×600); escort
+contract accepted with Enter → `fastForward(2400)` → victory → after-action, funds 1500 → 3150, level 2, contract
+reward item in stores; U-boat contract (player sunk) → defeat report; enemy U-boats destroyed → 6–15 crates with
+beams + legendary alert → report lists 9 salvage items; reload keeps the captain (13 items, £4,998, same name);
+skill tree allocation by keyboard (→, Enter → `uboat_wolf_s0`). `npm test` 17/17, typecheck, build.

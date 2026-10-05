@@ -116,6 +116,8 @@ export interface Mutator {
   player?: Partial<Record<StatKey, number>>;
   bountyMult: number;     // e.g. 1.25
   lootMult: number;       // quantity/rarity boost
+  /** only offered to this side (omitted = both) */
+  faction?: Faction;
 }
 
 export type ObjectiveType =

@@ -10,7 +10,7 @@ import { aircraftArt } from '../art/ships';
 import { angleDiff, clamp, fx, quatFromEuler, wrapAngle } from '../core/math';
 import { SRC } from './sensors';
 import { underwaterBlast, splashColumn, surfaceExplosion } from './effects';
-import { PK } from '../gfx/particles';
+import { PK } from '../render/materials';
 
 type Kind = 'swordfish' | 'catalina' | 'liberator';
 const SPEC: Record<Kind, { speed: number; alt: number; bombs: number; hp: number }> = {
@@ -30,16 +30,19 @@ export class Aircraft {
   alive = true;
   private runT = 0;
   private dropped = 0;
-  private orbitA = fx.next() * 6.28;
+  private orbitA: number;
   model: StackModel;
+  /** patrols orbit something that moves (the convoy); called each update */
+  anchor: (() => { x: number; y: number }) | null = null;
   constructor(private w: World, public kind: Kind, x: number, y: number, public cx: number, public cy: number, public life: number, bombs?: number) {
     this.x = x; this.y = y;
+    this.orbitA = w.rng.next() * 6.28;
     const s = SPEC[kind];
     this.z = s.alt;
     this.heading = Math.atan2(cy - y, cx - x);
     this.bombs = bombs ?? s.bombs;
     this.hp = s.hp;
-    this.model = w.renderer.atlas.add(aircraftArt(kind));
+    this.model = w.scene.atlas.add(aircraftArt(kind));
   }
   get leighLight() { return this.w.year >= 1942 && this.w.env.darkness > 0.55 && this.kind !== 'swordfish'; }
 
@@ -47,6 +50,7 @@ export class Aircraft {
     const w = this.w, s = SPEC[this.kind];
     this.life -= dt;
     if (this.life <= 0 && this.mode !== 'leave') this.mode = 'leave';
+    if (this.anchor) { const a = this.anchor(); this.cx = a.x; this.cy = a.y; }
     let tx = this.cx, ty = this.cy;
     if (this.mode === 'patrol') {
       this.orbitA += dt * s.speed / 700;
@@ -66,7 +70,7 @@ export class Aircraft {
         }
         if (d > 600 && this.dropped >= 2) this.dropped = 0;
         // the boat's flak fights back
-        if (t.sub?.surfaced && d < 650 && fx.next() < dt * 0.35) this.hit();
+        if (t.sub?.surfaced && d < 650 && this.w.rng.next() < dt * 0.35) this.hit();
       }
     } else {
       tx = this.x + Math.cos(this.heading) * 1000; ty = this.y + Math.sin(this.heading) * 1000;
@@ -91,9 +95,9 @@ export class Aircraft {
       if (v.sub.surfaced) range = this.leighLight ? 1100 : vis * 0.8;
       else if (v.atPeriscopeDepth && v.sub.periscope > 0.6 && Math.abs(v.hydro.fwdSpeed) > 1.2) range = Math.min(900, vis * 0.3);
       else if (v.submerged && v.keelDepth < w.theater.clarity * 0.9 && w.env.darkness < 0.4) range = 500 * (1 - v.keelDepth / (w.theater.clarity * 0.9));
-      if (range > 0 && d < range && fx.next() < 0.3) {
+      if (range > 0 && d < range && this.w.rng.next() < 0.3) {
         w.sensors.markSeen(v, 'allied');
-        w.sensors.fix('allied', v, v.pos.x + fx.gauss(0, 10), v.pos.y + fx.gauss(0, 10), 25, SRC.AIR, v.submerged ? v.keelDepth : 0);
+        w.sensors.fix('allied', v, v.pos.x + this.w.rng.gauss(0, 10), v.pos.y + this.w.rng.gauss(0, 10), 25, SRC.AIR, v.submerged ? v.keelDepth : 0);
         if (this.bombs > 0) { this.mode = 'attack'; this.target = v; this.runT = 0; }
         w.emit('message', { text: `${this.kind === 'swordfish' ? 'Swordfish' : this.kind === 'catalina' ? 'Catalina' : 'Liberator'}: U-boat sighted, attacking!`, side: 'allied', kind: 'radio' });
         if (v.isPlayer) w.emit('message', { text: 'AIRCRAFT! Alarm — dive, dive!', side: 'axis', kind: 'alert', important: true });
@@ -123,12 +127,17 @@ export class Aircraft {
   }
 
   submit() {
-    const w = this.w, R = w.renderer;
+    const w = this.w, R = w.scene;
     const q = quatFromEuler(this.bank, 0, this.heading);
-    R.stacks.add({ model: this.model, x: this.x, y: this.y, z: this.z, q, flags: 1 });
-    // ground shadow
-    const sx = this.x - w.env.sunDir.x * 0, sy = this.y;
-    R.stacks.add({ model: this.model, x: sx, y: sy, z: w.ocean.height(sx, sy) + 0.1, q: quatFromEuler(0, 0, this.heading), flags: 4 | 8 });
+    R.stacks.push({ model: this.model, x: this.x, y: this.y, z: this.z, q, flags: 1 | 16 });
+    // a shadow on the sea, cast along the sun (or a bright moon), as long as it falls nearby
+    const env = w.env;
+    const L = env.sunIntensity > 0.05 ? env.sunDir : env.moonIntensity > 0.12 ? env.moonDir : null;
+    if (L && L.z > 0.15) {
+      const k = this.z / L.z;
+      const sx = this.x - L.x * k, sy = this.y - L.y * k;
+      if (Math.hypot(sx - this.x, sy - this.y) < 600) R.stacks.push({ model: this.model, x: sx, y: sy, z: w.ocean.height(sx, sy) + 0.1, q: quatFromEuler(0, 0, this.heading), flags: 4 | 8 | 16 });
+    }
     if (this.leighLight) {
       const dx = Math.cos(this.heading), dy = Math.sin(this.heading);
       w.lights.add({ x: this.x + dx * 4, y: this.y + dy * 4, z: this.z - 1, reach: Math.max(400, this.z * 3.5), r: 0.95, g: 0.97, b: 1, intensity: 3, dx: dx * 0.6, dy: dy * 0.6, dz: -0.8, cosOuter: Math.cos(0.12), shadow: true, beam: 1.2, size: 0.8, priority: 3 });

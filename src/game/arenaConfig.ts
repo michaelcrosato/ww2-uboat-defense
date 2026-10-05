@@ -7,7 +7,8 @@ import { THEATERS } from './theaters';
 export const ARENA_DEFS: SettingDef[] = [
   { key: 'arena.side', group: 'Mission', label: 'Play as', type: 'select', def: 'escort', options: opts(['escort', 'The Escort (Allies)'], ['uboat', 'The U-Boat (Kriegsmarine)']) },
   { key: 'arena.escortClass', group: 'Mission', label: 'Escort vessel', type: 'select', def: 'destroyer',
-    options: opts(['destroyer', 'Destroyer (fast, guns, Hedgehog)'], ['corvette', 'Flower-class corvette (nimble, tough)'], ['frigate', 'River-class frigate (sensors, Squid)']) },
+    options: opts(['destroyer', 'Destroyer (fast, guns, Hedgehog)'], ['corvette', 'Flower-class corvette (nimble, tough)'], ['frigate', 'River-class frigate (sensors, Squid)'],
+      ['sloop', 'Black Swan sloop (hunter, twin 4-inch)'], ['trawler', 'Armed trawler (slow, few charges)']) },
   { key: 'arena.uboatClass', group: 'Mission', label: 'U-boat type', type: 'select', def: 'type7',
     options: opts(['type7', 'Type VIIC (balanced)'], ['type9', 'Type IXC (long range, 6 tubes)'], ['type21', 'Type XXI Elektroboot (fast submerged)']) },
   { key: 'arena.year', group: 'Mission', label: 'Year (technology)', type: 'range', def: 1942, min: 1939, max: 1945, step: 1,

@@ -17,10 +17,10 @@ they translate to WebGPU/WGSL, so both backends produce the same image.
 | Present (device pixel y-down) | `uDevice.y - gl_FragCoord.y` | `position.y` directly |
 | Compute cell coords | (GL uses fragment passes) | `global_invocation_id.xy` = (x, row) |
 
-Render origin: shader world positions are relative to the snapped camera center (`Renderer.origin`).
+Render origin: shader world positions are relative to the snapped camera center (`WebGL2Backend.origin`).
 Keep this; CPU code already folds the origin into wave phases (`Ocean.pack`) and light/hull packing.
 
-The oblique camera (`src/gfx/camera.ts`): `bx = (x - cx) * zoom + bw/2`,
+The oblique camera (`src/render/camera.ts`): `bx = (x - cx) * zoom + bw/2`,
 `by = ((y - cy) * cosT - z * sinT) * zoom + bh/2`, view depth `d = -((y - cy) * sinT + z * cosT)`.
 `pixToWorld(bp, z)` inverts it for a known height z. Port `CAMERA_GLSL` 1:1 (with the flips above).
 
@@ -62,7 +62,7 @@ to each pass). Rebuild bind groups whenever a referenced texture is recreated (r
 | loops with uniform bounds + `break` | same (`for (var i = 0; i < 64; i++) { if (i >= n) { break; } ... }`) |
 
 Keep the same chunk structure as GLSL so diffs stay readable: `CAMERA`, `DITHER`, `NOISE`, `OCEAN`,
-`GBUF`, `MAT`, `QROT`, `WATER_LOOKUP`, `SIM_INPUTS`. Same function names, same constants.
+`GBUF`, `MAT`, `QROT`, `WATER_LOOKUP` (the old `SIM_INPUTS` chunk was unused and deleted in M1). Same function names, same constants.
 
 ## 4. Pipeline state mapping
 
@@ -88,10 +88,15 @@ Keep the same chunk structure as GLSL so diffs stay readable: `CAMERA`, `DITHER`
   WebGL2 at the next frame (re-create the backend, reset sims). Never leave a black screen.
 - Keep at most 2 frames in flight (`queue.onSubmittedWorkDone()` counter); skip a frame otherwise.
 - Use `timestamp-query` when available for the perf overlay (M6), never required.
+- TypeScript's DOM lib has the WebGPU interfaces but not the `GPUTextureUsage` / `GPUBufferUsage` /
+  `GPUMapMode` constant objects and no `getContext('webgpu')` overload: use `TU` / `BU` from
+  `webgpu/targets.ts` and cast the context (`as GPUCanvasContext`).
 
 ## 6. Headless verification
 - `npm run probe:gpu` confirms the adapter. `tools/shot.mjs` already passes `--enable-unsafe-webgpu`.
 - WebGPU needs a secure context: always test through the Vite server (http://localhost), never `file://`.
+- Headless canvas present loses the device: screenshot WebGPU with `?renderer=webgpu&gpupresent=readback`.
+  Check the console for `renderer: WebGPU (...)`; a warning means it fell back to WebGL2.
 - Compare backends: `?renderer=webgpu` vs `?renderer=webgl2`; M6 adds a deterministic scene
   (`?scene=lookdev`) and `tools/compare.mjs` for numeric diffs.
 
@@ -110,4 +115,4 @@ export class WaterPassGPU {
   }
 }
 ```
-One command encoder per frame; passes are recorded in the same order as `src/gfx/renderer.ts`.
+One command encoder per frame; passes are recorded in the same order as `src/render/webgl2/renderer.ts`.

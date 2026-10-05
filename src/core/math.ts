@@ -93,7 +93,11 @@ export function rollPitchOf(q: Quat): { roll: number; pitch: number } {
 export class Rng {
   private a: number; private b: number; private c: number; private d: number;
   constructor(seed: number | string = 1) {
-    let h = typeof seed === 'string' ? hashStr(seed) : seed >>> 0;
+    this.a = this.b = this.c = this.d = 0;
+    this.reseed(seed);
+  }
+  reseed(seed: number | string) {
+    const h = typeof seed === 'string' ? hashStr(seed) : seed >>> 0;
     this.a = h ^ 0xdeadbeef; this.b = h ^ 0x41c6ce57; this.c = h * 31 + 7; this.d = 1;
     for (let i = 0; i < 12; i++) this.next();
   }
@@ -128,7 +132,7 @@ export function hashStr(s: string): number {
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
   return h >>> 0;
 }
-/** global non-deterministic rng for cosmetic effects */
+/** global rng for cosmetic effects (random per load; `?fxseed=` reseeds it for reproducible tests) */
 export const fx = new Rng((Math.random() * 2 ** 31) | 0);
 
 // ---------------------------------------------------------------------------------------------

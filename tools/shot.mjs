@@ -1,8 +1,10 @@
 // Headless screenshot + console check.
 //   node tools/shot.mjs [--url /?scene=x] [--wait 4000] [--out check-output/shot.png] [--w 1280 --h 720]
-//                       [--eval "js run in page before shot"] [--steps "key:KeyW:2000,wait:500"]
+//                       [--eval "js run in page before shot"] [--steps "key:KeyW:2000,wait:500"] [--init "js"] [--preview]
+//                       (steps: wait:ms, key:Code:ms, press:Code, click:x:y, move:x:y, eval:js, until:js[:timeoutMs];
+//                        js is URI-decoded, so encode commas/colons, e.g. until:window.__lookdevDone)
 // Starts Vite in-process, opens Chromium (SwiftShader WebGL2), prints console errors, saves PNG.
-import { createServer } from 'vite';
+import { createServer, preview } from 'vite';
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -18,14 +20,21 @@ const steps = opt('steps', '');
 const shots = +opt('shots', 1);
 const every = +opt('every', 1000);
 
-const server = await createServer({ server: { port: 5199 + Math.floor(Math.random() * 300), strictPort: false }, logLevel: 'error' });
-await server.listen();
+// --preview serves the production build in dist/ (run `npm run build` first) instead of the dev server
+const port = 5199 + Math.floor(Math.random() * 300);
+const server = args.includes('--preview')
+  ? await preview({ preview: { port, strictPort: false }, logLevel: 'error' })
+  : await createServer({ server: { port, strictPort: false }, logLevel: 'error' });
+if (!args.includes('--preview')) await server.listen();
 const base = server.resolvedUrls.local[0].replace(/\/$/, '');
 const browser = await chromium.launch({
   executablePath: '/opt/pw-browsers/chromium',
   args: ['--enable-unsafe-webgpu', '--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist', '--enable-webgl'],
 });
 const page = await browser.newPage({ viewport: { width: W, height: H } });
+// --init: script run in the page before any of its own code (e.g. make localStorage throw)
+const initJs = opt('init', '');
+if (initJs) await page.addInitScript(initJs);
 const errors = [];
 page.on('console', (m) => {
   const t = m.text();
@@ -43,6 +52,7 @@ for (const st of steps ? steps.split(',') : []) {
   else if (kind === 'click') await page.mouse.click(+a, +b);
   else if (kind === 'move') await page.mouse.move(+a, +b);
   else if (kind === 'eval') await page.evaluate(decodeURIComponent(a));
+  else if (kind === 'until') await page.waitForFunction(decodeURIComponent(a), null, { timeout: +(b || 180000), polling: 250 });
 }
 await page.waitForTimeout(wait);
 if (evalJs) { const r = await page.evaluate(evalJs); if (r !== undefined) console.log('eval:', JSON.stringify(r)); }

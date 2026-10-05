@@ -55,3 +55,25 @@ sparks, debris, tracers, flashes, deck wash), the occluder heightmap with smoke 
 `WebGPU: sprite stacks, particles, dynamic lights and occluder shadows`
 
 ## Notes (fill in when done)
+Done. Sims off, `?freeze=1&fxseed=1&seed=7`: WebGPU vs WebGL2 is **pixel-identical** (0 px) at hour 13
+and 23 with the destroyer, its sun shadow and the waterline. A frozen frame with 72 injected particles (all
+12 kinds) + a shadow-casting point light + a spotlight with beam haze: the albedo debug view is
+identical (particles rasterize the same into the G-buffer); the occluder differs in 140 px by ≤ 2/255
+(smoke density from GL point sprites vs quads at 1–3 texel sizes), which shifts lit pixels slightly around
+the smoke (9045 px, max Δ 76). Submerged U-boat (frozen, 3.5 m): identical apart from ±1 bloom halo
+values and HUD message fade timing. Live night runs on both backends: searchlight, star shell, gunfire,
+funnel smoke, 650+ particles, 0 errors. Shots: `check-output/m4-*.png`.
+
+What changed
+- `SliceAtlas.dirty` → `version` counter; each backend remembers the atlas + version it uploaded.
+- `webgpu/targets.ts`: `SS` shader-stage flags, `DynBuffer` (grow-by-doubling instance buffers).
+- `passes/stacks.ts` (`StackPassGPU`): gbuf / under / occluder pipelines sharing an explicit bind group
+  layout (Frame, Ocean, Stack UBO, atlas, normal atlas, wave, nearest, linear); quad corners from
+  `vertex_index` (triangle strip, 4 vertices × instances); `OCC_BLEND` (max colour / add alpha).
+- `passes/particles.ts` (`ParticlePassGPU`): 6-vertex instanced quads, `pc` reproduces
+  `gl_PointCoord * 2 - 1` (y up the screen), gbuf + occluder smoke pipelines.
+- `passes/debug.ts`: `debug.view` texture overlays (occluder now; wave/fluid/foam once M5 has sims).
+- `WebGPUBackend` pass order identical to WebGL2; `stats` filled.
+
+Decisions
+- GL points vs WebGPU quads: exact in the G-buffer at these sizes; tiny occluder-smoke differences accepted.

@@ -304,3 +304,81 @@ export function buildSub(s: SubSpec): VoxelModel {
     for (let j = m.vy(-s.towerW / 2 + 0.6); j <= m.vy(s.towerW / 2 - 0.6); j++) if (m.filled(i, j, ktop)) m.set(i, j, ktop, '#1e2224', VM.METAL);
   return m;
 }
+
+// ---------------------------------------------------------------------------------------------
+// markings and small fittings
+
+/** 3×5 pixel glyphs for pennant numbers (rows top to bottom) */
+const GLYPHS: Record<string, string[]> = {
+  '0': ['111', '101', '101', '101', '111'], '1': ['010', '110', '010', '010', '111'], '2': ['111', '001', '111', '100', '111'],
+  '3': ['111', '001', '111', '001', '111'], '4': ['101', '101', '111', '001', '001'], '5': ['111', '100', '111', '001', '111'],
+  '6': ['111', '100', '111', '101', '111'], '7': ['111', '001', '010', '010', '010'], '8': ['111', '101', '111', '101', '111'],
+  '9': ['111', '101', '111', '001', '111'], D: ['110', '101', '101', '101', '110'], K: ['101', '101', '110', '101', '101'],
+  U: ['101', '101', '101', '101', '111'], T: ['111', '010', '010', '010', '010'], H: ['101', '101', '111', '101', '101'],
+};
+
+/** the outermost hull voxel of column (i, k) on one side (+1 = +y, -1 = -y), or -1 */
+function sideVoxel(m: VoxelModel, i: number, k: number, side: number): number {
+  if (side > 0) { for (let j = m.ny - 1; j >= 0; j--) if (m.filled(i, j, k)) return j; }
+  else for (let j = 0; j < m.ny; j++) if (m.filled(i, j, k)) return j;
+  return -1;
+}
+
+/**
+ * Pennant number painted on both sides of the hull, centred on `x`. Each side reads left to right
+ * for a viewer looking at it (the camera sees the +y side when the bow points east).
+ */
+export function hullNumber(h: Hull, text: string, x: number, color = '#e8e8e2') {
+  const m = h.m;
+  const w = text.length * 4 - 1;
+  const kTop = m.vz(h.deckZ(x) - 0.7);
+  for (const side of [1, -1]) {
+    let i0 = m.vx(x) - side * Math.floor(w / 2);
+    for (const ch of text) {
+      const g = GLYPHS[ch];
+      if (g) for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) {
+        if (g[r][c] !== '1') continue;
+        const i = i0 + side * c, k = kTop - r, j = sideVoxel(m, i, k, side);
+        if (j >= 0) m.set(i, j, k, color, VM.METAL);
+      }
+      i0 += side * 4;
+    }
+  }
+}
+
+/** cowl ventilator: a short pipe with a dark mouth facing forward */
+export function vent(m: VoxelModel, x: number, y: number, z: number, color = '#9aa2a4', h = 1.5) {
+  m.cyl(x, y, 0.45, z, z + h, color);
+  m.set(m.vx(x + 0.4), m.vy(y), m.vz(z + h - 0.3), '#16181a');
+}
+
+/** Carley float: a buff-coloured ring raft with a dark net floor */
+export function carley(m: VoxelModel, x: number, y: number, z: number, len = 2.5, w = 1.5) {
+  m.box(x - len / 2, x + len / 2, y - w / 2, y + w / 2, z, z + 0.5, (i, j) => {
+    const edge = i === m.vx(x - len / 2) || i === m.vx(x + len / 2) - 1 || j === m.vy(y - w / 2) || j === m.vy(y + w / 2) - 1;
+    return edge ? '#c8b48a' : '#3a3a32';
+  }, VM.CANVAS);
+}
+
+/** scrambling nets hung down both sides between x0 and x1 (rescue ships, troop ships) */
+export function scramblingNets(h: Hull, x0: number, x1: number, color = '#4a3c2a') {
+  const m = h.m;
+  for (let i = m.vx(x0); i < m.vx(x1); i++) {
+    const top = m.vz(h.deckZ(m.mx(i)) - 0.3);
+    for (let k = m.vz(0.6); k < top; k++) {
+      if ((i + k) % 3 !== 0 && (i - k + 300) % 3 !== 0) continue;
+      for (const side of [1, -1]) { const j = sideVoxel(m, i, k, side); if (j >= 0) m.set(i, j, k, color, VM.CANVAS); }
+    }
+  }
+}
+
+/** a biplane parked on a flight deck (wings spread), nose toward +x */
+export function parkedBiplane(m: VoxelModel, x: number, y: number, z: number) {
+  m.cylX(x - 5, x + 5.5, y, z + 1.0, 0.5, (i) => (i % 5 === 0 ? '#3e4a40' : '#4e5a50'));
+  m.box(x + 2.4, x + 4.0, y - 6.9, y + 6.9, z + 0.5, z + 1.0, (i, j) => (j % 6 === 0 ? '#4e5a4c' : '#5a6658'), VM.CANVAS);
+  m.box(x + 2.8, x + 4.4, y - 6.9, y + 6.9, z + 2.0, z + 2.5, (i, j) => (j % 6 === 0 ? '#5e6a5c' : '#6a7668'), VM.CANVAS);
+  m.box(x - 5.2, x - 4.2, y - 2.2, y + 2.2, z + 0.5, z + 1.0, '#5a6658', VM.CANVAS);
+  m.box(x - 5.2, x - 4.4, y - 0.25, y + 0.25, z + 1.0, z + 2.5, '#4e5a50');
+  m.set(m.vx(x + 5.7), m.vy(y), m.vz(z + 1.0), '#22221e');
+  for (const s of [-1, 1]) m.line([x + 3.2, y + s * 3.5, z + 1.0], [x + 3.6, y + s * 3.5, z + 2.2], '#3a3a36');
+}

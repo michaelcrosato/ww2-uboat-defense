@@ -1,8 +1,11 @@
 // In-mission HUD on the low-res overlay canvas: compass, status, depth gauge, ability bar,
 // tactical plot, contact markers, solution lines, loot labels, messages and warnings.
 
-import type { Screen } from '../gfx/screen';
-import type { Camera } from '../gfx/camera';
+import type { Screen } from '../render/screen';
+import type { Camera } from '../render/camera';
+import type { RenderBackend } from '../render/types';
+import { backendLabel } from '../render/backend';
+import { audio } from '../audio/audio';
 import type { Mission } from '../game/mission';
 import type { PlayerControl } from '../game/player';
 import { CHARGE_DEPTHS } from '../game/player';
@@ -12,6 +15,8 @@ import { drawText, textWidth, pxLine, pxCircle, pxRect, pxFill, panel, bar, wrap
 import { clamp, fmtInt, formatTime, toBearing, KNOT } from '../core/math';
 import { dev } from '../core/devSettings';
 import { ABILITIES } from '../meta/abilities';
+import { hullPoints } from '../game/vessel';
+import { WeatherFx } from '../game/weatherFx';
 import { SRC } from '../game/sensors';
 import { RARITY_BEAM } from '../game/weapons';
 import { BEAUFORT_NAME } from '../water/ocean';
@@ -22,15 +27,26 @@ const C = {
 };
 const RARITY_HEX: Record<string, string> = { common: '#c8c8c8', magic: '#6f9cff', rare: '#ffd84a', legendary: '#ff8c2a', unique: '#d8b47a' };
 
-interface Msg { text: string; t: number; kind: string; important: boolean }
+interface Msg { text: string; t: number; kind: string; important: boolean; color?: string }
 
 export class Hud {
+  /** precipitation (world particles + HUD rain streaks) */
+  readonly weather = new WeatherFx();
   msgs: Msg[] = [];
   warnings = new Map<string, number>();
   fps = 60;
   private fpsAcc = 0; private fpsN = 0;
   showPlot = true;
+  /** the touch overlay shows finger-sized ability buttons instead of the canvas bar */
+  touchAbilities = false;
+  /** this frame's layout: right edge of the status panel (+ depth gauge) and of the ability bar */
+  private statusRight = 0;
+  private barRight = 0;
   tactical = false;
+  /** active renderer (perf line + backend name next to the FPS) */
+  backend: RenderBackend | null = null;
+  /** CPU frame ms + sim steps this frame (debug.perf) */
+  perf: { cpuMs: number; steps: number } | null = null;
 
   constructor(private screen: Screen, private cam: Camera, private input: Input) {}
 
@@ -39,7 +55,7 @@ export class Hud {
     this.msgs = [];
     w.bus.on('message', (e) => {
       if (e.side && e.side !== w.playerSide) return;
-      this.msgs.push({ text: e.text, t: performance.now() / 1000, kind: e.kind ?? 'info', important: !!e.important });
+      this.msgs.push({ text: e.text, t: performance.now() / 1000, kind: e.kind ?? 'info', important: !!e.important, color: e.color });
       if (this.msgs.length > 40) this.msgs.shift();
     });
     w.bus.on('torpedoFired', (e) => { if (e.by.side !== w.playerSide) { const p = w.player; if (p && Math.hypot(e.x - p.pos.x, e.y - p.pos.y) < 2000 && (p.kind === 'escort' || p.kind === 'merchant')) this.warn('TORPEDO IN THE WATER!'); } });
@@ -51,13 +67,16 @@ export class Hud {
   warn(text: string, dur = 3) { this.warnings.set(text, performance.now() / 1000 + dur); }
 
   draw(m: Mission, pc: PlayerControl, realDt: number) {
-    const g = this.screen.hudCtx, W = this.screen.W, H = this.screen.H;
+    const g = this.screen.hudCtx, W = this.screen.hud.width, H = this.screen.hud.height;
     g.clearRect(0, 0, W, H);
     g.imageSmoothingEnabled = false;
     this.fpsAcc += realDt; this.fpsN++;
     if (this.fpsAcc > 0.5) { this.fps = this.fpsN / this.fpsAcc; this.fpsAcc = 0; this.fpsN = 0; }
     const w = m.world, v = w.player;
+    this.statusRight = this.barRight = 0;
+    this.weather.drawRain(g, w, W, H, realDt);
     this.worldOverlays(g, m, pc);
+    this.debugOverlays(g, m);
     this.drawObjectives(g, m);
     this.drawCompass(g, v, W);
     if (v) this.drawStatus(g, v, pc, H);
@@ -68,17 +87,101 @@ export class Hud {
     // time compression + fps
     const ts = pc.timeScale;
     if (ts > 1) drawText(g, `TIME x${ts}`, W / 2, 30, C.warn, { align: 'center' });
-    if (dev.bool('display.showFps')) drawText(g, `${Math.round(this.fps)} fps`, W - 4, H - 10, C.dim, { align: 'right' });
-    if (dev.bool('debug.perf')) {
-      const R = w.renderer.stats;
-      drawText(g, `slices ${R.stackInstances}  particles ${R.particles}  lights ${R.lights}  bodies ${w.vessels.length}  shells ${w.projectiles.shells.length}`, 4, H - 10, C.dim);
+    if (dev.bool('display.showFps')) {
+      const t = `${Math.round(this.fps)} fps ${this.backend ? backendLabel(this.backend.info) : ''}`.trimEnd();
+      // above the ability bar when a narrow (large-text) HUD would put them on the same row
+      drawText(g, t, W - 4, W - 4 - textWidth(t) < this.barRight + 6 ? H - 48 : H - 10, C.dim, { align: 'right' });
+    }
+    if (dev.bool('debug.perf') && this.backend) {
+      // short right-aligned lines under the chart: clear of the status panel, ability bar and messages
+      const R = this.backend.stats, P = this.perf;
+      const lines = [
+        `slices ${R.stackInstances}  ptcl ${R.particles}`, `lights ${R.lights}  bodies ${w.vessels.length}  shells ${w.projectiles.shells.length}`,
+        `cpu ${P ? P.cpuMs.toFixed(1) : '-'} ms  steps ${P?.steps ?? '-'}`,
+        `gpu ${R.gpuMs !== undefined ? R.gpuMs.toFixed(1) + ' ms' : 'n/a'}  voices ${audio.ready ? audio.voiceCount : 'off'}`,
+      ];
+      const passes = R.passMs ? Object.entries(R.passMs).map(([k, v]) => `${k} ${v.toFixed(1)}`) : [];
+      for (let k = 0; k < passes.length; k += 2) lines.push(passes.slice(k, k + 2).join('  '));
+      lines.forEach((l, i) => drawText(g, l, W - 4, 140 + i * 10, C.dim, { align: 'right' }));
     }
   }
 
   // ------------------------------------------------------------------ world-space markers
+  /** no player HUD (attract mode): just clear and draw the rain */
+  ambient(m: Mission, realDt: number) {
+    const g = this.screen.hudCtx, W = this.screen.hud.width, H = this.screen.hud.height;
+    g.clearRect(0, 0, W, H);
+    this.weather.drawRain(g, m.world, W, H, realDt);
+  }
+
+  /** world → HUD pixels (the HUD buffer is 1/hudScale of the game buffer) */
+  private ts(x: number, y: number, z = 0): [number, number] {
+    const [sx, sy] = this.cam.toScreen(x, y, z), k = this.screen.hudScale;
+    return [sx / k, sy / k];
+  }
+
+  /** debug.colliders / debug.buoyancy / debug.sensors: physics and sensor geometry in world space */
+  private debugOverlays(g: CanvasRenderingContext2D, m: Mission) {
+    const cols = dev.bool('debug.colliders'), buoy = dev.bool('debug.buoyancy'), sens = dev.bool('debug.sensors');
+    if (!cols && !buoy && !sens) return;
+    const w = m.world, W = this.screen.hud.width, H = this.screen.hud.height;
+    const on = (x: number, y: number) => x > -40 && y > -40 && x < W + 40 && y < H + 40;
+    const ring = (x: number, y: number, r: number, col: string, dash = 2) => {
+      let [px, py] = this.ts(x + r, y, 0);
+      for (let i = 1; i <= 48; i++) {
+        const a = (i / 48) * Math.PI * 2;
+        const [qx, qy] = this.ts(x + Math.cos(a) * r, y + Math.sin(a) * r, 0);
+        if (on(px, py) || on(qx, qy)) pxLine(g, px, py, qx, qy, col, dash);
+        px = qx; py = qy;
+      }
+    };
+    for (const v of w.vessels) {
+      if (!v.alive) continue;
+      const [sx, sy] = this.ts(v.pos.x, v.pos.y, 0);
+      if (!on(sx, sy) && !sens) continue;
+      const f = v.fwd(), toW = (lx: number, ly: number) => this.ts(v.pos.x + f.x * lx - f.y * ly, v.pos.y + f.y * lx + f.x * ly, 0);
+      if (cols) {
+        // deck outline of the convex hull collider
+        const pts = hullPoints(v.cls.length, v.cls.beam, 0, 1), top: [number, number][] = [];
+        for (let i = 0; i < pts.length; i += 12) top.push([pts[i], pts[i + 1]]);
+        const ring2 = [...top, ...top.map(([x, y]) => [x, -y] as [number, number]).reverse()];
+        for (let i = 0; i < ring2.length; i++) {
+          const [ax, ay] = toW(ring2[i][0], ring2[i][1]), [bx, by] = toW(ring2[(i + 1) % ring2.length][0], ring2[(i + 1) % ring2.length][1]);
+          pxLine(g, ax, ay, bx, by, '#ff60ff');
+        }
+      }
+      if (buoy) {
+        // columns: blue = dry … green = fully wetted (submerged length / column height)
+        for (const c of v.hydro.cols) {
+          const k = clamp(c.sub / Math.max(0.01, c.h), 0, 1);
+          const [x, y] = toW(c.lx, c.ly);
+          pxFill(g, x - 1, y - 1, 2, 2, `rgb(${Math.round(80 * (1 - k))},${Math.round(120 + 135 * k)},${Math.round(255 * (1 - k))})`);
+        }
+      }
+      if (sens) {
+        const s = v.cls.sensors;
+        if (v.isPlayer) {
+          ring(v.pos.x, v.pos.y, s.lookout * v.stats.mul('lookout_range_pct'), '#e8e2cf', 3);
+          if (s.hydrophone) ring(v.pos.x, v.pos.y, s.hydrophone * v.stats.mul('sonar_range_pct'), '#9adfff', 3);
+          if (s.radar && w.year >= 1941) ring(v.pos.x, v.pos.y, s.radar * v.stats.mul('radar_range_pct'), '#a0ffa0', 4);
+        }
+        if (s.asdic && v.kind === 'escort') {
+          // ASDIC beam wedge (16° sweep, or the full circle in arcade mode)
+          const R = s.asdic * v.stats.mul('sonar_range_pct');
+          if (v.isPlayer) ring(v.pos.x, v.pos.y, R, '#7fe0ff', 2);
+          const half = dev.str('game.asdic') === 'arcade' ? Math.PI : 8 * Math.PI / 180;
+          if (half < 3) for (const a of [-half, half]) {
+            const [ex, ey] = this.ts(v.pos.x + Math.cos(v.asdicBearing + a) * R, v.pos.y + Math.sin(v.asdicBearing + a) * R, 0);
+            pxLine(g, sx, sy, ex, ey, v.side === w.playerSide ? '#7fe0ff' : '#ff8a6a', 2);
+          }
+        }
+      }
+    }
+  }
+
   private worldOverlays(g: CanvasRenderingContext2D, m: Mission, pc: PlayerControl) {
     const w = m.world, cam = this.cam, v = w.player;
-    const S = (x: number, y: number, z = 0) => cam.toScreen(x, y, z);
+    const S = (x: number, y: number, z = 0) => this.ts(x, y, z);
     const side = w.playerSide;
     const now = w.time;
     // contacts
@@ -111,7 +214,7 @@ export class Hud {
       const vis = w.isVisibleToPlayer(o);
       if (!vis) continue;
       const [sx, sy] = S(o.pos.x, o.pos.y, 0);
-      if (sx < -20 || sy < -20 || sx > this.screen.W + 20 || sy > this.screen.H + 20) continue;
+      if (sx < -20 || sy < -20 || sx > this.screen.hud.width + 20 || sy > this.screen.hud.height + 20) continue;
       const friendly = o.side === side;
       if (cam.zoom > 0.9 && (Math.hypot(o.pos.x - pc.aimX, o.pos.y - pc.aimY) < o.cls.length * 0.6 || o === pc.target)) {
         drawText(g, o.name + (o.kind === 'merchant' ? ` ${fmtInt(o.grt)} GRT` : ''), sx, sy + 10, friendly ? C.allied : C.axis, { align: 'center' });
@@ -225,6 +328,7 @@ export class Hud {
 
   private drawStatus(g: CanvasRenderingContext2D, v: Vessel, pc: PlayerControl, H: number) {
     const x = 4, h = v.sub ? 92 : 78, y = H - h - 4, w = 164;
+    this.statusRight = x + w + (v.sub ? 22 : 0);
     panel(g, x, y, w, h);
     drawText(g, v.name, x + 4, y + 4, v.side === 'allied' ? C.allied : C.axis);
     drawText(g, v.cls.name, x + 4, y + 13, C.dim);
@@ -292,10 +396,12 @@ export class Hud {
   private drawAbilities(g: CanvasRenderingContext2D, pc: PlayerControl, W: number, H: number) {
     const slots = pc.abilities.slots;
     const n = slots.length;
-    if (!n) return;
+    if (!n || this.touchAbilities) return;
     const sz = 22, gap = 3;
     const total = n * sz + (n - 1) * gap;
-    const x0 = Math.round(W / 2 - total / 2), y = H - sz - 14;
+    // centred, but stepping right of the status panel when the HUD is narrow (large HUD text)
+    const x0 = Math.max(Math.round(W / 2 - total / 2), this.statusRight + 8), y = H - sz - 14;
+    this.barRight = x0 + total;
     const keys = ['ability1', 'ability2', 'ability3', 'ability4', 'ability5', 'ability6'] as const;
     slots.forEach((s, i) => {
       const x = x0 + i * (sz + gap);
@@ -379,7 +485,7 @@ export class Hud {
     let y = H - 104 - recent.length * 10;
     for (const m of recent) {
       const a = clamp(((m.important ? 10 : 7) - (now - m.t)) / 1.5, 0, 1);
-      const col = m.kind === 'alert' ? C.danger : m.kind === 'radio' ? '#b8d8a0' : m.kind === 'loot' ? '#ffd84a' : m.kind === 'crew' ? C.allied : C.text;
+      const col = m.color ?? (m.kind === 'alert' ? C.danger : m.kind === 'radio' ? '#b8d8a0' : m.kind === 'loot' ? '#ffd84a' : m.kind === 'crew' ? C.allied : C.text);
       for (const line of wrapText(m.text, 260)) { drawText(g, line, 6, y, col, { alpha: a }); y += 10; }
     }
   }

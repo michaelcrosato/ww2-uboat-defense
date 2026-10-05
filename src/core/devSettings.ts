@@ -17,6 +17,12 @@ export const DEV_DEFS: SettingDef[] = [
     options: opts(['theater', 'Theater palette'], ['neutral', 'Neutral'], ['newsreel', 'Newsreel (sepia)'], ['technicolor', 'Technicolor'], ['uboat', 'Red battle lights'], ['mono', 'Monochrome film']) },
   { key: 'display.scanlines', group: 'Display', label: 'CRT scanlines', type: 'range', def: 0, min: 0, max: 1, step: 0.05, fmt: pct },
   { key: 'display.grain', group: 'Display', label: 'Film grain', type: 'range', def: 0.15, min: 0, max: 1, step: 0.05, fmt: pct },
+  { key: 'display.renderer', group: 'Display', label: 'Renderer', type: 'select', def: 'auto',
+    options: opts(['auto', 'Auto'], ['webgpu', 'WebGPU'], ['webgl2', 'WebGL2']),
+    help: 'WebGPU with WebGL2 fallback; change needs reload.' },
+  { key: 'display.weather', group: 'Display', label: 'Rain & snow effects', type: 'bool', def: true },
+  { key: 'display.particles', group: 'Display', label: 'Particle density', type: 'range', def: 1, min: 0.25, max: 1, step: 0.05, fmt: pct,
+    help: 'Share of smoke, spray and debris particles spawned. Lower cuts overdraw on slow GPUs.' },
   { key: 'display.hudScale', group: 'Display', label: 'HUD text size', type: 'select', def: '1', options: opts(['1', 'Normal'], ['2', 'Large']) },
 
   // ---------------------------------------------------------------- Camera
@@ -105,6 +111,7 @@ export const DEV_DEFS: SettingDef[] = [
   { key: 'game.god', group: 'Gameplay', label: 'Invulnerable', type: 'bool', def: false },
   { key: 'game.infiniteAmmo', group: 'Gameplay', label: 'Unlimited ammo', type: 'bool', def: false },
   { key: 'game.noCooldowns', group: 'Gameplay', label: 'No ability cooldowns', type: 'bool', def: false },
+  { key: 'game.breakup', group: 'Gameplay', label: 'Ships break in two', type: 'bool', def: true, help: 'A hull pounded far past zero while still afloat splits into two sinking halves.' },
   { key: 'game.lootRate', group: 'Gameplay', label: 'Loot drop rate', type: 'range', def: 1, min: 0, max: 5, step: 0.1, fmt: pct },
   { key: 'game.maxCompression', group: 'Gameplay', label: 'Max time compression', type: 'select', def: '8', options: opts(['1', 'None'], ['4', '4x'], ['8', '8x'], ['16', '16x']) },
 
@@ -112,7 +119,11 @@ export const DEV_DEFS: SettingDef[] = [
   { key: 'ai.skill', group: 'AI', label: 'AI skill', type: 'range', def: 0.6, min: 0, max: 1, step: 0.05, fmt: pct },
   { key: 'ai.escortAggro', group: 'AI', label: 'Escort aggression', type: 'range', def: 0.6, min: 0, max: 1, step: 0.05, fmt: pct },
   { key: 'ai.uboatAggro', group: 'AI', label: 'U-boat aggression', type: 'range', def: 0.6, min: 0, max: 1, step: 0.05, fmt: pct },
+  { key: 'ai.openingGrace', group: 'AI', label: 'Opening grace', type: 'range', def: 75, min: 0, max: 300, step: 15, unit: 's',
+    help: 'AI U-boats close in but hold fire for the first seconds of a mission (they start inside torpedo range).' },
   { key: 'ai.freeze', group: 'AI', label: 'Freeze AI', type: 'bool', def: false },
+  { key: 'ai.rescue', group: 'AI', label: 'AI escorts rescue survivors', type: 'bool', def: true, help: 'Idle escorts with no contact nearby stop for lifeboats.' },
+  { key: 'ai.screen', group: 'AI', label: 'Escorts kept screening', type: 'range', def: 1, min: 0, max: 3, step: 1, help: 'AI escorts that never leave the convoy to hunt.' },
 
   // ---------------------------------------------------------------- Audio
   { key: 'audio.master', group: 'Audio', label: 'Master volume', type: 'range', def: 0.7, min: 0, max: 1, step: 0.05, fmt: pct },
@@ -142,12 +153,19 @@ export const DEV_DEFS: SettingDef[] = [
 ];
 
 export const DEV_PRESETS: Preset[] = [
+  // the three quality presets set the same keys, so switching between them never leaves one behind
   { id: 'cinematic', label: 'Cinematic', help: 'Everything on, big sims, soft shadows.', values: {
-    'water.simRes': '1024', 'water.fluidRes': '384', 'light.shadowSteps': 40, 'light.shadowRes': '2048', 'light.bloom': 0.9, 'light.beams': 1.2, 'display.grain': 0.2 } },
+    'water.simRes': '1024', 'water.fluidRes': '384', 'water.pressureIters': 24, 'water.waveCount': 12, 'water.parallax': true,
+    'light.shadowSteps': 40, 'light.shadowRes': '2048', 'light.bloom': 0.9, 'light.beams': 1.2, 'light.maxLights': 64,
+    'display.grain': 0.2, 'display.particles': 1 } },
   { id: 'balanced', label: 'Balanced', help: 'Defaults.', values: {
-    'water.simRes': '768', 'water.fluidRes': '256', 'light.shadowSteps': 28, 'light.shadowRes': '1024', 'light.bloom': 0.6 } },
-  { id: 'performance', label: 'Performance', help: 'Low-end GPUs and laptops.', values: {
-    'water.simRes': '384', 'water.fluidRes': '128', 'water.pressureIters': 8, 'light.shadowSteps': 12, 'light.shadowRes': '512', 'water.waveCount': 8, 'light.bloom': 0, 'light.maxLights': 24 } },
+    'water.simRes': '768', 'water.fluidRes': '256', 'water.pressureIters': 18, 'water.waveCount': 12, 'water.parallax': true,
+    'light.shadowSteps': 28, 'light.shadowRes': '1024', 'light.bloom': 0.6, 'light.beams': 0.8, 'light.maxLights': 48,
+    'display.grain': 0.15, 'display.particles': 1 } },
+  { id: 'performance', label: 'Performance', help: 'Low-end GPUs and laptops: small sims, flat water parallax, fewer particles.', values: {
+    'water.simRes': '384', 'water.fluidRes': '128', 'water.pressureIters': 8, 'water.waveCount': 8, 'water.parallax': false,
+    'light.shadowSteps': 12, 'light.shadowRes': '512', 'light.bloom': 0, 'light.beams': 0.8, 'light.maxLights': 24,
+    'display.grain': 0.15, 'display.particles': 0.6 } },
   { id: 'authentic', label: 'Authentic sim', help: 'Real-time, heavy handling, authentic ASDIC and manual torpedoes.', values: {
     'phys.tempo': 1, 'phys.handling': 'authentic', 'game.asdic': 'authentic', 'game.tdc': 'manual', 'game.duds': 0.15, 'game.autoDepth': false } },
   { id: 'arcade', label: 'Arcade', help: 'Fast, forgiving, 360° sonar pulses.', values: {

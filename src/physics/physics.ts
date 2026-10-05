@@ -22,6 +22,9 @@ export const GROUPS = {
   querySubs: groups(0xffff, G.SUB),
 };
 
+/** collider owner tag for static land */
+export const LAND = 'land';
+
 export interface ContactImpact { a: number; b: number; force: number; x: number; y: number; z: number }
 
 export class Physics {
@@ -53,6 +56,18 @@ export class Physics {
   }
 
   owner<T>(handle: number): T | undefined { return this.owners.get(handle) as T | undefined; }
+
+  /** static land: an upright cylinder (island) or a box (coastline strip) reaching well below the keel */
+  addLand(x: number, y: number, shape: { r: number } | { hx: number; hy: number }) {
+    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(x, y, 0));
+    const s = Math.SQRT1_2;
+    const desc = 'r' in shape
+      ? RAPIER.ColliderDesc.cylinder(40, shape.r).setRotation({ x: s, y: 0, z: 0, w: s })   // Rapier cylinders run along Y
+      : RAPIER.ColliderDesc.cuboid(shape.hx, shape.hy, 40);
+    const c = this.world.createCollider(desc.setCollisionGroups(GROUPS.land).setFriction(0.6).setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS), body);
+    this.owners.set(c.handle, LAND);
+    return body;
+  }
 
   remove(body: RAPIER.RigidBody) {
     for (let i = 0; i < body.numColliders(); i++) this.owners.delete(body.collider(i).handle);

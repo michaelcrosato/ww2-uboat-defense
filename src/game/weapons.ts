@@ -11,7 +11,7 @@ import type { Vessel, GunState } from './vessel';
 import { quatMul } from './vessel';
 import { GROUPS } from '../physics/physics';
 import { angleDiff, clamp, fx, qrot, quatFromYaw, wrapAngle, KNOT } from '../core/math';
-import { PK } from '../gfx/particles';
+import { PK } from '../render/materials';
 import { splashColumn, surfaceExplosion, underwaterBlast, muzzleFlash } from './effects';
 import { dev } from '../core/devSettings';
 import type { StackModel } from '../art/voxel';
@@ -53,7 +53,7 @@ export class Projectiles {
   private crateModels: Record<Rarity, StackModel>;
 
   constructor(private w: World) {
-    const A = w.renderer.atlas;
+    const A = w.scene.atlas;
     this.dcModel = A.add(depthChargeArt());
     this.torpModel = A.add(torpedoArt());
     this.boatModel = A.add(lifeboatArt());
@@ -91,7 +91,7 @@ export class Projectiles {
     if (star) el = Math.max(el, 0.5);
     const yaw = v.heading + g.aimYaw;
     const acc = g.spec.spread / v.stats.mul('gun_accuracy_pct');
-    const yawE = yaw + fx.gauss(0, acc), elE = el * (1 + fx.gauss(0, acc * 3));
+    const yawE = yaw + this.w.rng.gauss(0, acc), elE = el * (1 + this.w.rng.gauss(0, acc * 3));
     const vel = v.body.linvel();
     const cvx = Math.cos(yawE) * Math.cos(elE) * spd, cvy = Math.sin(yawE) * Math.cos(elE) * spd, cvz = Math.sin(elE) * spd;
     const flight = star ? Math.max(1.2, dist / (spd * Math.cos(elE))) : 0;
@@ -116,10 +116,10 @@ export class Projectiles {
     const vel = v.body.linvel();
     const L = v.cls.length;
     const sink = 2.6 * v.stats.mul('dc_sink_pct');
-    const dmg = 400 * v.stats.mul('dc_damage_pct') * dmgMul * (v.stats.has('ks_hunter_killer') ? 1.3 : 1);
+    const dmg = 500 * v.stats.mul('dc_damage_pct') * dmgMul * (v.stats.has('ks_hunter_killer') ? 1.3 : 1);
     const radius = 9 * v.stats.mul('dc_radius_pct');
     if (side === 'rail') {
-      const p = v.local(-L * 0.48, fx.range(-1.5, 1.5), v.cls.freeboard);
+      const p = v.local(-L * 0.48, this.w.rng.range(-1.5, 1.5), v.cls.freeboard);
       this.charges.push({ x: p.x, y: p.y, z: p.z, vx: vel.x * 0.9, vy: vel.y * 0.9, vz: 0.5, from: v, fuse: depth, kind: 'dc', damage: dmg, radius, wet: false, sink, alive: true, t: 0 });
     } else {
       const s = side === 'port' ? -1 : 1;
@@ -183,19 +183,19 @@ export class Projectiles {
     const L = v.cls.length;
     const h = v.heading + (opts.stern ? Math.PI : 0);
     const p = v.local((opts.stern ? -1 : 1) * L * 0.47, 0, -v.cls.draft * 0.55);
-    const kind = opts.kind ?? (spec.wake ? (this.w.year < 1942 || fx.next() < 0.5 ? 'steam' : 'electric') : 'electric');
+    const kind = opts.kind ?? (spec.wake ? (this.w.year < 1942 || this.w.rng.next() < 0.5 ? 'steam' : 'electric') : 'electric');
     const spd = spec.speedKn * KNOT * v.stats.mul('torpedo_speed_pct') * (kind === 'steam' ? 1.1 : kind === 'acoustic' ? 0.62 : 1);
     const dudChance = Math.max(0, dev.num('game.duds') - v.stats.get('torpedo_dud_reduction') / 100);
     this.torpedoes.push({
       id: torpedoIds++, x: p.x, y: p.y, z: Math.min(p.z, -2), heading: h, course, speed: spd, from: v,
       left: spec.range * v.stats.mul('torpedo_range_pct'), run: 0, kind,
       damage: spec.damage * v.stats.mul('torpedo_damage_pct') * (opts.damageMul ?? 1),
-      dud: fx.next() < dudChance, depth: opts.depth ?? 4, magnetic: this.w.year >= 1941, seek: kind === 'acoustic' ? 600 : 0,
+      dud: this.w.rng.next() < dudChance, depth: opts.depth ?? 4, magnetic: this.w.year >= 1941, seek: kind === 'acoustic' ? 600 : 0,
       alive: true, target: opts.target ?? null, split: false,
     });
     // compressed-air bubble burst at the tube
-    for (let i = 0; i < 12; i++) this.w.renderer.particles.spawn(PK.FOAMBIT, p.x + fx.range(-1, 1), p.y + fx.range(-1, 1), 0, fx.range(-1, 1), fx.range(-1, 1), fx.range(1, 3), 1.2, 0.5, [0.9, 0.95, 1]);
-    this.w.splats.push({ x: p.x, y: p.y, radius: 4, wave: -0.6, foam: 1.2, bio: 0.8, oil: 0, fire: 0, push: 1 });
+    for (let i = 0; i < 12; i++) this.w.scene.particles.spawn(PK.FOAMBIT, p.x + fx.range(-1, 1), p.y + fx.range(-1, 1), 0, fx.range(-1, 1), fx.range(-1, 1), fx.range(1, 3), 1.2, 0.5, [0.9, 0.95, 1]);
+    this.w.scene.splats.push({ x: p.x, y: p.y, radius: 4, wave: -0.6, foam: 1.2, bio: 0.8, oil: 0, fire: 0, push: 1 });
     this.w.emit('torpedoFired', { by: v, x: p.x, y: p.y });
     return true;
   }
@@ -221,20 +221,29 @@ export class Projectiles {
   callAircraft(v: Vessel, duration: number, bombs: number, sorties = 1, kind?: 'swordfish' | 'catalina' | 'liberator') {
     const w = this.w;
     for (let i = 0; i < Math.max(1, sorties); i++) {
-      const k = kind ?? (w.year >= 1943 && fx.next() < 0.4 ? 'liberator' : fx.next() < 0.5 ? 'catalina' : 'swordfish');
-      const a = fx.next() * Math.PI * 2;
+      const k = kind ?? (w.year >= 1943 && this.w.rng.next() < 0.4 ? 'liberator' : this.w.rng.next() < 0.5 ? 'catalina' : 'swordfish');
+      const a = this.w.rng.next() * Math.PI * 2;
       const x = v.pos.x + Math.cos(a) * 2500, y = v.pos.y + Math.sin(a) * 2500;
-      this.aircraft.push(new Aircraft(w, k, x, y, v.pos.x + fx.range(-300, 300), v.pos.y + fx.range(-300, 300), duration, bombs));
+      this.aircraft.push(new Aircraft(w, k, x, y, v.pos.x + this.w.rng.range(-300, 300), v.pos.y + this.w.rng.range(-300, 300), duration, bombs));
     }
+  }
+  /** a scheduled maritime patrol orbiting a moving point (the convoy) */
+  airPatrol(kind: 'swordfish' | 'catalina' | 'liberator', duration: number, anchor: () => { x: number; y: number }, from?: { x: number; y: number; z: number }) {
+    const c = anchor(), a = this.w.rng.next() * Math.PI * 2;
+    const ac = new Aircraft(this.w, kind, from ? from.x : c.x + Math.cos(a) * 3000, from ? from.y : c.y + Math.sin(a) * 3000, c.x, c.y, duration);
+    if (from) ac.z = from.z;   // flown off a carrier deck: climbs to patrol height
+    ac.anchor = anchor;
+    this.aircraft.push(ac);
+    return ac;
   }
   /** wolfpack reinforcements requested by the player's signal */
   reinforce(n: number) { this.w.emit('reinforce', { n }); }
 
   layLoot(x: number, y: number, item: Item) {
-    this.crates.push({ x: x + fx.range(-8, 8), y: y + fx.range(-8, 8), vx: fx.range(-0.4, 0.4), vy: fx.range(-0.4, 0.4), item, life: 600, phase: fx.next() * 6 });
+    this.crates.push({ x: x + this.w.rng.range(-8, 8), y: y + this.w.rng.range(-8, 8), vx: this.w.rng.range(-0.4, 0.4), vy: this.w.rng.range(-0.4, 0.4), item, life: 600, phase: this.w.rng.next() * 6 });
   }
   launchBoats(x: number, y: number, n: number, side: 'allied' | 'axis') {
-    for (let i = 0; i < n; i++) this.boats.push({ x: x + fx.range(-30, 30), y: y + fx.range(-30, 30), h: fx.range(0, 6.28), count: fx.int(6, 18), life: 900, side });
+    for (let i = 0; i < n; i++) this.boats.push({ x: x + this.w.rng.range(-30, 30), y: y + this.w.rng.range(-30, 30), h: this.w.rng.range(0, 6.28), count: this.w.rng.int(6, 18), life: 900, side });
   }
 
   // ------------------------------------------------------------------ simulation
@@ -388,7 +397,7 @@ export class Projectiles {
         underwaterBlast(w, hit.x, hit.y, 3, 1);
         if (t.from.stats.power('pow_battery_vamp') && t.from.sub) t.from.sub.battery = Math.min(1, t.from.sub.battery + t.from.stats.power('pow_battery_vamp') / 100);
         const split = t.from.stats.power('pow_split_torpedo');
-        if (split && !t.split && fx.next() < split / 100) {
+        if (split && !t.split && this.w.rng.next() < split / 100) {
           this.torpedoes.push({ ...t, id: torpedoIds++, x: t.x + Math.cos(t.heading) * 60, y: t.y + Math.sin(t.heading) * 60, alive: true, run: 121, left: 900, split: true, damage: t.damage * 0.6 });
         }
         continue;
@@ -429,7 +438,7 @@ export class Projectiles {
     for (const b of this.boats) {
       b.life -= dt;
       for (const v of w.vessels) {
-        if (!v.alive || v.kind !== 'escort' || v.side !== b.side) continue;
+        if (!v.alive || (v.kind !== 'escort' && v.cls.role !== 'rescue') || v.side !== b.side) continue;
         const d = Math.hypot(v.pos.x - b.x, v.pos.y - b.y);
         if (d < v.cls.length * 0.6 && Math.abs(v.hydro.fwdSpeed) < 2.2) {
           b.life = -1;
@@ -445,11 +454,11 @@ export class Projectiles {
   detonateCharge(c: Charge, depth: number) {
     const w = this.w;
     underwaterBlast(w, c.x, c.y, depth, 1);
-    this.blastNear(c.x, c.y, -depth, c.radius * 3.3, c.damage, 'dc', c.from, false, c.radius);
+    this.blastNear(c.x, c.y, -depth, c.radius * 4, c.damage, 'dc', c.from, false, c.radius);
     const chain = c.from.stats.power('pow_chain_charges');
-    if (chain && fx.next() < chain / 100) {
-      const a = fx.next() * Math.PI * 2;
-      this.charges.push({ ...c, x: c.x + Math.cos(a) * 14, y: c.y + Math.sin(a) * 14, z: c.z, fuse: depth + fx.range(-10, 15), alive: true, wet: true, t: 0, vx: 0, vy: 0, vz: 0 });
+    if (chain && this.w.rng.next() < chain / 100) {
+      const a = this.w.rng.next() * Math.PI * 2;
+      this.charges.push({ ...c, x: c.x + Math.cos(a) * 14, y: c.y + Math.sin(a) * 14, z: c.z, fuse: depth + this.w.rng.range(-10, 15), alive: true, wet: true, t: 0, vx: 0, vy: 0, vz: 0 });
     }
   }
 
@@ -478,41 +487,49 @@ export class Projectiles {
       const dx = p.x - x, dy = p.y - y, dz = p.z - z, dl = Math.hypot(dx, dy, dz) || 1;
       const imp = v.cls.displacement * 1000 * 0.35 * k;
       v.body.applyImpulse({ x: (dx / dl) * imp, y: (dy / dl) * imp, z: (dz / dl) * imp * 0.5 }, true);
-      v.body.applyTorqueImpulse({ x: fx.range(-1, 1) * imp * 4, y: fx.range(-1, 1) * imp * 8, z: fx.range(-1, 1) * imp * 4 }, true);
+      v.body.applyTorqueImpulse({ x: this.w.rng.range(-1, 1) * imp * 4, y: this.w.rng.range(-1, 1) * imp * 8, z: this.w.rng.range(-1, 1) * imp * 4 }, true);
     }
   }
 
   // ------------------------------------------------------------------ render submission
   submit(dt: number) {
-    const w = this.w, R = w.renderer, P = R.particles;
-    for (const s of this.shells) {
-      P.spawn(PK.TRACER, s.x, s.y, s.z, 0, 0, 0, dt * 1.5, s.caliber > 80 ? 0.9 : 0.6, [1, 0.8, 0.45]);
-      P.spawn(PK.TRACER, s.x - s.vx * dt * 0.5, s.y - s.vy * dt * 0.5, s.z - s.vz * dt * 0.5, 0, 0, 0, dt * 1.5, 0.5, [1, 0.6, 0.3]);
+    const w = this.w, R = w.scene, P = R.particles;
+    // tracers live one frame: none while paused (zero-life particles would never be removed)
+    // a short glowing streak behind each shell (about 0.05 s of flight), hot at the head; dots about
+    // every 1.6 m so the streak reads as a line rather than a dotted trail at normal zoom
+    for (const s of dt > 0 ? this.shells : []) {
+      const big = s.caliber > 80, sp = Math.hypot(s.vx, s.vy, s.vz);
+      const n = Math.min(big ? 28 : 20, Math.max(4, Math.round((sp * 0.05) / 1.6)));
+      for (let i = 0; i < n; i++) {
+        const t = (i / n) * 0.05;
+        P.spawn(PK.TRACER, s.x - s.vx * t, s.y - s.vy * t, s.z - s.vz * t, 0, 0, 0, dt * 1.5, (big ? 1.0 : 0.7) * (1 - i / n * 0.55), i < 2 ? [1, 0.9, 0.6] : [1, 0.6, 0.28]);
+      }
     }
     for (const c of this.charges) {
       if (c.t < 0) continue;
-      R.stacks.add({ model: this.dcModel, x: c.x, y: c.y, z: c.z, q: { x: 0, y: 0, z: 0, w: 1 } });
+      R.stacks.push({ model: this.dcModel, x: c.x, y: c.y, z: c.z, q: { x: 0, y: 0, z: 0, w: 1 } });
       if (c.wet && fx.next() < 0.3) P.spawn(PK.FOAMBIT, c.x, c.y, 0, 0, 0, 0.5, 0.6, 0.35, [0.8, 0.9, 1]);
     }
     for (const t of this.torpedoes) {
-      R.stacks.add({ model: this.torpModel, x: t.x, y: t.y, z: t.z, q: quatFromYaw(t.heading) });
+      R.stacks.push({ model: this.torpModel, x: t.x, y: t.y, z: t.z, q: quatFromYaw(t.heading) });
       const wakeVis = t.kind === 'steam' ? 1 * t.from.stats.mul('torpedo_wake_pct') : 0.08;
-      w.hulls.push({ x: t.x, y: t.y, fx: Math.cos(t.heading), fy: Math.sin(t.heading), halfLen: 3.5, halfBeam: 0.6, vx: Math.cos(t.heading) * t.speed, vy: Math.sin(t.heading) * t.speed, angVel: 0, thrust: 1, draft: 0, depth: t.depth, foam: wakeVis, oil: 0, fire: 0, kind: 1 });
+      w.scene.hulls.push({ x: t.x, y: t.y, fx: Math.cos(t.heading), fy: Math.sin(t.heading), halfLen: 3.5, halfBeam: 0.6, vx: Math.cos(t.heading) * t.speed, vy: Math.sin(t.heading) * t.speed, angVel: 0, thrust: 1, draft: 0, depth: t.depth, foam: wakeVis, oil: 0, fire: 0, kind: 1 });
     }
     for (const f of this.flares) {
       const k = Math.min(1, f.life / 3) * (0.85 + 0.15 * Math.sin(w.time * 23 + f.x));
-      P.spawn(PK.FLASH, f.x, f.y, f.z, 0, 0, 0, dt * 1.5, 1.2, [1, 1, 0.9]);
+      // one-frame flash; none while paused (a zero-life particle would never be updated or removed)
+      if (dt > 0) P.spawn(PK.FLASH, f.x, f.y, f.z, 0, 0, 0, dt * 1.5, 1.2, [1, 1, 0.9]);
       if (fx.next() < 0.3) P.spawn(PK.SMOKE, f.x, f.y, f.z + 1, 0, 0, 0.5, 4, 1.2, [0.7, 0.7, 0.7]);
       w.lights.add({ x: f.x, y: f.y, z: f.z, reach: f.radius, r: 1, g: 0.98, b: 0.88, intensity: f.intensity * k, shadow: true, beam: 0.6, priority: 4 });
     }
     for (const d of this.decoys) {
       if (d.kind === 'bold' && fx.next() < 0.6) P.spawn(PK.FOAMBIT, d.x + fx.range(-3, 3), d.y + fx.range(-3, 3), 0, 0, 0, 0.6, 1.0, 0.4, [0.85, 0.95, 1]);
-      if (d.kind === 'bold') w.hulls.push({ x: d.x, y: d.y, fx: 1, fy: 0, halfLen: 3, halfBeam: 3, vx: 0, vy: 0, angVel: 0, thrust: 0, draft: 0, depth: d.depth, foam: 0.4, oil: 0, fire: 0, kind: 2 });
+      if (d.kind === 'bold') w.scene.hulls.push({ x: d.x, y: d.y, fx: 1, fy: 0, halfLen: 3, halfBeam: 3, vx: 0, vy: 0, angVel: 0, thrust: 0, draft: 0, depth: d.depth, foam: 0.4, oil: 0, fire: 0, kind: 2 });
     }
     for (const c of this.crates) {
       const z = w.ocean.height(c.x, c.y) - 0.1;
       const roll = Math.sin(w.time * 1.3 + c.phase) * 0.15;
-      R.stacks.add({ model: this.crateModels[c.item.rarity], x: c.x, y: c.y, z, q: quatMul(quatFromYaw(c.phase), { x: Math.sin(roll / 2), y: 0, z: 0, w: Math.cos(roll / 2) }) });
+      R.stacks.push({ model: this.crateModels[c.item.rarity], x: c.x, y: c.y, z, q: quatMul(quatFromYaw(c.phase), { x: Math.sin(roll / 2), y: 0, z: 0, w: Math.cos(roll / 2) }) });
       const col = RARITY_BEAM[c.item.rarity];
       const pulse = 0.8 + 0.2 * Math.sin(w.time * 3 + c.phase);
       w.lights.add({ x: c.x, y: c.y, z: 3, reach: c.item.rarity === 'common' ? 18 : 34, r: col[0], g: col[1], b: col[2], intensity: (c.item.rarity === 'common' ? 0.6 : 1.6) * pulse, beam: c.item.rarity === 'common' ? 0 : 0.8, priority: 1 });
@@ -522,7 +539,7 @@ export class Projectiles {
     for (const b of this.boats) {
       b.x += Math.cos(b.h) * 0.3 * dt; b.y += Math.sin(b.h) * 0.3 * dt;
       const z = w.ocean.height(b.x, b.y);
-      R.stacks.add({ model: this.boatModel, x: b.x, y: b.y, z: z - 0.3, q: quatFromYaw(b.h), flags: 1 });
+      R.stacks.push({ model: this.boatModel, x: b.x, y: b.y, z: z - 0.3, q: quatFromYaw(b.h), flags: 1 });
       w.lights.add({ x: b.x, y: b.y, z: z + 1.5, reach: 14, r: 1, g: 0.6, b: 0.25, intensity: 0.8 + 0.3 * Math.sin(w.time * 5 + b.x) });
     }
     void qrot;

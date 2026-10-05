@@ -12,7 +12,7 @@
 import type { World } from './world';
 import type { Vessel } from './vessel';
 import type { Side } from './vesselClasses';
-import { angleDiff, clamp, fx, KNOT } from '../core/math';
+import { angleDiff, clamp, KNOT } from '../core/math';
 import { dev } from '../core/devSettings';
 
 export const SRC = { VISUAL: 1, ASDIC: 2, HYDRO: 4, RADAR: 8, HFDF: 16, AIR: 32, PERISCOPE: 64 } as const;
@@ -124,9 +124,9 @@ export class Sensors {
             if (tgt.stats.has('ks_night_surface') && env.darkness < 0.4 && tgt.sub?.surfaced) vis *= 1.3;
             const smoke = w.projectiles ? w.projectiles.smokeBetween(obs.pos.x, obs.pos.y, tgt.pos.x, tgt.pos.y) : 0;
             const range = Math.min(look * 1.6, vis * size) * (1 - smoke);
-            if (d < range || (d < range * 1.3 && fx.next() < 0.3)) {
+            if (d < range || (d < range * 1.3 && this.w.rng.next() < 0.3)) {
               this.markSeen(tgt, obs.side);
-              this.fix(obs.side, tgt, tgt.pos.x + fx.gauss(0, d * 0.01), tgt.pos.y + fx.gauss(0, d * 0.01), 4 + d * 0.015, obs.sub && obs.submerged ? SRC.PERISCOPE : SRC.VISUAL, tgt.sub ? (tgt.submerged ? tgt.depth : 0) : null);
+              this.fix(obs.side, tgt, tgt.pos.x + this.w.rng.gauss(0, d * 0.01), tgt.pos.y + this.w.rng.gauss(0, d * 0.01), 4 + d * 0.015, obs.sub && obs.submerged ? SRC.PERISCOPE : SRC.VISUAL, tgt.sub ? (tgt.submerged ? tgt.depth : 0) : null);
             }
           }
         }
@@ -137,7 +137,7 @@ export class Sensors {
           const surfaced = !tgt.sub || tgt.sub.surfaced;
           const scope = tgt.sub && tgt.atPeriscopeDepth && tgt.sub.periscope > 0.7;
           const r = surfaced ? R * (tgt.sub ? 0.6 : 1) : scope ? R * 0.18 : 0;
-          if (r > 0 && d < r && fx.next() < 0.85) this.fix(obs.side, tgt, tgt.pos.x + fx.gauss(0, 8 + d * 0.01), tgt.pos.y + fx.gauss(0, 8 + d * 0.01), 10 + d * 0.012, SRC.RADAR, tgt.sub ? 0 : null);
+          if (r > 0 && d < r && this.w.rng.next() < 0.85) this.fix(obs.side, tgt, tgt.pos.x + this.w.rng.gauss(0, 8 + d * 0.01), tgt.pos.y + this.w.rng.gauss(0, 8 + d * 0.01), 10 + d * 0.012, SRC.RADAR, tgt.sub ? 0 : null);
         }
         // ---- hydrophones (bearing only)
         const H = obs.cls.sensors.hydrophone;
@@ -146,9 +146,9 @@ export class Sensors {
           let R = H * obs.stats.mul('sonar_range_pct') * nf * hear * this.layerFactor(obs, tgt.sub ? tgt.keelDepth : 2) * (1 - w.ocean.params.seaState * 0.05);
           if (obs.stats.has('ks_silent_listener')) R *= 2;
           if (obs.sub && !obs.submerged) R *= 0.5;
-          if (d < R && fx.next() < 0.7) {
+          if (d < R && this.w.rng.next() < 0.7) {
             const errDeg = (2 + (d / R) * 7) / obs.stats.mul('sonar_accuracy_pct');
-            const brg = Math.atan2(dy, dx) + fx.gauss(0, errDeg * Math.PI / 180);
+            const brg = Math.atan2(dy, dx) + this.w.rng.gauss(0, errDeg * Math.PI / 180);
             this.bearing(obs.side, tgt, obs.pos.x, obs.pos.y, brg, errDeg * Math.PI / 180, SRC.HYDRO, d);
           }
         }
@@ -159,7 +159,7 @@ export class Sensors {
       if (w.time - tr.t > step + 0.01) continue;
       for (const obs of w.vessels) {
         if (!obs.alive || obs.side === tr.v.side || !obs.cls.sensors.hfdf || w.year < 1941) continue;
-        const brg = Math.atan2(tr.v.pos.y - obs.pos.y, tr.v.pos.x - obs.pos.x) + fx.gauss(0, 0.03);
+        const brg = Math.atan2(tr.v.pos.y - obs.pos.y, tr.v.pos.x - obs.pos.x) + this.w.rng.gauss(0, 0.03);
         this.bearing(obs.side, tr.v, obs.pos.x, obs.pos.y, brg, 0.035, SRC.HFDF, Math.hypot(tr.v.pos.x - obs.pos.x, tr.v.pos.y - obs.pos.y));
       }
     }
@@ -169,6 +169,8 @@ export class Sensors {
         const age = w.time - c.last;
         c.x += c.vx * step; c.y += c.vy * step;
         c.err += step * (2 + Math.hypot(c.vx, c.vy) * 0.6);
+        // without fresh fixes a submerged contact's course is a guess: stop extrapolating it
+        if (c.kind === 'sub' && age > 5) { const k = Math.exp(-step / 15); c.vx *= k; c.vy *= k; }
         c.lines = c.lines.filter((l) => w.time - l.t < 25);
         if (age > 110 || (c.truth && !c.truth.alive && age > 4)) this.contacts[side].delete(k);
       }
@@ -221,11 +223,15 @@ export class Sensors {
     const k1 = clamp(c.err / (c.err + err), 0.3, 1);
     const nx = c.x + (x - c.x) * k1, ny = c.y + (y - c.y) * k1;
     if (dt < 40 && src !== SRC.HYDRO) {
-      const kv = 0.35;
-      c.vx += ((nx - c.x) / dt - c.vx) * kv;
-      c.vy += ((ny - c.y) / dt - c.vy) * kv;
+      // noisy fixes a few seconds apart make a noisy velocity: smooth hard for submarines and cap at
+      // what the contact type can actually do (dead reckoning integrates this between fixes)
+      const sub = c.kind === 'sub';
+      const kv = sub ? 0.15 : 0.35, vmax = sub ? 9 : 18;
+      const vdt = Math.max(dt, 2);
+      c.vx += ((nx - c.x) / vdt - c.vx) * kv;
+      c.vy += ((ny - c.y) / vdt - c.vy) * kv;
       const sp = Math.hypot(c.vx, c.vy);
-      if (sp > 25) { c.vx *= 25 / sp; c.vy *= 25 / sp; }
+      if (sp > vmax) { c.vx *= vmax / sp; c.vy *= vmax / sp; }
     }
     c.x = nx; c.y = ny;
     c.err = Math.min(c.err, err) * 0.7 + err * 0.3;
@@ -252,7 +258,7 @@ export class Sensors {
     const line: BearingLine = { x: ox, y: oy, bearing: brg, err, t: now, src };
     if (!c) {
       // place the estimate along the bearing at a guessed range
-      const guess = clamp(trueDist * fx.range(0.6, 1.5), 300, 4000);
+      const guess = clamp(trueDist * this.w.rng.range(0.6, 1.5), 300, 4000);
       c = this.fix(side, t, ox + Math.cos(brg) * guess, oy + Math.sin(brg) * guess, Math.max(250, guess * 0.5), src, null);
       c.lines.push(line);
       return;
@@ -297,16 +303,16 @@ export class Sensors {
       if (Math.atan2(depth, d) > 0.42 && dev.str('game.asdic') !== 'arcade') return;
       const layer = this.layerFactor(v, depth);
       const p = 0.92 * (1 - Math.pow(d / (R * layer), 3)) * quench(tx, ty) * (0.55 + 0.45 * aspect);
-      if (fx.next() > p) return;
+      if (this.w.rng.next() > p) return;
       const errR = (6 + d * 0.025) / v.stats.mul('sonar_accuracy_pct');
-      const ex = tx + fx.gauss(0, errR), ey = ty + fx.gauss(0, errR);
+      const ex = tx + this.w.rng.gauss(0, errR), ey = ty + this.w.rng.gauss(0, errR);
       let dop = 0;
       if (target) {
         const tv = target.body.linvel(), ov = v.body.linvel();
         dop = -(((tv.x - ov.x) * dx + (tv.y - ov.y) * dy) / d);
       }
       out.push({ x: ex, y: ey, doppler: dop, target, decoy });
-      const depthKnown = w.year >= 1944 ? depth + fx.gauss(0, 8) : null;
+      const depthKnown = w.year >= 1944 ? depth + this.w.rng.gauss(0, 8) : null;
       if (target) this.fix(v.side, target, ex, ey, errR * 1.5, SRC.ASDIC, depthKnown);
       else this.fix(v.side, null, ex, ey, errR * 1.5, SRC.ASDIC, depthKnown, 900000 + Math.round(tx * 7 + ty), true);
       w.emit('echo', { by: v, x: ex, y: ey, doppler: dop, strength: p });
@@ -319,7 +325,8 @@ export class Sensors {
       const dd = Math.hypot(t.pos.x - v.pos.x, t.pos.y - v.pos.y);
       if (dd < R * 2.6) this.pingsHeard.push({ by: v, t: w.time, bearingFrom: Math.atan2(v.pos.y - t.pos.y, v.pos.x - t.pos.x), target: t });
     }
-    for (const d of w.projectiles?.decoys ?? []) if (d.kind === 'bold' && d.owner.side !== v.side) consider(d.x, d.y, d.depth, null, true, 1);
+    // pow_ghost_decoy: the owner's decoys return a stronger, more boat-like echo
+    for (const d of w.projectiles?.decoys ?? []) if (d.kind === 'bold' && d.owner.side !== v.side) consider(d.x, d.y, d.depth, null, true, 1 + d.owner.stats.power('pow_ghost_decoy') / 100);
     // auto-marking legendary: pinged targets take extra damage
     const mark = v.stats.power('pow_echo_marks');
     if (mark) for (const e of out) if (e.target) { e.target.pinned = 6; e.target.pinnedBonus = mark / 100; }

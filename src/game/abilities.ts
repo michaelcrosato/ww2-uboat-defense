@@ -6,7 +6,7 @@ import type { World } from './world';
 import type { Vessel } from './vessel';
 import type { AbilityId, AbilityState } from '../meta/types';
 import { ABILITIES, resolveAbility } from '../meta/abilities';
-import { clamp, fx, KNOT, DEG } from '../core/math';
+import { clamp, KNOT, DEG } from '../core/math';
 import { dev } from '../core/devSettings';
 import type { Wolfpack } from './ai/uboat';
 import { intercept } from './ai/uboat';
@@ -106,8 +106,8 @@ const HANDLERS: Partial<Record<AbilityId, Handler>> = {
     const n = Math.round(p.rockets ?? 4), R = p.radius_m ?? 700;
     c.v.starShellLife = (p.duration_s ?? 30) / 26;
     for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + fx.range(-0.3, 0.3);
-      c.world.projectiles.flares.push({ x: c.v.pos.x + Math.cos(a) * R * fx.range(0.4, 1), y: c.v.pos.y + Math.sin(a) * R * fx.range(0.4, 1), z: 140, life: p.duration_s ?? 30, max: p.duration_s ?? 30, radius: 340, intensity: 3.2 });
+      const a = (i / n) * Math.PI * 2 + c.world.rng.range(-0.3, 0.3);
+      c.world.projectiles.flares.push({ x: c.v.pos.x + Math.cos(a) * R * c.world.rng.range(0.4, 1), y: c.v.pos.y + Math.sin(a) * R * c.world.rng.range(0.4, 1), z: 140, life: p.duration_s ?? 30, max: p.duration_s ?? 30, radius: 340, intensity: 3.2 });
     }
     c.world.emit('starShell', { x: c.v.pos.x, y: c.v.pos.y });
     return true;
@@ -119,7 +119,7 @@ const HANDLERS: Partial<Record<AbilityId, Handler>> = {
       if (!u.alive || u.side === c.v.side || !u.sub) continue;
       const d = Math.hypot(u.pos.x - c.v.pos.x, u.pos.y - c.v.pos.y);
       if (d > 7000) continue;
-      const brg = Math.atan2(u.pos.y - c.v.pos.y, u.pos.x - c.v.pos.x) + fx.gauss(0, (p.accuracy_deg ?? 4) * DEG);
+      const brg = Math.atan2(u.pos.y - c.v.pos.y, u.pos.x - c.v.pos.x) + c.world.rng.gauss(0, (p.accuracy_deg ?? 4) * DEG);
       c.world.sensors.bearing(c.v.side, u, c.v.pos.x, c.v.pos.y, brg, (p.accuracy_deg ?? 4) * DEG, SRC.HFDF, d);
       n++;
     }
@@ -220,7 +220,7 @@ const HANDLERS: Partial<Record<AbilityId, Handler>> = {
   },
   aphrodite: (c, p) => {
     for (let i = 0; i < Math.round(p.decoys ?? 3); i++) {
-      c.world.projectiles.decoys.push({ x: c.v.pos.x + fx.range(-400, 400), y: c.v.pos.y + fx.range(-400, 400), depth: 0, life: p.duration_s ?? 60, kind: 'aphrodite', owner: c.v, strength: 1 });
+      c.world.projectiles.decoys.push({ x: c.v.pos.x + c.world.rng.range(-400, 400), y: c.v.pos.y + c.world.rng.range(-400, 400), depth: 0, life: p.duration_s ?? 60, kind: 'aphrodite', owner: c.v, strength: 1 });
     }
     return true;
   },
