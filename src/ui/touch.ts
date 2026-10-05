@@ -5,6 +5,7 @@
 import type { Shell } from './shell';
 import type { Action } from '../input/input';
 import { dev } from '../core/devSettings';
+import { ABILITIES } from '../meta/abilities';
 import { h } from './dom';
 
 const STICK_R = 56;
@@ -113,15 +114,22 @@ export class TouchOverlay {
     if (show !== this.shown) {
       this.shown = show;
       this.el.classList.toggle('hidden', !show);
+      // one ability bar on screen: these buttons replace the HUD's (too small for fingers on phones)
+      this.shell.app.hud.touchAbilities = show;
       if (!show) { const t = this.shell.app.input.touchAxes; t.x = t.y = 0; t.aiming = false; this.stickId = this.aimId = -1; }
     }
     if (!show) return;
-    // ability buttons mirror the loadout (empty slots hidden, cooldown dims)
+    // ability buttons mirror the loadout: glyph, cooldown seconds, charges (empty slots hidden)
     const pc = this.shell.app.player;
     if (pc) this.abilityBtns.forEach((b, i) => {
-      const id = pc.abilities.slots[i]?.id;
-      b.classList.toggle('hidden', !id);
-      b.classList.toggle('cool', !!id && !pc.abilities.ready(i));
+      const s = pc.abilities.slots[i];
+      b.classList.toggle('hidden', !s);
+      if (!s) return;
+      const cool = !pc.abilities.ready(i);
+      b.classList.toggle('cool', cool);
+      b.classList.toggle('active', s.active > 0);
+      const label = (s.cooldown > 0 && !dev.bool('game.noCooldowns') ? String(Math.ceil(s.cooldown)) : ABILITIES[s.id].glyph) + (s.charges !== null ? ` ·${s.charges}` : '');
+      if (b.textContent !== label) b.textContent = label;
     });
   }
 }

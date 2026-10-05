@@ -30,7 +30,7 @@ npm run typecheck           # tsc --noEmit (TypeScript 7, strict) — must pass 
 npm test                    # node --test src/meta/meta.test.ts (meta layer unit tests)
 npm run build               # typecheck + production build to dist/
 npm run probe:gpu           # confirms headless Chromium exposes WebGPU (it does, via SwiftShader)
-node tools/compare.mjs --hour 13      # WebGPU vs WebGL2 parity on the look-dev scene (exit 1 on mismatch, ~2 min)
+node tools/compare.mjs --hour 13      # WebGPU vs WebGL2 parity on the look-dev scene (optional now, see WebGPU-first; ~2 min)
 node tools/shot.mjs --url "/?hour=13" --wait 6000 --out check-output/x.png \
    [--eval "<js returning JSON>"] [--steps "key:KeyW:800,wait:500,click:640:360"] [--w 1280 --h 720]
 ```
@@ -48,7 +48,7 @@ controls|credits|pause|end` (+ `&tab=Lighting`) opens a screen directly; `window
 `?menu=port&faction=escort|uboat` opens the port for a side. Test hooks: `?dev.<key>=<v>` sets a
 dev setting without persisting it (e.g. `?dev.water.sim=false&dev.display.showFps=false`),
 `?fxseed=1` seeds the cosmetic RNG, `?freeze=1` renders without ever stepping world/sims/particles
-(camera settles at once), `?renderer=webgpu|webgl2|auto` picks the backend (`auto` = WebGL2 until M6).
+(camera settles at once), `?renderer=webgpu|webgl2|auto` picks the backend (`auto` = WebGPU, WebGL2 fallback).
 **Headless WebGPU needs `&gpupresent=readback`**: presenting to a canvas loses the device in headless
 SwiftShader, so without it WebGPU init fails its present probe and falls back to WebGL2. `?gpufail=1`
 forces the WebGPU init to fail (fallback test). `?scene=lookdev` builds the deterministic comparison scene
@@ -78,7 +78,8 @@ shows CPU ms, sim steps and per-pass GPU ms (timestamp queries) above the FPS. R
 ### Render pipeline (per frame; identical pass order in `src/render/webgpu/renderer.ts` and `src/render/webgl2/renderer.ts`)
 WebGPU is the default (`auto`), WebGL2 the fallback (init failure, canvas-present probe failure or runtime
 device loss → `fallbackToWebGL2`). Both read the same CPU-side uniforms (`render/common/*`) and packers
-(`render/pack.ts`); parity is checked by `tools/compare.mjs` (see Commands).
+(`render/pack.ts`); parity can be checked with `tools/compare.mjs` (see Commands), but WebGPU is the product
+target: see **WebGPU-first** under Coding conventions.
 1. Water sims: force raster (hull footprints + splats as instanced quads → 3 force textures) →
    wave equation (h,v) → stable fluids (velocity, pressure, vorticity) → dye advection
    (RGBA16F: foam, bioluminescence, oil, burning oil). WebGPU: compute kernels; WebGL2: fragment passes.
@@ -113,13 +114,16 @@ Events (`world.bus`): `sunk`, `damaged`, `torpedoFired`, `torpedoHit`, `ping`, `
   declared setting must actually be wired (see M11 audit).
 - `src/meta/*` must stay runnable by Node directly (type stripping): explicit `.ts` import
   extensions, no enums/namespaces/parameter properties; tests with `node --test src/meta/meta.test.ts`.
-- Shader changes must keep the WebGL2 and WebGPU versions in sync (same chunk names, same math).
+- **WebGPU-first** (user decision, M12): WebGPU is the target that matters. WebGL2 is a best-effort fallback:
+  keep it compiling and running (port shader changes when it is cheap, same chunk names), but don't spend time
+  on WebGL2 parity, visuals or performance; glitches or slower frames there are acceptable.
 - No real persons' names on items/characters; no Nazi political symbols. Hull numbers/class names are fine.
 
 ## Verification checklist (before every commit)
 1. `npm run typecheck` passes.
 2. A headless screenshot of the relevant scene(s) with 0 page errors, and you looked at it.
-3. For renderer work: screenshots with `?renderer=webgpu` AND `?renderer=webgl2` (once M2 lands).
+3. For renderer work: WebGPU screenshots (`?renderer=webgpu&gpupresent=readback`); one WebGL2 smoke shot with
+   0 page errors is enough (no WebGL2 parity work, see WebGPU-first).
 4. For gameplay work: `__app.fastForward(…)` run with a sensible message log.
 5. Commit message: imperative summary + bullet body, ending with the attribution lines required by
    the session (Co-Authored-By / Claude-Session) if your harness provides them.

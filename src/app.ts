@@ -97,6 +97,7 @@ export class App {
     this.endMission();
     this.hooks = hooks;
     this.lastStart = { overrides, hooks };
+    this.scene.atlas.reset();
     const m = new Mission(this.scene, arena, overrides, { spectator: hooks.spectator, enemyStats: hooks.enemyStats });
     this.mission = m;
     this.backend.resetSims();

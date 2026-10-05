@@ -14,7 +14,7 @@ export class Screen {
   /** whole-number scale from internal pixels to device pixels */
   S = 3;
   dpr = 1;
-  /** HUD pixels per internal pixel (display.hudScale) */
+  /** internal (game) pixels per HUD pixel: 1, or 1.33-2 with display.hudScale 2 (not always whole) */
   hudScale = 1;
   /** device pixel size of the drawing buffer */
   pw = 1; ph = 1;
@@ -75,12 +75,15 @@ export class Screen {
     this.S = S;
     this.W = Math.ceil(pw / S);
     this.H = Math.ceil(ph / S);
-    // the HUD canvas is internal resolution, stretched by CSS with pixelated sampling
-    // display.hudScale 2: the HUD buffer is half size and stretched, so the pixel font and panels double
-    const k = this.hudScale = Math.max(1, parseInt(this.cfg.str('display.hudScale')) || 1);
-    this.hud.width = Math.ceil(this.W / k); this.hud.height = Math.ceil(this.H / k);
-    this.hud.style.width = (this.hud.width * k * S) / dpr + 'px';
-    this.hud.style.height = (this.hud.height * k * S) / dpr + 'px';
+    // the HUD canvas has its own whole-number device-pixel scale, stretched by CSS with pixelated
+    // sampling: the game pixel normally; display.hudScale 2 takes one size up (about 1.33-1.5x text),
+    // which keeps the HUD buffer roomy enough for its panels (a flat 2x left only 320x180)
+    const large = (parseInt(this.cfg.str('display.hudScale')) || 1) >= 2;
+    const hp = large ? Math.max(S + 1, Math.round((S * 4) / 3)) : S;
+    this.hudScale = hp / S;
+    this.hud.width = Math.ceil(pw / hp); this.hud.height = Math.ceil(ph / hp);
+    this.hud.style.width = (this.hud.width * hp) / dpr + 'px';
+    this.hud.style.height = (this.hud.height * hp) / dpr + 'px';
     this.hudCtx.imageSmoothingEnabled = false;
     for (const f of this.listeners) f();
   }

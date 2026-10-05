@@ -41,7 +41,7 @@ export function treeTab(ctx: PortCtx): HTMLElement {
     }
     for (const n of tree.nodes) {
       const [x, y] = toScreen(n);
-      const r = KIND_R[n.kind] * Math.max(0.7, view.zoom * 1.4);
+      const r = KIND_R[n.kind] * Math.max(1, view.zoom * 1.4);
       const on = A.has(n.id), avail = !on && canAllocate(tree, c.tree, n.id);
       g.fillStyle = on ? KIND_COL[n.kind] : '#11171b';
       g.strokeStyle = on ? '#fff3d8' : avail ? KIND_COL[n.kind] : '#3a4850';
@@ -55,6 +55,39 @@ export function treeTab(ctx: PortCtx): HTMLElement {
         g.beginPath(); g.arc(x, y, r + 5, 0, Math.PI * 2); g.stroke();
       }
     }
+    drawMini(A);
+  };
+  // minimap (bottom-right): the whole tree, allocated paths, the visible area; click or drag to jump
+  const EXT = 860;
+  const mini = () => { const m = Math.round(Math.max(90, Math.min(150, Math.min(W, H) * 0.3))); return { x: W - m - 8, y: H - m - 8, m, s: (m - 10) / (EXT * 2) }; };
+  const drawMini = (A: Set<string>) => {
+    const M = mini(), cx = M.x + M.m / 2, cy = M.y + M.m / 2;
+    const P = (n: { x: number; y: number }) => [cx + n.x * M.s, cy + n.y * M.s];
+    g.fillStyle = 'rgba(8, 12, 15, 0.88)'; g.fillRect(M.x, M.y, M.m, M.m);
+    g.strokeStyle = '#3a4850'; g.lineWidth = 1; g.strokeRect(M.x + 0.5, M.y + 0.5, M.m - 1, M.m - 1);
+    for (const n of tree.nodes) for (const id of n.links) {
+      if (id < n.id || !A.has(n.id) || !A.has(id)) continue;
+      const [ax, ay] = P(n), [bx, by] = P(nodeById(tree, id)!);
+      g.strokeStyle = '#e0a040'; g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke();
+    }
+    for (const n of tree.nodes) {
+      const [x, y] = P(n), on = A.has(n.id), big = n.kind !== 'small' ? 3 : 2;
+      g.fillStyle = on ? KIND_COL[n.kind] : canAllocate(tree, c.tree, n.id) ? '#6c7a80' : '#2f3c44';
+      g.fillRect(Math.round(x - big / 2), Math.round(y - big / 2), big, big);
+    }
+    const hw = W / 2 / view.zoom, hh = H / 2 / view.zoom;
+    const [vx0, vy0] = P({ x: view.x - hw, y: view.y - hh }), [vx1, vy1] = P({ x: view.x + hw, y: view.y + hh });
+    g.save(); g.beginPath(); g.rect(M.x, M.y, M.m, M.m); g.clip();
+    g.strokeStyle = '#e8e2cf'; g.strokeRect(Math.round(vx0) + 0.5, Math.round(vy0) + 0.5, Math.round(vx1 - vx0), Math.round(vy1 - vy0));
+    g.restore();
+    const cur = nodeById(tree, view.cursor);
+    if (cur) { const [x, y] = P(cur); g.strokeStyle = '#e0a040'; g.beginPath(); g.arc(x, y, 4, 0, Math.PI * 2); g.stroke(); }
+  };
+  /** canvas point inside the minimap → tree coordinates (null outside it) */
+  const miniAt = (mx: number, my: number): { x: number; y: number } | null => {
+    const M = mini();
+    if (mx < M.x || my < M.y || mx > M.x + M.m || my > M.y + M.m) return null;
+    return { x: (mx - M.x - M.m / 2) / M.s, y: (my - M.y - M.m / 2) / M.s };
   };
   const describe = () => {
     const n = nodeById(tree, view.cursor)!;
@@ -98,7 +131,12 @@ export function treeTab(ctx: PortCtx): HTMLElement {
     refresh();
     return true;
   };
-  const wrap = nav(h('div', { class: 'tree-wrap', 'data-id': 'tree' }, canvas), { move: step, accept: () => toggle(view.cursor) });
+  // legend overlay (top-left of the canvas, so it shows in the narrow one-column layout too)
+  const KIND_LABEL: [TreeNode['kind'], string][] = [['start', 'Start'], ['small', 'Minor'], ['notable', 'Notable'], ['keystone', 'Keystone'], ['ability', 'Ability']];
+  const legend = h('div', { class: 'tree-legend' },
+    KIND_LABEL.map(([k, l]) => h('span', { class: 'tl-item' }, h('i', { class: 'tl-dot ' + k, style: `--kc:${KIND_COL[k]}` }), l)),
+    h('div', { class: 'dim' }, 'filled = allocated · bright ring = can allocate'));
+  const wrap = nav(h('div', { class: 'tree-wrap', 'data-id': 'tree' }, canvas, legend), { move: step, accept: () => toggle(view.cursor) });
 
   // mouse: hover picks, click toggles, right-click refunds, drag pans, wheel zooms
   const pick = (e: PointerEvent | MouseEvent): TreeNode | null => {
@@ -109,8 +147,16 @@ export function treeTab(ctx: PortCtx): HTMLElement {
     return best;
   };
   let drag: { x: number; y: number; moved: boolean } | null = null;
-  canvas.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, moved: false }; canvas.setPointerCapture(e.pointerId); });
+  let miniDrag = false;
+  const local = (e: PointerEvent) => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  const jump = (e: PointerEvent) => { const [mx, my] = local(e), t = miniAt(mx, my); if (t) { view.x = t.x; view.y = t.y; draw(); } return !!t; };
+  canvas.addEventListener('pointerdown', (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    if (e.button === 0 && jump(e)) { miniDrag = true; return; }
+    drag = { x: e.clientX, y: e.clientY, moved: false };
+  });
   canvas.addEventListener('pointermove', (e) => {
+    if (miniDrag) { if (e.buttons & 1) jump(e); return; }
     if (drag && (e.buttons & 1)) {
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
@@ -121,6 +167,7 @@ export function treeTab(ctx: PortCtx): HTMLElement {
     if (n && n.id !== view.cursor) { view.cursor = n.id; refresh(); }
   });
   canvas.addEventListener('pointerup', (e) => {
+    if (miniDrag) { miniDrag = false; return; }
     const d = drag; drag = null;
     if (!d || d.moved) return;
     const n = pick(e);
@@ -149,6 +196,6 @@ export function treeTab(ctx: PortCtx): HTMLElement {
   };
   requestAnimationFrame(pan);
   describe();
-  ctx.setHelp('Arrows / d-pad walk the tree, accept allocates or refunds. Mouse: drag to pan, wheel to zoom, right-click refunds.');
+  ctx.setHelp('Arrows / d-pad walk the tree, accept allocates or refunds. Mouse: drag to pan, wheel to zoom, right-click refunds, click the minimap to jump.');
   return h('div', { class: 'tree-tab' }, wrap, h('div', { class: 'tree-side' }, points, info));
 }

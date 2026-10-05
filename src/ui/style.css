@@ -17,7 +17,9 @@
   --rarity-legendary: #ff8c2a;
   --rarity-unique: #c9a46a;
   --font: 'Courier Prime', 'Courier New', Courier, ui-monospace, monospace;
-  --font-head: 'Impact', 'Haettenschweiler', 'Arial Narrow Bold', 'Franklin Gothic Medium', sans-serif;
+  /* Impact ships with Windows and macOS; the narrow faces after it are common on Linux desktops */
+  --font-head: 'Impact', 'Haettenschweiler', 'Arial Narrow Bold', 'Franklin Gothic Medium', 'Oswald', 'League Gothic',
+    'Liberation Sans Narrow', 'Nimbus Sans Narrow', 'DejaVu Sans Condensed', sans-serif;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: #070a0e; color: var(--ink); overflow: hidden; font-family: var(--font); }
@@ -175,6 +177,8 @@ body { -webkit-user-select: none; user-select: none; touch-action: none; overscr
 .t-btn { width: 54px; height: 54px; border-radius: 50%; border: 2px solid rgba(232, 226, 207, 0.45); background: rgba(10, 16, 20, 0.45); color: var(--ink); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; user-select: none; }
 .t-btn.down { background: rgba(224, 160, 64, 0.5); }
 .t-btn.cool { opacity: 0.4; }
+.t-btn.active { border-color: #8ad89a; }
+.t-btn.ab { font-size: 18px; }
 .t-btn.small { width: 40px; height: 40px; font-size: 11px; }
 .t-abilities { position: absolute; right: 12px; bottom: 84px; display: grid; grid-template-columns: repeat(3, 54px); gap: 8px; }
 .t-actions { position: absolute; right: 12px; bottom: 16px; display: flex; gap: 8px; }
@@ -259,6 +263,12 @@ body { -webkit-user-select: none; user-select: none; touch-action: none; overscr
 .tn-name.keystone { color: var(--accent); }
 .tn-name.notable { color: var(--allied); }
 .tn-desc { color: #e8c890; }
+.tree-legend { position: absolute; left: 6px; top: 6px; width: max-content; max-width: calc(100% - 12px); pointer-events: none; background: rgba(8, 12, 15, 0.82); border: 1px solid var(--steel-3); padding: 3px 7px; display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 11px; }
+.tree-legend .dim { flex-basis: 100%; }
+.tl-item { display: inline-flex; align-items: center; gap: 5px; }
+.tl-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--kc); border: 1px solid #fff3d8; }
+.tl-dot.small { width: 7px; height: 7px; }
+.tl-dot.keystone { border-radius: 0; transform: rotate(45deg); width: 9px; height: 9px; }
 
 .abilities { display: grid; grid-template-columns: minmax(240px, 1fr) 1.2fr; gap: 14px; }
 .ab-list { display: flex; flex-direction: column; gap: 2px; }
@@ -303,7 +313,12 @@ body { -webkit-user-select: none; user-select: none; touch-action: none; overscr
   .yard { grid-template-columns: 1fr; }
   .comp { grid-template-columns: 90px 1fr auto; }
   .comp-bonus { display: none; }
-  .tree-tab { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+  .tree-tab { grid-template-columns: 1fr 210px; gap: 8px; }
+  .tree-side { font-size: 12px; overflow: auto; }
   .abilities { grid-template-columns: 1fr 1fr; }
   .contracts { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 640px) {
+  .tree-tab { grid-template-columns: 1fr; grid-template-rows: minmax(170px, 1fr) auto; }
+  .tree-wrap { min-height: 170px; }
 }

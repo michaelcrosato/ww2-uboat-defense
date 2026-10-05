@@ -37,6 +37,11 @@ export class Hud {
   fps = 60;
   private fpsAcc = 0; private fpsN = 0;
   showPlot = true;
+  /** the touch overlay shows finger-sized ability buttons instead of the canvas bar */
+  touchAbilities = false;
+  /** this frame's layout: right edge of the status panel (+ depth gauge) and of the ability bar */
+  private statusRight = 0;
+  private barRight = 0;
   tactical = false;
   /** active renderer (perf line + backend name next to the FPS) */
   backend: RenderBackend | null = null;
@@ -68,6 +73,7 @@ export class Hud {
     this.fpsAcc += realDt; this.fpsN++;
     if (this.fpsAcc > 0.5) { this.fps = this.fpsN / this.fpsAcc; this.fpsAcc = 0; this.fpsN = 0; }
     const w = m.world, v = w.player;
+    this.statusRight = this.barRight = 0;
     this.weather.drawRain(g, w, W, H, realDt);
     this.worldOverlays(g, m, pc);
     this.debugOverlays(g, m);
@@ -81,7 +87,11 @@ export class Hud {
     // time compression + fps
     const ts = pc.timeScale;
     if (ts > 1) drawText(g, `TIME x${ts}`, W / 2, 30, C.warn, { align: 'center' });
-    if (dev.bool('display.showFps')) drawText(g, `${Math.round(this.fps)} fps ${this.backend ? backendLabel(this.backend.info) : ''}`.trimEnd(), W - 4, H - 10, C.dim, { align: 'right' });
+    if (dev.bool('display.showFps')) {
+      const t = `${Math.round(this.fps)} fps ${this.backend ? backendLabel(this.backend.info) : ''}`.trimEnd();
+      // above the ability bar when a narrow (large-text) HUD would put them on the same row
+      drawText(g, t, W - 4, W - 4 - textWidth(t) < this.barRight + 6 ? H - 48 : H - 10, C.dim, { align: 'right' });
+    }
     if (dev.bool('debug.perf') && this.backend) {
       // short right-aligned lines under the chart: clear of the status panel, ability bar and messages
       const R = this.backend.stats, P = this.perf;
@@ -318,6 +328,7 @@ export class Hud {
 
   private drawStatus(g: CanvasRenderingContext2D, v: Vessel, pc: PlayerControl, H: number) {
     const x = 4, h = v.sub ? 92 : 78, y = H - h - 4, w = 164;
+    this.statusRight = x + w + (v.sub ? 22 : 0);
     panel(g, x, y, w, h);
     drawText(g, v.name, x + 4, y + 4, v.side === 'allied' ? C.allied : C.axis);
     drawText(g, v.cls.name, x + 4, y + 13, C.dim);
@@ -385,10 +396,12 @@ export class Hud {
   private drawAbilities(g: CanvasRenderingContext2D, pc: PlayerControl, W: number, H: number) {
     const slots = pc.abilities.slots;
     const n = slots.length;
-    if (!n) return;
+    if (!n || this.touchAbilities) return;
     const sz = 22, gap = 3;
     const total = n * sz + (n - 1) * gap;
-    const x0 = Math.round(W / 2 - total / 2), y = H - sz - 14;
+    // centred, but stepping right of the status panel when the HUD is narrow (large HUD text)
+    const x0 = Math.max(Math.round(W / 2 - total / 2), this.statusRight + 8), y = H - sz - 14;
+    this.barRight = x0 + total;
     const keys = ['ability1', 'ability2', 'ability3', 'ability4', 'ability5', 'ability6'] as const;
     slots.forEach((s, i) => {
       const x = x0 + i * (sz + gap);

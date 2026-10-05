@@ -217,11 +217,15 @@ export class Mission {
     this.hookEvents();
   }
 
-  /** a coastline along the northern edge, chunked so it fits the slice atlas */
+  /**
+   * A coastline along the northern edge in 900 m chunks. Four chunk models are reused along the shore:
+   * one model per chunk filled most of the slice atlas on wide arenas (and overflowed it once the
+   * M12 ship classes were added); a repeat every 3.6 km is never on screen at once.
+   */
   private buildCoast(scene: RenderScene, L: number) {
     const w = this.world, chunk = 900, depth = 160, y = -Math.max(1300, L * 0.22) - depth / 2;
     for (let x = w.bounds.x0 - chunk / 2, i = 0; x < w.bounds.x1 + chunk; x += chunk, i++) {
-      w.scenery.push({ x, y, z: 0, model: scene.atlas.add(coastArt(i, chunk, depth)) });
+      w.scenery.push({ x, y, z: 0, model: scene.atlas.add(coastArt(i % 4, chunk, depth)) });
       w.physics.addLand(x, y - 10, { hx: chunk / 2, hy: depth / 2 - 20 });
       // town glow: a few strong warm lights per chunk
       for (let k = 0; k < 4; k++) w.shoreLights.push({ x: x + (k / 4 - 0.4) * chunk + w.rng.range(-60, 60), y: y - 20 + w.rng.range(-30, 20), z: 10, reach: 200, r: 1, g: 0.72, b: 0.42, intensity: 0.9, priority: 1 });
