@@ -10,6 +10,7 @@ import { fx } from './core/math';
 import { Screen } from './render/screen';
 import { createBackend, parseBackendPref } from './render/backend';
 import { Shell, type MenuId } from './ui/shell';
+import { showFatal } from './ui/dom';
 
 const urlValue = (v: string): number | string | boolean =>
   v === 'true' ? true : v === 'false' ? false : isFinite(Number(v)) && v.trim() !== '' ? Number(v) : v;
@@ -26,7 +27,8 @@ async function boot() {
     for (const [k, v] of params) if (k.startsWith('dev.')) dev.set(k.slice(4), urlValue(v), false);
     const screen = new Screen(document.getElementById('stage')!, dev);
     const backend = await createBackend(screen, parseBackendPref(params.get('renderer') ?? dev.str('display.renderer')),
-      { gpuFail: params.get('gpufail') === '1', gpuReadback: params.get('gpupresent') === 'readback', testPattern: params.get('testpattern') === '1' });
+      { gpuFail: params.get('gpufail') === '1', gpuReadback: params.get('gpupresent') === 'readback', testPattern: params.get('testpattern') === '1',
+        glFail: params.get('glfail') === '1', gpuLose: Number(params.get('gpulose')) || 0 });
     const app = new App(screen, backend);
     app.frozen = params.get('freeze') === '1';
     const overrides: Record<string, number | string | boolean> = {};
@@ -49,7 +51,7 @@ async function boot() {
     document.getElementById('boot')!.classList.add('gone');
   } catch (e) {
     console.error(e);
-    msg.innerHTML = `<div class="boot-err">${String((e as Error).message ?? e)}</div>`;
+    showFatal(String((e as Error).message ?? e));
   }
 }
 

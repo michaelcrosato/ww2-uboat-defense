@@ -1,6 +1,6 @@
 // Headless screenshot + console check.
 //   node tools/shot.mjs [--url /?scene=x] [--wait 4000] [--out check-output/shot.png] [--w 1280 --h 720]
-//                       [--eval "js run in page before shot"] [--steps "key:KeyW:2000,wait:500"]
+//                       [--eval "js run in page before shot"] [--steps "key:KeyW:2000,wait:500"] [--init "js"]
 //                       (steps: wait:ms, key:Code:ms, press:Code, click:x:y, move:x:y, eval:js, until:js[:timeoutMs];
 //                        js is URI-decoded, so encode commas/colons, e.g. until:window.__lookdevDone)
 // Starts Vite in-process, opens Chromium (SwiftShader WebGL2), prints console errors, saves PNG.
@@ -28,6 +28,9 @@ const browser = await chromium.launch({
   args: ['--enable-unsafe-webgpu', '--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist', '--enable-webgl'],
 });
 const page = await browser.newPage({ viewport: { width: W, height: H } });
+// --init: script run in the page before any of its own code (e.g. make localStorage throw)
+const initJs = opt('init', '');
+if (initJs) await page.addInitScript(initJs);
 const errors = [];
 page.on('console', (m) => {
   const t = m.text();

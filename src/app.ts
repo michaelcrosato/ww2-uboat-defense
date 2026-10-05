@@ -8,6 +8,7 @@ import type { RenderBackend } from './render/types';
 import { fallbackToWebGL2 } from './render/backend';
 import { Input } from './input/input';
 import { Hud } from './ui/hud';
+import { showFatal } from './ui/dom';
 import { Mission } from './game/mission';
 import { PlayerControl } from './game/player';
 import { dev } from './core/devSettings';
@@ -189,7 +190,12 @@ export class App {
   private switchToWebGL2(reason: string) {
     console.warn(`renderer: ${reason}; switching to WebGL2`);
     try { this.backend.dispose(); } catch { /* already gone */ }
-    this.backend = fallbackToWebGL2(this.screen);
+    try { this.backend = fallbackToWebGL2(this.screen); } catch (e) {
+      // nothing left to draw with: stop the loop and say so instead of throwing every frame
+      this.stopped = true;
+      showFatal(String((e as Error).message ?? e));
+      return;
+    }
     this.hud.backend = this.backend;
     this.backend.resetSims();
     this.mission?.world.emit('message', { text: 'Renderer switched to WebGL2', kind: 'alert' });

@@ -280,3 +280,12 @@ export class Ui {
     this.focus(f, false);
   }
 }
+
+/** bring the boot screen back with an error message (set as text: messages can echo URL parameters) */
+export function showFatal(text: string) {
+  const err = document.createElement('div');
+  err.className = 'boot-err';
+  err.textContent = text;
+  document.getElementById('boot-msg')?.replaceChildren(err);
+  document.getElementById('boot')?.classList.remove('gone');
+}
