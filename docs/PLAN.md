@@ -28,6 +28,7 @@ and running, but WebGL2 parity, visuals and performance are no longer verified o
 | M12 | Visual polish, ship art expansion, performance | DONE | [M12](milestones/M12-visual-polish.md) |
 | M13 | Final QA, README, PR ready for review | DONE | [M13](milestones/M13-qa-release.md) |
 | M14 | Playtest fixes: capsizing U-boats, bearing-line clutter, tutorial for both sides | DONE | [M14](milestones/M14-playtest-fixes.md) |
+| M15 | Mobile: fullscreen game mode, portrait 9:16, touch layout and assists, swipeable toasts, night outline | DONE | [M15](milestones/M15-mobile.md) |
 
 Order matters for M1→M6 (renderer). M7 and M8 are independent of the renderer and may be done
 before M1 if preferred; M9 needs nothing else; M10 needs M7 + M9; M11 needs M10; M12/M13 last.
@@ -84,6 +85,11 @@ on any failure or later device loss. The active backend shows in the FPS overlay
 - 2026-10 (M14, after the first live playtest): the HUD draws only the player's own hydrophone bearings by
   default (ticks on a ring around the boat + a ray to the aimed contact); the full every-listener picture is
   the `all` option of `display.bearings`. New captains are steered to a guided tutorial from the title screen.
+- 2026-10 (M15, user playtest on a phone): touch is its own layout, not a copy of the desktop one (desktop stays
+  primary and unchanged). Portrait 9:16 is the main phone orientation; missions go fullscreen in the held
+  orientation and the back gesture pauses. What needs mouse precision is automated on touch
+  (`controls.autoAttack` touch by default: target picking, auto guns and pings, charge depths from the plot).
+  The player's own hull is outlined after dark on every platform (`display.nightOutline`).
 
 ## Known issues (keep this list current)
 - Arctic pack ice is visual only (ragged floes since M12, but no drag or collisions for ships).
@@ -94,10 +100,15 @@ on any failure or later device loss. The active backend shows in the FPS overlay
 - The HUD FPS readout sums capped frame times (≤ 0.1 s), so below 10 fps it still shows 10 (headless runs).
 - Default night scenes (23:00, full moon) are busy with moon glitter around the boat; an art call for the user.
 - The tutorial's gamepad and touch prompts were checked on screen only (no hardware), like the rest of the pad/touch UI.
+- Touch play (M15) was tested with Chromium's phone emulation and CDP touch events (tap, swipe, hold, pinch)
+  at six phone and tablet sizes, never on a real device. iOS Safari has no element fullscreen or orientation
+  lock (Add to Home Screen gives the chrome-less app), and its edge-swipe back is untested.
+- The touch assists (auto guns, auto pings, FIRE picking the target) are untuned by playtests; they make the
+  escort side easier on touch than with a mouse. `controls.touch` auto also shows the touch layout on
+  touch-screen laptops (Settings → Controls → Touch controls: Off).
 - Headless runs simulate only ~2–5 s of game time per 15 s real time (WebGPU gets further than WebGL2), so
   live screenshots differ in particle counts / wake age; use `?scene=lookdev` / `tools/compare.mjs` for parity.
-- Menus: gamepad navigation is code-complete but untested on hardware (headless cannot simulate pads); the
-  touch overlay was only checked visually with `?dev.controls.touch=on` (no real touch device).
+- Menus: gamepad navigation is code-complete but untested on hardware (headless cannot simulate pads).
 - The headline font (`--font-head`: Impact…, Linux narrow faces since M12) is not installed headless, so
   screenshots show the sans fallback; a bundled stencil webfont would need the user's OK (asset).
 - Crates still afloat when a contract ends are recovered automatically if the ship survived (keeps
@@ -113,7 +124,5 @@ on any failure or later device loss. The active backend shows in the FPS overlay
 - Only fast-forwards from a `?freeze=1` start are reproducible; live play depends on frame timing and input.
 - `ai.openingGrace` (75 s) keeps AI U-boats from firing at the start; with an idle player the first attacks
   now come after ~3 min. Tune with playtests (U-boat AI pacing in general has only had headless testing).
-- Phones must be held in landscape for missions (a portrait viewport with the touch overlay holds the
-  mission behind a "turn sideways" notice; the HUD needs the width). Menus and the port work in portrait.
 - A new U-boat captain who doesn't dive is sunk within 5–11 minutes in the arena (starts surfaced at half ahead
   toward the convoy); the tutorial now teaches diving and going deep, the arena opening is unchanged.

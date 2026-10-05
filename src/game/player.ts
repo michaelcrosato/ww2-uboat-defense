@@ -11,6 +11,7 @@ import { AbilityRunner, aimCourse, type AbilityCtx } from './abilities';
 import { angleDiff, clamp, damp, KNOT, wrapAngle } from '../core/math';
 import { dev } from '../core/devSettings';
 import { intercept } from './ai/uboat';
+import { Assist } from './assist';
 
 export const CHARGE_DEPTHS = [25, 45, 70, 100, 140, 190];
 export const TIME_STEPS = [1, 2, 4, 8, 16];
@@ -29,14 +30,22 @@ export class PlayerControl {
   solution: { heading: number; tx: number; ty: number; t: number } | null = null;
   lastRudderInput = 0;
   private holdFire = 0;
+  /** the touch controls are in charge (set by the touch overlay every frame) */
+  mobile = false;
+  /** touch: charge depth follows the plot instead of chargeDepthIdx */
+  chargeDepthAuto = true;
+  /** touch-play helpers: target picking, auto attack, context actions */
+  readonly assist: Assist;
+  private autoPingT = 0;
 
   constructor(private m: Mission, private input: Input, private cam: Camera) {
     this.abilities = new AbilityRunner(m.world.player!);
+    this.assist = new Assist(m, this);
   }
 
   get v(): Vessel | null { return this.m.world.player; }
   get timeScale() { return TIME_STEPS[this.timeIdx]; }
-  get chargeDepth() { return CHARGE_DEPTHS[this.chargeDepthIdx]; }
+  get chargeDepth() { return this.mobile && this.chargeDepthAuto ? Math.round(this.assist.chargeDepth() / 5) * 5 : CHARGE_DEPTHS[this.chargeDepthIdx]; }
 
   ctx(): AbilityCtx {
     return { world: this.m.world, v: this.v!, aimX: this.aimX, aimY: this.aimY, chargeDepth: this.chargeDepth, pack: this.m.pack, target: this.target };
@@ -72,6 +81,10 @@ export class PlayerControl {
         for (const c of w.sensors.list(v.side)) { const d = Math.hypot(c.x - this.aimX, c.y - this.aimY); if (d < bd && w.time - c.last < 20) { bd = d; best = c; } }
         if (best) { this.aimX += (best.x - this.aimX) * assist * 0.6; this.aimY += (best.y - this.aimY) * assist * 0.6; }
       }
+    } else if (this.mobile) {
+      // touch: a dragging finger aims; otherwise the reticle rides the locked target or stays put
+      if (inp.touchAxes.aiming) { const [wx, wy] = this.cam.toWorld(inp.mx, inp.my, 0); this.aimX = wx; this.aimY = wy; }
+      else if (this.target?.alive) { const p = this.assist.posOf(this.target); if (p) { this.aimX = p.x; this.aimY = p.y; } }
     } else {
       const [wx, wy] = this.cam.toWorld(inp.mx, inp.my, 0);
       this.aimX = wx; this.aimY = wy;
@@ -82,8 +95,12 @@ export class PlayerControl {
     const scheme = dev.str('controls.scheme');
     const [mx, my] = inp.moveAxes();
     const padSteer = inp.usingPad && (Math.abs(inp.lx) + Math.abs(inp.ly) > 0);
-    // touch steering is a virtual stick, so it always steers directly
-    if (scheme === 'direct' || inp.device === 'touch' || (padSteer && scheme === 'direct')) {
+    if (this.mobile) {
+      // touch: the stick points the course, which holds when the thumb lifts; the throttle sets the telegraph
+      const t = inp.touchAxes;
+      if (Math.hypot(t.x, t.y) > 0.3) v.course = Math.atan2(t.y, t.x);
+    } else if (scheme === 'direct' || inp.device === 'touch' || (padSteer && scheme === 'direct')) {
+      // a touch stick without the touch controls (controls.touch off) still steers directly
       if (Math.abs(mx) + Math.abs(my) > 0.1) {
         v.course = Math.atan2(my, mx);
         v.speedCmd = clamp(Math.hypot(mx, my), 0, 1);
@@ -133,22 +150,25 @@ export class PlayerControl {
     // charge depth setting
     if (inp.pressed('depthUp')) this.chargeDepthIdx = Math.max(0, this.chargeDepthIdx - 1);
     if (inp.pressed('depthDown')) this.chargeDepthIdx = Math.min(CHARGE_DEPTHS.length - 1, this.chargeDepthIdx + 1);
-    // guns: every turret that bears tracks the aim point; hold fire to shoot
-    const firing = inp.down('fire') || inp.r2 > 0.35;
+    // guns: every turret that bears tracks the aim point; hold fire to shoot (auto attack: the guns pick
+    // a visible surfaced U-boat themselves)
+    const auto = this.assist.enabled && this.assist.gunsAuto ? this.assist.gunTarget() : null;
+    const firing = inp.down('fire') || inp.r2 > 0.35 || !!auto;
+    const gx = auto ? auto.pos.x : this.aimX, gy = auto ? auto.pos.y : this.aimY;
     for (const g of v.guns) {
-      const on = P.aimGun(v, g, this.aimX, this.aimY, dt);
-      if (firing && on && g.reload <= 0) P.fireGun(v, g, this.aimX, this.aimY);
+      const on = P.aimGun(v, g, gx, gy, dt);
+      if (firing && on && g.reload <= 0) P.fireGun(v, g, gx, gy);
     }
     if (inp.pressed('charge')) P.dropCharge(v, 'rail', this.chargeDepth);
     if (inp.pressed('chargePort')) P.dropCharge(v, 'port', this.chargeDepth);
     if (inp.pressed('chargeStbd')) P.dropCharge(v, 'stbd', this.chargeDepth);
-    // manual ASDIC ping toward the aim point
+    // manual ASDIC ping toward the aim point; auto attack keeps a fresh contact in the beam
     this.pingCd -= dt * this.timeScale;
-    if (inp.pressed('ping') && this.pingCd <= 0) {
-      const brg = Math.atan2(this.aimY - v.pos.y, this.aimX - v.pos.x);
-      const arc = dev.str('game.asdic') === 'arcade' ? Math.PI * 2 : 16 * Math.PI / 180;
-      w.sensors.ping(v, brg, arc);
-      this.pingCd = 2.2 / v.stats.mul('ping_rate_pct');
+    this.autoPingT -= dt * this.timeScale;
+    if (inp.pressed('ping') && this.pingCd <= 0) this.ping(Math.atan2(this.aimY - v.pos.y, this.aimX - v.pos.x));
+    if (this.assist.enabled && this.pingCd <= 0 && this.autoPingT <= 0) {
+      const brg = this.assist.autoPingBearing();
+      if (brg !== null) { this.ping(brg); this.autoPingT = 3; }
     }
     // searchlight
     if (inp.pressed('searchlight') && !v.stats.has('ks_star_gazer')) v.searchlightOn = !v.searchlightOn;
@@ -165,6 +185,34 @@ export class PlayerControl {
     if (v.revealUntil > w.time) void 0;
   }
   private pingCd = 0;
+  private ping(brg: number) {
+    const v = this.v!, arc = dev.str('game.asdic') === 'arcade' ? Math.PI * 2 : 16 * Math.PI / 180;
+    this.m.world.sensors.ping(v, brg, arc);
+    this.pingCd = 2.2 / v.stats.mul('ping_rate_pct');
+  }
+  /** touch PING: on the contact, or sweeping the bow */
+  smartPing() { const v = this.v; if (v?.alive && v.kind === 'escort' && this.pingCd <= 0) this.ping(this.assist.pingBearing()); }
+  /** touch D/C: a salvo from the stern rails and both throwers */
+  dropSalvo() {
+    const v = this.v, P = this.m.world.projectiles;
+    if (!v?.alive || v.kind !== 'escort') return;
+    for (const side of ['rail', 'port', 'stbd'] as const) P.dropCharge(v, side, this.chargeDepth);
+  }
+  /** touch: lock the enemy nearest a tapped world point; false when none was close enough */
+  selectAt(wx: number, wy: number, radius: number): boolean {
+    const v = this.v, w = this.m.world;
+    if (!v) return false;
+    let best: Vessel | null = null, bd = radius;
+    for (const o of w.vessels) {
+      if (!o.alive || o.side === v.side) continue;
+      const p = this.assist.posOf(o);
+      if (!p) continue;
+      const d = Math.hypot(p.x - wx, p.y - wy) - o.cls.length * 0.4;
+      if (d < bd) { bd = d; best = o; }
+    }
+    if (best) this.target = best;
+    return !!best;
+  }
 
   private uboat(dt: number) {
     const v = this.v!, s = v.sub!, inp = this.input, w = this.m.world, P = w.projectiles, sc = v.cls.sub!;
@@ -182,38 +230,59 @@ export class PlayerControl {
     if (inp.pressed('ping') && v.guns.length && !v.stats.has('ks_silent_hunter')) this.weaponMode = this.weaponMode === 'torpedo' ? 'gun' : 'torpedo';
     if (this.weaponMode === 'gun' && (!s.surfaced || !v.guns.length)) this.weaponMode = 'torpedo';
     // TDC: solution to the locked target or straight at the aim point
-    const mode = dev.str('game.tdc');
-    const spec = v.cls.torpedoes!;
-    this.solution = null;
     const tgt = this.target ?? this.hoverTarget();
-    const scanning = v.scanUntil > w.time;
-    if (tgt && mode !== 'manual') {
-      const c = w.sensors.contacts[v.side].get(tgt.id);
-      const exact = mode === 'auto' || scanning;
-      const tx = exact || !c ? tgt.pos.x : c.x, ty = exact || !c ? tgt.pos.y : c.y;
-      const vel = exact || !c ? tgt.body.linvel() : { x: c.vx, y: c.vy };
-      const sol = intercept(v.pos.x, v.pos.y, tx, ty, vel.x, vel.y, spec.speedKn * KNOT * v.stats.mul('torpedo_speed_pct'));
-      if (sol) this.solution = { heading: sol.heading, tx: tx + vel.x * sol.t, ty: ty + vel.y * sol.t, t: sol.t };
-    }
+    this.updateSolution(tgt);
     const fireNow = inp.pressed('fire') || (inp.r2 > 0.6 && this.holdFire <= 0);
     if (inp.r2 > 0.6) this.holdFire = 0.4; else this.holdFire = Math.max(0, this.holdFire - dt);
     if (this.weaponMode === 'gun') {
       for (const g of v.guns) {
         const on = P.aimGun(v, g, this.aimX, this.aimY, dt);
-        const auto = v.deckGunBoost > 0 && tgt;
+        const auto = (v.deckGunBoost > 0 || (this.assist.enabled && this.assist.gunsAuto)) && tgt;
         if ((inp.down('fire') || inp.r2 > 0.35 || auto) && on && g.reload <= 0) P.fireGun(v, g, auto && tgt ? tgt.pos.x : this.aimX, auto && tgt ? tgt.pos.y : this.aimY);
       }
     } else {
       for (const g of v.guns) P.aimGun(v, g, this.aimX, this.aimY, dt);
-      if (fireNow) {
-        const course = this.solution ? this.solution.heading : Math.atan2(this.aimY - v.pos.y, this.aimX - v.pos.x);
-        const rel = angleDiff(v.heading, course);
-        const stern = Math.abs(rel) > Math.PI * 0.6 && v.tubes.some((t) => t.stern && t.loaded);
-        const single = v.stats.has('ks_one_torpedo') ? 1.8 : 1;
-        if (!P.fireTorpedo(v, course, { stern, target: tgt, damageMul: single })) w.emit('message', { text: 'No tube ready!', kind: 'crew' });
-      }
+      if (fireNow) this.launch(tgt);
     }
     void aimCourse; void TELEGRAPH;
+  }
+
+  /** the TDC solution on `tgt` (none with manual aiming or no intercept) */
+  private updateSolution(tgt: Vessel | null) {
+    const v = this.v!, w = this.m.world, spec = v.cls.torpedoes!, mode = dev.str('game.tdc');
+    this.solution = null;
+    if (!tgt || mode === 'manual') return;
+    const c = w.sensors.contacts[v.side].get(tgt.id);
+    const exact = mode === 'auto' || v.scanUntil > w.time;
+    const tx = exact || !c ? tgt.pos.x : c.x, ty = exact || !c ? tgt.pos.y : c.y;
+    const vel = exact || !c ? tgt.body.linvel() : { x: c.vx, y: c.vy };
+    const sol = intercept(v.pos.x, v.pos.y, tx, ty, vel.x, vel.y, spec.speedKn * KNOT * v.stats.mul('torpedo_speed_pct'));
+    if (sol) this.solution = { heading: sol.heading, tx: tx + vel.x * sol.t, ty: ty + vel.y * sol.t, t: sol.t };
+  }
+
+  /** one torpedo along the solution (straight at the reticle without one): bow tubes, or the stern tube aft */
+  private launch(tgt: Vessel | null): boolean {
+    const v = this.v!, w = this.m.world;
+    const course = this.solution ? this.solution.heading : Math.atan2(this.aimY - v.pos.y, this.aimX - v.pos.x);
+    const stern = Math.abs(angleDiff(v.heading, course)) > Math.PI * 0.6 && v.tubes.some((t) => t.stern && t.loaded);
+    const single = v.stats.has('ks_one_torpedo') ? 1.8 : 1;
+    if (w.projectiles.fireTorpedo(v, course, { stern, target: tgt, damageMul: single })) return true;
+    w.emit('message', { text: 'No tube ready!', kind: 'crew' });
+    return false;
+  }
+
+  /** touch FIRE: lock the best target when none is locked, then one torpedo along the solution */
+  fireAssisted() {
+    const v = this.v, w = this.m.world;
+    if (!v?.alive || !v.sub) return;
+    if (!this.target?.alive) this.target = this.assist.bestTorpedoTarget();
+    const tgt = this.target;
+    if (!tgt) { w.emit('message', { text: 'No target in sight.', kind: 'crew' }); return; }
+    const p = this.assist.posOf(tgt);
+    if (p) { this.aimX = p.x; this.aimY = p.y; }
+    this.updateSolution(tgt);
+    if (!this.solution && dev.str('game.tdc') !== 'manual') { w.emit('message', { text: `No firing solution on ${tgt.name}.`, kind: 'crew' }); return; }
+    this.launch(tgt);
   }
 
   /** enemy vessel under the reticle */
@@ -241,8 +310,16 @@ export class PlayerControl {
       return;
     }
     const la = dev.num('camera.lookAhead');
-    const ax = (this.aimX - v.pos.x) * la * 0.5, ay = (this.aimY - v.pos.y) * la * 0.5;
-    const lim = 260 / cam.zoom;
+    let ax = (this.aimX - v.pos.x) * la * 0.5, ay = (this.aimY - v.pos.y) * la * 0.5;
+    if (this.mobile) {
+      // touch: lead toward the locked target, else ahead of the bow; a tapped aim point stays put in the
+      // world and would pull the view off the boat as it sails on
+      const p = this.target?.alive ? this.assist.posOf(this.target) : null, lv = v.body.linvel();
+      ax = p ? (p.x - v.pos.x) * la * 0.5 : lv.x * 20 * la;
+      ay = p ? (p.y - v.pos.y) * la * 0.5 : lv.y * 20 * la;
+    }
+    // touch screens (a narrow portrait one above all) keep the boat well inside the view
+    const lim = (this.mobile ? Math.min(cam.W, cam.H) * 0.3 : 260) / cam.zoom;
     const tx = v.pos.x + clamp(ax, -lim, lim), ty = v.pos.y + clamp(ay, -lim * 0.7, lim * 0.7);
     cam.follow(tx, ty, dt, dev.num('camera.follow'));
     if (inp.dragX || inp.dragY) { this.freeCam = true; }

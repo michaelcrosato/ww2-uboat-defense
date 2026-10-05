@@ -65,8 +65,6 @@ export class App {
   onFrame: ((dt: number) => void)[] = [];
   /** extra pause sources (menus open over the mission) */
   menuOpen = false;
-  /** a full-screen notice holds the simulation (portrait phone: turn sideways) */
-  held = false;
   /** test hook (`?freeze=1`): render only; world, sims and particles never advance */
   frozen = false;
   /** look-dev scene (`?scene=lookdev`): fixed-dt frames left before freezing */
@@ -235,7 +233,7 @@ export class App {
     const m = this.mission;
     if (m) {
       const pc = this.player;
-      const halted = this.paused || this.menuOpen || this.frozen || this.held;
+      const halted = this.paused || this.menuOpen || this.frozen;
       if (pc && !halted) { pc.update(dt); this.tutorial?.update(dt); }
       // fixed-step simulation
       const hz = parseInt(dev.str('phys.hz')) || 60;

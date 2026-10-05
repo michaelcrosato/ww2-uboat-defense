@@ -28,7 +28,9 @@ const C = {
 };
 const RARITY_HEX: Record<string, string> = { common: '#c8c8c8', magic: '#6f9cff', rare: '#ffd84a', legendary: '#ff8c2a', unique: '#d8b47a' };
 
-interface Msg { text: string; t: number; kind: string; important: boolean; color?: string }
+export interface Msg { text: string; t: number; kind: string; important: boolean; color?: string; /** swiped away (touch toasts) */ gone?: boolean }
+/** seconds a crew message stays up */
+export const msgLife = (m: Msg) => (m.important ? 10 : 7);
 
 export class Hud {
   /** precipitation (world particles + HUD rain streaks) */
@@ -51,6 +53,26 @@ export class Hud {
   /** lesson coach (tutorial missions) and the bottom edge of its panel this frame */
   tutorial: Tutorial | null = null;
   private tutBottom = 0;
+  /**
+   * Touch layout (set by the touch overlay): vessel status under the objectives at the top (the bottom of the
+   * screen belongs to the thumbs), crew messages and warnings handed to the swipeable DOM toasts, the FPS
+   * under the plot.
+   */
+  mobile = false;
+  /**
+   * This frame's layout in HUD px: bottom edges of the left column, the right column (plot) and the centre
+   * (tutorial); the inner side edges of the two columns (right of the left one, left of the right one: the
+   * plot plus, on touch, the pause / time buttons beside it) and the plot's own left edge.
+   */
+  readonly layout = { left: 0, right: 0, center: 0, leftX: 0, rightX: 0, plotX: 0 };
+  /**
+   * Room the touch overlay's DOM controls take, in HUD px (set by the overlay every frame): the pause / time
+   * buttons beside the plot (landscape, `right`) or under it (portrait, `below`), and the throttle's box.
+   */
+  readonly reserved = { right: 0, below: 0, throttle: null as { x0: number; y0: number; x1: number; y1: number } | null };
+  private plotR = 52;
+  /** warnings swiped away: text -> time until which they stay quiet */
+  private dismissed = new Map<string, number>();
 
   constructor(private screen: Screen, private cam: Camera, private input: Input) {}
 
@@ -69,7 +91,13 @@ export class Hud {
     w.bus.on('greenWater', (e) => { if (!e.v.sub) this.warn('GREEN WATER OVER THE BOW', 1.5); });
   }
 
-  warn(text: string, dur = 3) { this.warnings.set(text, performance.now() / 1000 + dur); }
+  warn(text: string, dur = 3) {
+    const now = performance.now() / 1000;
+    if ((this.dismissed.get(text) ?? 0) > now) return;
+    this.warnings.set(text, now + dur);
+  }
+  /** a warning swiped away stays quiet for a while even if its condition persists */
+  dismissWarning(text: string, quiet = 20) { this.warnings.delete(text); this.dismissed.set(text, performance.now() / 1000 + quiet); }
 
   draw(m: Mission, pc: PlayerControl, realDt: number) {
     const g = this.screen.hudCtx, W = this.screen.hud.width, H = this.screen.hud.height;
@@ -79,6 +107,11 @@ export class Hud {
     if (this.fpsAcc > 0.5) { this.fps = this.fpsN / this.fpsAcc; this.fpsAcc = 0; this.fpsN = 0; }
     const w = m.world, v = w.player;
     this.statusRight = this.barRight = 0;
+    this.layout.left = this.layout.right = this.layout.center = this.layout.leftX = 0;
+    // the plot is smaller on a narrow touch HUD (portrait phone); the columns' inner edges are known up front
+    this.plotR = this.mobile && W < 460 ? 40 : 52;
+    this.layout.plotX = this.showPlot ? W - 2 * this.plotR - 6 : W;
+    this.layout.rightX = this.layout.plotX - (this.mobile ? this.reserved.right : 0);
     this.weather.drawRain(g, w, W, H, realDt);
     this.worldOverlays(g, m, pc);
     this.debugOverlays(g, m);
@@ -87,17 +120,17 @@ export class Hud {
     if (v) this.drawStatus(g, v, pc, H);
     this.drawAbilities(g, pc, W, H);
     if (this.showPlot) this.drawPlot(g, m, W);
+    // fps: a touch HUD keeps it under the plot (before the tutorial panel, which stacks below), else bottom right
+    const fps = dev.bool('display.showFps') ? `${Math.round(this.fps)} fps ${this.backend ? backendLabel(this.backend.info) : ''}`.trimEnd() : '';
+    if (fps && this.mobile) { drawText(g, fps, W - 4, this.layout.right + 2, C.dim, { align: 'right' }); this.layout.right += 11; }
     this.drawTutorial(g, W);
-    this.drawMessages(g, H);
+    if (!this.mobile) this.drawMessages(g, H);
     this.drawWarnings(g, m, W, H);
-    // time compression + fps
+    // time compression
     const ts = pc.timeScale;
-    if (ts > 1) drawText(g, `TIME x${ts}`, W / 2, 30, C.warn, { align: 'center' });
-    if (dev.bool('display.showFps')) {
-      const t = `${Math.round(this.fps)} fps ${this.backend ? backendLabel(this.backend.info) : ''}`.trimEnd();
-      // above the ability bar when a narrow (large-text) HUD would put them on the same row
-      drawText(g, t, W - 4, W - 4 - textWidth(t) < this.barRight + 6 ? H - 48 : H - 10, C.dim, { align: 'right' });
-    }
+    if (ts > 1 && !this.mobile) drawText(g, `TIME x${ts}`, W / 2, 30, C.warn, { align: 'center' });
+    // above the ability bar when a narrow (large-text) HUD would put them on the same row
+    if (fps && !this.mobile) drawText(g, fps, W - 4, W - 4 - textWidth(fps) < this.barRight + 6 ? H - 48 : H - 10, C.dim, { align: 'right' });
     if (dev.bool('debug.perf') && this.backend) {
       // short right-aligned lines under the chart: clear of the status panel, ability bar and messages
       const R = this.backend.stats, P = this.perf;
@@ -238,11 +271,34 @@ export class Hud {
     g.globalAlpha = 1;
   }
 
+  /**
+   * `display.nightOutline`: after dark the player's own hull is a dark shape on dark water (worse under moon
+   * glitter), so a faint outline traces its plan at the surface; dashed while it is under water.
+   */
+  private drawOwnOutline(g: CanvasRenderingContext2D, m: Mission) {
+    const v = m.world.player, mode = dev.str('display.nightOutline');
+    if (!v || !v.alive || mode === 'off') return;
+    const k = mode === 'always' ? 1 : clamp((m.world.env.darkness - 0.3) / 0.35, 0, 1);
+    if (k <= 0) return;
+    const pts = hullPoints(v.cls.length, v.cls.beam, 0, 1), side: [number, number][] = [];
+    for (let i = 0; i < pts.length; i += 12) side.push([pts[i], pts[i + 1]]);
+    const ring = [...side, ...side.map(([x, y]) => [x, -y] as [number, number]).reverse()];
+    const f = v.fwd();
+    const S = ([lx, ly]: [number, number]) => this.ts(v.pos.x + f.x * lx - f.y * ly, v.pos.y + f.y * lx + f.x * ly, 0);
+    g.globalAlpha = 0.6 * k;
+    for (let i = 0; i < ring.length; i++) {
+      const [ax, ay] = S(ring[i]), [bx, by] = S(ring[(i + 1) % ring.length]);
+      pxLine(g, ax, ay, bx, by, '#c4e6ff', v.submerged ? 2 : 0);
+    }
+    g.globalAlpha = 1;
+  }
+
   private worldOverlays(g: CanvasRenderingContext2D, m: Mission, pc: PlayerControl) {
     const w = m.world, cam = this.cam, v = w.player;
     const S = (x: number, y: number, z = 0) => this.ts(x, y, z);
     const side = w.playerSide;
     const now = w.time;
+    this.drawOwnOutline(g, m);
     this.drawBearings(g, m, pc);
     // contacts
     for (const c of w.sensors.list(side)) {
@@ -352,7 +408,10 @@ export class Hud {
 
   // ------------------------------------------------------------------ panels
   private drawCompass(g: CanvasRenderingContext2D, v: Vessel | null, W: number) {
-    const cw = Math.min(220, W * 0.4), cx = W / 2, y = 4;
+    let cw = Math.min(220, W * 0.4), cx = W / 2;
+    const y = 4;
+    // a touch HUD keeps it in the room between the objectives (136 px) and the plot with its buttons
+    if (this.mobile) { const l = 140, r = this.layout.rightX - 6; cw = Math.min(220, r - l); cx = clamp(W / 2, l + cw / 2, r - cw / 2); }
     panel(g, cx - cw / 2, y, cw, 16, 0.6);
     if (!v) return;
     const hdg = toBearing(v.heading);
@@ -379,8 +438,9 @@ export class Hud {
   }
 
   private drawStatus(g: CanvasRenderingContext2D, v: Vessel, pc: PlayerControl, H: number) {
-    const x = 4, h = v.sub ? 92 : 78, y = H - h - 4, w = 164;
+    const x = 4, h = v.sub ? 92 : 78, y = this.mobile ? this.layout.left + 4 : H - h - 4, w = 164;
     this.statusRight = x + w + (v.sub ? 22 : 0);
+    if (this.mobile) { this.layout.left = y + h; this.layout.leftX = Math.max(this.layout.leftX, this.statusRight); }
     panel(g, x, y, w, h);
     drawText(g, v.name, x + 4, y + 4, v.side === 'allied' ? C.allied : C.axis);
     drawText(g, v.cls.name, x + 4, y + 13, C.dim);
@@ -404,7 +464,7 @@ export class Hud {
     if (v.course !== null) drawText(g, `CRS ${String(Math.round(toBearing(v.course))).padStart(3, '0')}`, x + 112, y + 44, C.good);
     const ly = y + 56;
     if (v.kind === 'escort') {
-      drawText(g, `D/C ${v.dcLeft}  set ${CHARGE_DEPTHS[pc.chargeDepthIdx]}m`, x + 4, ly, C.text);
+      drawText(g, `D/C ${v.dcLeft}  set ${pc.chargeDepth}m${pc.mobile && pc.chargeDepthAuto ? ' auto' : ''}`, x + 4, ly, C.text);
       drawText(g, `Hedgehog ${v.hedgehogLeft}  Star ${v.starShells}  ${v.searchlightOn ? 'LIGHT ON' : ''}`, x + 4, ly + 10, C.dim);
     } else if (v.sub) {
       const s = v.sub, sc = v.cls.sub!;
@@ -477,8 +537,9 @@ export class Hud {
 
   private drawPlot(g: CanvasRenderingContext2D, m: Mission, W: number) {
     const w = m.world, v = w.player;
-    const R = 52, cx = W - R - 6, cy = R + 6;
+    const R = this.plotR, cx = W - R - 6, cy = R + 6;
     const range = 3200;
+    this.layout.right = cy + R + 21;
     g.globalAlpha = 0.7; pxFill(g, cx - R, cy - R, R * 2, R * 2, '#06100f'); g.globalAlpha = 1;
     pxCircle(g, cx, cy, R, '#3c4a52');
     pxCircle(g, cx, cy, R / 2, C.grid, 2);
@@ -529,6 +590,8 @@ export class Hud {
     const wdt = 132;
     panel(g, x, y, wdt, lines.length * 10 + 6, 0.55);
     lines.forEach(([t, c], i) => drawText(g, t, x + 4, y + 4 + i * 10, c));
+    this.layout.left = y + lines.length * 10 + 6;
+    this.layout.leftX = Math.max(this.layout.leftX, x + wdt);
   }
 
   /** the tutorial coach: step title, instruction (keys highlighted) and the skip hint, under the compass */
@@ -538,9 +601,21 @@ export class Hud {
     if (!view) return;
     // between the objectives and the plot; a narrow (large-text) HUD gets the full width below the objectives
     const narrow = W < 460;
-    const w = narrow ? W - 8 : Math.min(300, W - 16), x = narrow ? 4 : Math.round(W / 2 - w / 2), y = narrow ? 52 : 34;
+    let w = narrow ? W - 8 : Math.min(300, W - 16), x = narrow ? 4 : Math.round(W / 2 - w / 2), y = narrow ? 52 : 34;
+    const height = (w: number) => 17 + wrapText(view.body, w - 10).length * 10 + (view.footer ? 11 : 2);
+    if (this.mobile) {
+      // touch HUD (both top columns are full): in the gap between them when a readable panel fits there,
+      // else (portrait phone, tablet) stacked under both, clear of the pause / time buttons, and beside the
+      // throttle when it would reach down to it
+      const l = this.layout.leftX + 6, r = this.layout.rightX - 6, t = this.reserved.throttle;
+      if (r - l >= 200) { w = Math.min(300, r - l); x = Math.round(clamp(W / 2 - w / 2, l, r - w)); y = 34; }
+      else {
+        w = W - 8; x = 4; y = Math.max(this.layout.left, this.layout.right + this.reserved.below) + 6;
+        if (t && y < t.y1 && y + height(w) > t.y0) { x = Math.ceil(t.x1) + 4; w = W - 4 - x; }
+      }
+    }
     const body = wrapText(view.body, w - 10);
-    const h = 17 + body.length * 10 + (view.footer ? 11 : 2);
+    const h = height(w);
     const a = g.globalAlpha;
     g.globalAlpha = view.alpha;
     panel(g, x, y, w, h, 0.85);
@@ -549,15 +624,15 @@ export class Hud {
     body.forEach((line, i) => drawKeys(g, line, x + 5, y + 16 + i * 10, C.text, '#a0ffd0', view.alpha));
     if (view.footer) drawKeys(g, view.footer, x + w - 5 - textWidth(view.footer), y + h - 11, C.dim, C.dim, view.alpha);
     g.globalAlpha = a;
-    this.tutBottom = y + h;
+    this.tutBottom = this.layout.center = y + h;
   }
 
   private drawMessages(g: CanvasRenderingContext2D, H: number) {
     const now = performance.now() / 1000;
-    const recent = this.msgs.filter((m) => now - m.t < (m.important ? 10 : 7)).slice(-6);
+    const recent = this.msgs.filter((m) => !m.gone && now - m.t < msgLife(m)).slice(-6);
     let y = H - 104 - recent.length * 10;
     for (const m of recent) {
-      const a = clamp(((m.important ? 10 : 7) - (now - m.t)) / 1.5, 0, 1);
+      const a = clamp((msgLife(m) - (now - m.t)) / 1.5, 0, 1);
       const col = m.color ?? (m.kind === 'alert' ? C.danger : m.kind === 'radio' ? '#b8d8a0' : m.kind === 'loot' ? '#ffd84a' : m.kind === 'crew' ? C.allied : C.text);
       for (const line of wrapText(m.text, 260)) { drawText(g, line, 6, y, col, { alpha: a }); y += 10; }
     }
@@ -572,6 +647,7 @@ export class Hud {
     let y = Math.max(H * 0.22, this.tutBottom + 8);
     for (const [t, until] of this.warnings) {
       if (now > until) { this.warnings.delete(t); continue; }
+      if (this.mobile) continue;
       const blink = Math.floor(now * 4) % 2 === 0;
       drawText(g, t, W / 2, y, blink ? C.danger : '#ffb090', { align: 'center', scale: 1 });
       y += 11;

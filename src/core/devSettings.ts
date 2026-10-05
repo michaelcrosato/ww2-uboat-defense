@@ -27,6 +27,8 @@ export const DEV_DEFS: SettingDef[] = [
   { key: 'display.bearings', group: 'Display', label: 'Hydrophone bearings', type: 'select', def: 'ring',
     options: opts(['ring', 'Ring around your boat'], ['lines', 'Lines from your boat'], ['all', 'Every friendly listener (busy)'], ['off', 'Off']),
     help: 'How passive sonar bearings are drawn. Ring: a tick around your boat for each ship your own hydrophones hear, and a line to the contact under the reticle.' },
+  { key: 'display.nightOutline', group: 'Display', label: 'Night outline of your boat', type: 'select', def: 'auto',
+    options: opts(['auto', 'After dark'], ['always', 'Always'], ['off', 'Off']), help: 'A faint outline traces your own hull, dashed while submerged.' },
 
   // ---------------------------------------------------------------- Camera
   { key: 'camera.tilt', group: 'Camera', label: 'Camera tilt', type: 'range', def: 24, min: 0, max: 50, step: 1, unit: '°',
@@ -143,6 +145,10 @@ export const DEV_DEFS: SettingDef[] = [
   { key: 'controls.rumble', group: 'Controls', label: 'Gamepad rumble', type: 'bool', def: true },
   { key: 'controls.glyphs', group: 'Controls', label: 'Button prompts', type: 'select', def: 'auto', options: opts(['auto', 'Auto'], ['kbm', 'Keyboard & mouse'], ['ps', 'PlayStation'], ['xbox', 'Xbox']) },
   { key: 'controls.touch', group: 'Controls', label: 'Touch controls', type: 'select', def: 'auto', options: opts(['auto', 'Auto'], ['on', 'Always'], ['off', 'Off']) },
+  { key: 'controls.autoAttack', group: 'Controls', label: 'Auto attack', type: 'select', def: 'touch', options: opts(['touch', 'Touch controls only'], ['always', 'Always'], ['off', 'Off']),
+    help: 'Guns engage surfaced U-boats, the ASDIC pings the freshest contact, FIRE picks the best target and charge depths follow the plot.' },
+  { key: 'controls.autoFullscreen', group: 'Controls', label: 'Fullscreen battles (touch)', type: 'bool', def: true,
+    help: 'Phones and tablets: a battle opens fullscreen in its current orientation; the back gesture pauses instead of leaving.' },
 
   // ---------------------------------------------------------------- Debug
   { key: 'debug.view', group: 'Debug', label: 'Buffer view', type: 'select', def: 'final',

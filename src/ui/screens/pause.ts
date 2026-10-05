@@ -14,7 +14,7 @@ export function pauseScreen(shell: Shell): UiScreen {
       h('h1', null, 'Paused'),
       h('div', { class: 'sub' }, `${side} · ${Math.floor((m?.elapsed ?? 0) / 60)} min in action`),
       h('div', { class: 'menu-list' },
-        button('Resume', () => shell.ui.pop(), 'btn big', { 'data-autofocus': true }),
+        button('Resume', () => { shell.ui.pop(); shell.gameMode(); }, 'btn big', { 'data-autofocus': true }),
         tut ? button('Skip tutorial step', () => { tut.skip(); shell.ui.pop(); }, 'btn', { 'data-help': 'Move on to the next lesson step.' }) : null,
         tut ? button('End tutorial', () => { tut.end(); shell.ui.pop(); }, 'btn', { 'data-help': 'Stop the lessons and keep playing this battle.' }) : null,
         button('Dev Settings', () => shell.open('dev'), 'btn'),

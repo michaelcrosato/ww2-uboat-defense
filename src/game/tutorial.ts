@@ -46,10 +46,10 @@ function markDone(side: TutorialSide) {
   try { localStorage.setItem(STORE, JSON.stringify({ ...tutorialsDone(), [side]: true })); } catch { /* private window */ }
 }
 
-/** what the touch overlay's buttons say (src/ui/touch.ts), spelt with glyphs the HUD font has */
+/** what the touch controls call each action (src/ui/touch.ts), spelt with glyphs the HUD font has */
 const TOUCH: Partial<Record<Action, string>> = {
-  ping: 'PING', charge: 'CHG', periscope: 'CHG', depthUp: 'DEP-', depthDown: 'DEP+', timeUp: 'T+', timeDown: 'T-', pause: '||', fire: 'TAP',
-  ability1: '1', ability2: '2', ability3: '3', ability4: '4', ability5: '5', ability6: '6',
+  ping: 'PING', charge: 'D/C', periscope: 'SCOPE', depthUp: 'DEPTH', depthDown: 'DEPTH', timeUp: '>>', timeDown: '>>', pause: 'MENU', fire: 'FIRE',
+  throttleUp: 'THROTTLE', throttleDown: 'THROTTLE', ability1: '★', ability2: '★', ability3: '★', ability4: '★', ability5: '★', ability6: '★',
 };
 
 interface Ctx {
@@ -62,6 +62,8 @@ interface Ctx {
   ab(id: AbilityId): string;
   /** rudder + telegraph helm (not direct stick steering) */
   helm: boolean;
+  /** the touch controls are in charge: stick, throttle and the fixed buttons */
+  touch: boolean;
 }
 
 interface Step {
@@ -124,7 +126,7 @@ export class Tutorial {
   private ctx(): Ctx | null {
     const v = this.m.world.player, inp = this.inp, pc = this.pc;
     if (!v) return null;
-    const pad = inp.usingPad, touch = inp.device === 'touch';
+    const pad = inp.usingPad, touch = pc.mobile || inp.device === 'touch';
     return {
       m: this.m, pc, v, inp, t: this,
       k: (a) => `[${touch ? TOUCH[a] ?? inp.glyph(a) : inp.glyph(a)}]`,
@@ -133,9 +135,10 @@ export class Tutorial {
         const i = pc.abilities.slots.findIndex((s) => s?.id === id);
         if (i < 0) return '';
         const keys = ['ability1', 'ability2', 'ability3', 'ability4', 'ability5', 'ability6'] as const;
-        return `[${touch ? String(i + 1) : pad && i >= 4 ? 'L1+' + inp.glyph(keys[i - 4]) : inp.glyph(keys[i])}]`;
+        return `[${touch ? '★' : pad && i >= 4 ? 'L1+' + inp.glyph(keys[i - 4]) : inp.glyph(keys[i])}]`;
       },
-      helm: dev.str('controls.scheme') !== 'direct' && inp.device !== 'touch',
+      helm: dev.str('controls.scheme') !== 'direct' && !touch,
+      touch,
     };
   }
 
@@ -230,9 +233,11 @@ export class Tutorial {
 const mouseCourse = (c: Ctx) => !c.helm || c.inp.usingPad || !dev.bool('controls.mouseSteer');
 const telegraph = (intro: string): Step => ({
   title: 'Engine telegraph',
-  text: (c) => c.helm
-    ? `${intro} Get her moving: ${c.k('throttleUp')} rings the engine telegraph ahead, ${c.k('throttleDown')} astern. Ring up Half ahead.`
-    : `${intro} Steer with the stick${c.inp.device === 'touch' ? ' under your left thumb' : ` or ${c.k('throttleUp')}${c.k('rudderLeft')}${c.k('throttleDown')}${c.k('rudderRight')}`}: the ship heads where you push, and pushing further makes more speed.`,
+  text: (c) => c.touch
+    ? `${intro} Point the stick under your left thumb where you want to go; the course holds when you let go. Speed is the throttle above it: slide it up to HALF.`
+    : c.helm
+      ? `${intro} Get her moving: ${c.k('throttleUp')} rings the engine telegraph ahead, ${c.k('throttleDown')} astern. Ring up Half ahead.`
+      : `${intro} Steer with the stick or ${c.k('throttleUp')}${c.k('rudderLeft')}${c.k('throttleDown')}${c.k('rudderRight')}: the ship heads where you push, and pushing further makes more speed.`,
   done: (c) => c.v.speedCmd !== null ? c.v.speedCmd > 0.45 : c.v.telegraph >= 4,
   read: 3,
 });
@@ -241,7 +246,7 @@ const rudder: Step = {
   title: 'Rudder',
   text: (c) => c.helm
     ? `Hold ${c.k('rudderLeft')} or ${c.k('rudderRight')} to put the rudder over; it stays over while you hold the key and centres when you let go. A ship answers slowly: turn through 25°. (${Math.min(25, Math.round(c.t.turnedDeg))}°)`
-    : `Push sideways to turn. A ship answers slowly: turn through 25°. (${Math.min(25, Math.round(c.t.turnedDeg))}°)`,
+    : `${c.touch ? 'Point the stick' : 'Push sideways'} to turn. A ship answers slowly: turn through 25°. (${Math.min(25, Math.round(c.t.turnedDeg))}°)`,
   done: (c) => c.t.turnedDeg >= 25 || c.t.hardRudderTime >= 5,
 };
 const course: Step = {
@@ -276,13 +281,13 @@ const UBOAT_STEPS: Step[] = [
   },
   {
     title: 'Time compression',
-    text: (c) => `The approach takes a while. ${c.k('timeUp')} speeds time up (up to 8x), ${c.k('timeDown')} slows it again. Try it, then go back to 1x.${c.pc.timeIdx > 0 ? `  (now x${c.pc.timeScale})` : ''}`,
+    text: (c) => `The approach takes a while. ${c.touch ? `${c.k('timeUp')} steps time compression up to 8x and round to 1x` : `${c.k('timeUp')} speeds time up (up to 8x), ${c.k('timeDown')} slows it again`}. Try it, then go back to 1x.${c.pc.timeIdx > 0 ? `  (now x${c.pc.timeScale})` : ''}`,
     done: (c) => c.t.triedCompression && c.pc.timeIdx === 0,
     skip: (c) => !c.bound('timeUp') || dev.str('game.maxCompression') === '1',
   },
   {
     title: 'Dive',
-    text: (c) => `Dive! ${c.bound('periscopeDepth') ? `${c.k('periscopeDepth')} orders periscope depth (13 m); ` : ''}${c.k('depthDown')} / ${c.k('depthUp')} order 10 m deeper / shallower. Submerged you are slow and run on the battery, but hidden.`,
+    text: (c) => `Dive! ${c.touch ? 'Tap [DIVE] and choose PERISCOPE (13 m).' : `${c.bound('periscopeDepth') ? `${c.k('periscopeDepth')} orders periscope depth (13 m); ` : ''}${c.k('depthDown')} / ${c.k('depthUp')} order 10 m deeper / shallower.`} Submerged you are slow and run on the battery, but hidden.`,
     done: (c) => !!c.v.sub && !c.v.sub.surfaced && c.v.keelDepth >= 10,
   },
   {
@@ -292,7 +297,7 @@ const UBOAT_STEPS: Step[] = [
   },
   {
     title: 'Pick a target',
-    text: (c) => `${c.inp.usingPad ? 'Aim the reticle at a merchant with the right stick' : c.inp.device === 'touch' ? 'Drag the reticle onto a merchant' : 'Put the reticle on a merchant'}${c.bound('target') ? ` and press ${c.k('target')} to lock the contact nearest to it` : ''}. The green line is the torpedo solution: the computer leads the target for you.`,
+    text: (c) => `${c.touch ? 'Tap a merchant (or its ♦) to lock it' : `${c.inp.usingPad ? 'Aim the reticle at a merchant with the right stick' : 'Put the reticle on a merchant'}${c.bound('target') ? ` and press ${c.k('target')} to lock the contact nearest to it` : ''}`}. The green line is the torpedo solution: the computer leads the target for you.`,
     // aiming at a ship is the point (touch has no lock button): the lesson locks it for the next steps
     tick: (c) => { if (!c.pc.target && c.t.stepTime > 2) c.pc.target = c.pc.hoverTarget(); },
     done: (c) => !!c.pc.target && c.pc.target.alive,
@@ -318,7 +323,7 @@ const UBOAT_STEPS: Step[] = [
   },
   {
     title: 'Go deep',
-    text: (c) => `The escort will come for you now. Go deep: ${c.k('depthDown')} again and again${c.ab('crash_dive') ? `, or Crash Dive ${c.ab('crash_dive')}` : ''}. Below the thermal layer (blue line on the depth gauge, ${c.m.world.layerDepth} m) the ASDIC struggles. Slow down to run quiet${c.ab('silent_running') ? `; Silent Running is ${c.ab('silent_running')}` : ''}.`,
+    text: (c) => `The escort will come for you now. Go deep: ${c.touch ? `tap the depth button and choose ${c.m.world.layerDepth > 0 ? 'UNDER LAYER' : 'DEEP'}` : `${c.k('depthDown')} again and again`}${c.ab('crash_dive') ? `, or Crash Dive ${c.ab('crash_dive')}` : ''}. Below the thermal layer (blue line on the depth gauge, ${c.m.world.layerDepth} m) the ASDIC struggles. Slow down to run quiet${c.ab('silent_running') ? `; Silent Running is ${c.ab('silent_running')}` : ''}.`,
     done: (c) => c.v.keelDepth > Math.max(40, c.m.world.layerDepth) + 5,
     read: 5,
   },
@@ -355,17 +360,21 @@ const ESCORT_STEPS: Step[] = [
   },
   {
     title: 'Slow down',
-    text: (c) => `The ASDIC is deaf at speed, and a fast ship is heard coming. Ring down to Slow ahead with ${c.k('throttleDown')} (now ${Math.round(Math.abs(c.v.hydro.fwdSpeed) / KNOT)} kn).`,
+    text: (c) => `The ASDIC is deaf at speed, and a fast ship is heard coming. ${c.touch ? 'Slide the throttle down to SLOW' : `Ring down to Slow ahead with ${c.k('throttleDown')}`} (now ${Math.round(Math.abs(c.v.hydro.fwdSpeed) / KNOT)} kn).`,
     done: (c) => !c.t.enemySub() || c.t.playerEchoes > 0 || Math.abs(c.v.hydro.fwdSpeed) / KNOT < 12,
   },
   {
     title: 'ASDIC',
-    text: (c) => `Ping with ${c.k('ping')}: the beam goes out toward the reticle${dev.str('game.asdic') === 'arcade' ? ' (arcade: all round)' : ' and is narrow, 16°'}. Sweep across the ♦ until an echo comes back; an echo fixes the U-boat's position.`,
+    text: (c) => c.touch
+      ? `Tap ${c.k('ping')}: the ASDIC beam trains on the ♦ by itself (auto attack keeps pinging a fresh contact). An echo fixes the U-boat's position.`
+      : `Ping with ${c.k('ping')}: the beam goes out toward the reticle${dev.str('game.asdic') === 'arcade' ? ' (arcade: all round)' : ' and is narrow, 16°'}. Sweep across the ♦ until an echo comes back; an echo fixes the U-boat's position.`,
     done: (c) => !c.t.enemySub() || c.t.playerEchoes > 0,
   },
   {
     title: 'Depth charges',
-    text: (c) => `Set the charge depth with ${c.k('depthUp')} / ${c.k('depthDown')} (now ${c.pc.chargeDepth} m; she is shallow, 25-45 m). Run over the contact and drop: ${c.k('charge')} rolls one off the stern${c.bound('chargePort') ? `, ${c.k('chargePort')} / ${c.k('chargeStbd')} throw the K-guns to port / starboard` : ''}.`,
+    text: (c) => c.touch
+      ? `Run over the contact and tap ${c.k('charge')}: three charges, from the stern rail and both throwers. The depth chip on it follows the plot (now ${c.pc.chargeDepth} m); DROP PATTERN pops up when you are over her.`
+      : `Set the charge depth with ${c.k('depthUp')} / ${c.k('depthDown')} (now ${c.pc.chargeDepth} m; she is shallow, 25-45 m). Run over the contact and drop: ${c.k('charge')} rolls one off the stern${c.bound('chargePort') ? `, ${c.k('chargePort')} / ${c.k('chargeStbd')} throw the K-guns to port / starboard` : ''}.`,
     done: (c) => !c.t.enemySub() || c.t.playerCharges > 0,
   },
   {
@@ -383,7 +392,9 @@ const ESCORT_STEPS: Step[] = [
   },
   {
     title: 'More tools',
-    text: (c) => `Hold ${c.k('fire')} to fire the guns at the reticle: a surfaced U-boat is a gun target. At night${c.ab('star_shell') ? `, Star Shell ${c.ab('star_shell')} and` : ''} the searchlight ${c.k('searchlight')} light up the sea.`,
+    text: (c) => c.touch
+      ? `The guns open fire by themselves on a surfaced U-boat ([GUNS] holds fire). At night${c.ab('star_shell') ? `, Star Shell ${c.ab('star_shell')} and` : ''} the searchlight light up the sea; the context button offers them when they help.`
+      : `Hold ${c.k('fire')} to fire the guns at the reticle: a surfaced U-boat is a gun target. At night${c.ab('star_shell') ? `, Star Shell ${c.ab('star_shell')} and` : ''} the searchlight ${c.k('searchlight')} light up the sea.`,
     read: 10,
   },
   {

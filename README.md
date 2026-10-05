@@ -56,9 +56,26 @@ Browsers with only WebGL2 still run the game (best effort, see Renderer).
 | Pause / menu | Esc or P | Options |
 | Tutorial: skip step | Enter | pause menu |
 
-Every binding can be changed under Settings → Controls. On touch devices the left half of the screen is a
-virtual stick, the right half aims (tap to fire), and finger-sized buttons carry the abilities and actions;
-hold phones in landscape during missions.
+Every binding can be changed under Settings → Controls.
+
+### Phones and tablets
+
+Touch screens get their own layout, portrait (9:16) first; landscape works too. A battle goes fullscreen in
+the orientation you hold the phone, and the back gesture pauses instead of leaving (on iPhone, Add to Home
+Screen for a fullscreen app).
+
+- **Left thumb**: point the course with the stick (it holds when you let go); the throttle above it sets the
+  engine telegraph.
+- **Right thumb**: four fixed buttons. U-boat: FIRE, DIVE / depth orders, SCOPE (GUN on the surface), ★
+  abilities. Escort: depth charges (salvo; tap the depth chip for AUTO or a fixed depth), PING, GUNS AUTO, ★.
+  A context button appears when one action matters: crash dive, fire a spread, drop a pattern, Hedgehog,
+  star shell.
+- **The sea**: tap a ship to lock it, drag to aim, pinch to zoom. Swipe a notification away to dismiss it.
+- **Auto attack** (Settings → Controls, on for touch by default): FIRE picks a target and fires on the
+  solution, the guns engage surfaced U-boats, the ASDIC keeps pinging a fresh contact and charge depths
+  follow the plot.
+
+After dark your own boat gets a faint outline (Settings → Display → Night outline).
 
 ## Playing
 
