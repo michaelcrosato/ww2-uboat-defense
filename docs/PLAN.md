@@ -83,13 +83,11 @@ on any failure or later device loss. The active backend shows in the FPS overlay
 
 ## Known issues (keep this list current)
 - Arctic pack ice is visual only (ragged floes since M12, but no drag or collisions for ships).
-- AI decisions draw from the cosmetic `fx` RNG, so missions are not reproducible run to run (balance numbers
-  are averages over a few seeds); a seeded AI RNG would make replays/tests deterministic. → M13
 - U-boat kills by AI escorts are still rare (1 in 6 autopilot patrols); fine historically, revisit after playtests.
 - Headless runs simulate only ~2–5 s of game time per 15 s real time (WebGPU gets further than WebGL2), so
   live screenshots differ in particle counts / wake age; use `?scene=lookdev` / `tools/compare.mjs` for parity.
 - Menus: gamepad navigation is code-complete but untested on hardware (headless cannot simulate pads); the
-  touch overlay was only checked visually with `?dev.controls.touch=on` (no real touch device). → M13
+  touch overlay was only checked visually with `?dev.controls.touch=on` (no real touch device).
 - The headline font (`--font-head`: Impact…, Linux narrow faces since M12) is not installed headless, so
   screenshots show the sans fallback; a bundled stencil webfont would need the user's OK (asset).
 - Crates still afloat when a contract ends are recovered automatically if the ship survived (keeps
@@ -102,3 +100,6 @@ on any failure or later device loss. The active backend shows in the FPS overlay
 - Frame times were measured on SwiftShader only (no GPU in the container); real-GPU numbers are unknown.
 - WebGL2 is best effort (user decision): it receives shader changes but is not parity-checked any more.
 - Key taps shorter than one frame can merge in slow headless runs (two taps → one press); real browsers are fine.
+- Only fast-forwards from a `?freeze=1` start are reproducible; live play depends on frame timing and input.
+- `ai.openingGrace` (75 s) keeps AI U-boats from firing at the start; with an idle player the first attacks
+  now come after ~3 min. Tune with playtests (U-boat AI pacing in general has only had headless testing).

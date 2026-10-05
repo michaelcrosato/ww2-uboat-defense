@@ -17,9 +17,8 @@ This project is built milestone by milestone, with a context clear between miles
 4. Set it to `DONE` in `docs/PLAN.md`, write the milestone's "Notes" (what changed, decisions,
    follow-ups), update "Known issues" in PLAN.md, commit, push, and stop. One milestone per session.
 5. Branch: `claude/cool-bell-er7u0y` (push with `git push -u origin claude/cool-bell-er7u0y`).
-   The repo started empty, so this branch is currently the remote's only (default) branch and no PR
-   exists yet. Don't create other branches unless the user asks; if a `main` base branch appears
-   later, open a draft PR from this branch and keep pushing to it.
+   Draft PR michaelcrosato/ww2-uboat-defense#1 targets `main`; keep pushing to this branch and keep the
+   PR a draft unless the user asks otherwise. Don't create other branches unless the user asks.
 
 ## Commands
 
@@ -37,9 +36,16 @@ node tools/shot.mjs --url "/?hour=13" --wait 6000 --out check-output/x.png \
 
 `tools/shot.mjs` starts Vite in-process, opens the preinstalled Chromium (`/opt/pw-browsers/chromium`,
 Playwright 1.56.1, flags enable WebGPU + SwiftShader WebGL2), prints console errors, saves a PNG.
-Exit code 1 on page errors. Headless SwiftShader is slow (~10 fps): to test long gameplay spans use
+Exit code 1 on page errors. Headless SwiftShader is slow (~2–10 fps): to test long gameplay spans use
 the fast-forward hook in `--eval`: `__app.fastForward(300)` runs 300 s of simulation without
 rendering and returns the message log. `window.__app` is the App instance (mission, world, player).
+Started from `?freeze=1` (the frame loop never steps the world) a fast-forward is **reproducible**: all
+gameplay randomness draws from the seeded `w.rng` (`arena.seed`), cosmetic effects from `fx`. Keep it that
+way: never use `fx` or `Math.random` for anything that changes the simulation.
+More shot options: `--steps "...,eval:<uri-encoded js>,until:<uri-encoded js>[:ms]"` (wait for a page
+condition, e.g. `until:window.__lookdevDone`), `--init "<js>"` (runs before the page's own code, e.g. to
+block `localStorage`), `--preview` (serves the production build in `dist/`; run `npm run build` first).
+Editing files under `src/` while shots run hot-reloads the open pages and spoils those runs.
 
 URL parameters override any arena setting for testing: `/?side=uboat&hour=2&weather=fog&seaState=6`
 (keys from `src/game/arenaConfig.ts` without the `arena.` prefix).
@@ -51,7 +57,9 @@ dev setting without persisting it (e.g. `?dev.water.sim=false&dev.display.showFp
 (camera settles at once), `?renderer=webgpu|webgl2|auto` picks the backend (`auto` = WebGPU, WebGL2 fallback).
 **Headless WebGPU needs `&gpupresent=readback`**: presenting to a canvas loses the device in headless
 SwiftShader, so without it WebGPU init fails its present probe and falls back to WebGL2. `?gpufail=1`
-forces the WebGPU init to fail (fallback test). `?scene=lookdev` builds the deterministic comparison scene
+forces the WebGPU init to fail (fallback test); `?glfail=1` makes WebGL2 fail too (with `?gpufail=1`: the
+no-renderer boot message); `?gpulose=<s>` reports a WebGPU device loss after s seconds (live switch to
+WebGL2). `?scene=lookdev` builds the deterministic comparison scene
 (fixed spawns, 40 fixed-dt frames, then frozen, HUD hidden, `window.__lookdevDone`; wait for it with the
 `until:window.__lookdevDone` step). `?scene=fleet` lines up every vessel class for art review. `?dev.debug.perf=true`
 shows CPU ms, sim steps and per-pass GPU ms (timestamp queries) above the FPS. Reproducible shot:
