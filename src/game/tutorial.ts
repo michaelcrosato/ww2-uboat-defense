@@ -21,12 +21,13 @@ const GENTLE: Record<string, number | string | boolean> = {
   'arena.year': 1942, 'arena.difficulty': 1, 'arena.theater': 'north_atlantic', 'arena.hour': 10, 'arena.timeFlow': 0,
   'arena.moon': 0.5, 'arena.season': '0', 'arena.weather': 'clear', 'arena.seaState': 2.5, 'arena.windDir': 250, 'arena.swell': 0.8,
   'arena.layer': 70, 'arena.convoy': 6, 'arena.columns': 2, 'arena.convoySpeed': 7, 'arena.zigzag': false, 'arena.aircraft': 'none',
-  'arena.survivors': true, 'arena.size': 9, 'arena.islands': 0, 'arena.lighthouse': false,
+  'arena.survivors': true, 'arena.size': 9, 'arena.islands': 0, 'arena.lighthouse': false, 'arena.uboatStart': 'auto',
 };
 
 /** every arena key the lessons depend on, so the player's own arena settings never leak in */
 export const TUTORIAL_ARENA: Record<TutorialSide, Record<string, number | string | boolean>> = {
-  uboat: { ...GENTLE, 'arena.side': 'uboat', 'arena.uboatClass': 'type7', 'arena.escorts': 1, 'arena.uboats': 0, 'arena.seed': 4242 },
+  // the U-boat lesson starts on the surface: diving is one of its steps
+  uboat: { ...GENTLE, 'arena.side': 'uboat', 'arena.uboatClass': 'type7', 'arena.escorts': 1, 'arena.uboats': 0, 'arena.seed': 4242, 'arena.uboatStart': 'surfaced' },
   escort: { ...GENTLE, 'arena.side': 'escort', 'arena.escortClass': 'destroyer', 'arena.escorts': 0, 'arena.uboats': 1, 'arena.seed': 4243 },
 };
 

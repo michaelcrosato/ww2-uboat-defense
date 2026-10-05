@@ -28,7 +28,7 @@ export const DEV_DEFS: SettingDef[] = [
     options: opts(['ring', 'Ring around your boat'], ['lines', 'Lines from your boat'], ['all', 'Every friendly listener (busy)'], ['off', 'Off']),
     help: 'How passive sonar bearings are drawn. Ring: a tick around your boat for each ship your own hydrophones hear, and a line to the contact under the reticle.' },
   { key: 'display.nightOutline', group: 'Display', label: 'Night outline of your boat', type: 'select', def: 'auto',
-    options: opts(['auto', 'After dark'], ['always', 'Always'], ['off', 'Off']), help: 'A faint outline traces your own hull, dashed while submerged.' },
+    options: opts(['auto', 'After dark and submerged'], ['always', 'Always'], ['off', 'Off']), help: 'A faint outline traces your own hull, dashed while submerged.' },
 
   // ---------------------------------------------------------------- Camera
   { key: 'camera.tilt', group: 'Camera', label: 'Camera tilt', type: 'range', def: 24, min: 0, max: 50, step: 1, unit: '°',

@@ -29,6 +29,7 @@ and running, but WebGL2 parity, visuals and performance are no longer verified o
 | M13 | Final QA, README, PR ready for review | DONE | [M13](milestones/M13-qa-release.md) |
 | M14 | Playtest fixes: capsizing U-boats, bearing-line clutter, tutorial for both sides | DONE | [M14](milestones/M14-playtest-fixes.md) |
 | M15 | Mobile: fullscreen game mode, portrait 9:16, touch layout and assists, swipeable toasts, night outline | DONE | [M15](milestones/M15-mobile.md) |
+| M16 | U-boats start submerged (surfaced only where it makes sense: port, diving lesson, pre-radar night) | DONE | [M16](milestones/M16-submerged-start.md) |
 
 Order matters for M1→M6 (renderer). M7 and M8 are independent of the renderer and may be done
 before M1 if preferred; M9 needs nothing else; M10 needs M7 + M9; M11 needs M10; M12/M13 last.
@@ -90,6 +91,10 @@ on any failure or later device loss. The active backend shows in the FPS overlay
   orientation and the back gesture pauses. What needs mouse precision is automated on touch
   (`controls.autoAttack` touch by default: target picking, auto guns and pings, charge depths from the plot).
   The player's own hull is outlined after dark on every platform (`display.nightOutline`).
+- 2026-10 (M16, user): U-boats start submerged at periscope depth, surfaced only where it makes sense (leaving
+  port, the diving lesson, a dark night before the escorts carry radar); `arena.uboatStart` overrides.
+- 2026-10 (M16, user): standard operating procedure: commit → push → PR → merge it yourself → delete the
+  branch, no permission needed; rollback if anything goes badly wrong.
 
 ## Known issues (keep this list current)
 - Arctic pack ice is visual only (ragged floes since M12, but no drag or collisions for ships).
@@ -122,7 +127,7 @@ on any failure or later device loss. The active backend shows in the FPS overlay
 - WebGL2 is best effort (user decision): it receives shader changes but is not parity-checked any more.
 - Key taps shorter than one frame can merge in slow headless runs (two taps → one press); real browsers are fine.
 - Only fast-forwards from a `?freeze=1` start are reproducible; live play depends on frame timing and input.
-- `ai.openingGrace` (75 s) keeps AI U-boats from firing at the start; with an idle player the first attacks
-  now come after ~3 min. Tune with playtests (U-boat AI pacing in general has only had headless testing).
-- A new U-boat captain who doesn't dive is sunk within 5–11 minutes in the arena (starts surfaced at half ahead
-  toward the convoy); the tutorial now teaches diving and going deep, the arena opening is unchanged.
+- `ai.openingGrace` (75 s) keeps AI U-boats from firing at the start. Since M16 the boats start at periscope
+  depth, so the first attacks can come right after it (seed 42: an idle escort torpedoed at 123 s); idle escort
+  losses over 15 min fell to 0–3 merchants. Tune with playtests (U-boat AI pacing has only had headless testing).
+- No mission starts in port yet, so `arena.uboatStart = surfaced` (a port departure) only serves the U-boat lesson.

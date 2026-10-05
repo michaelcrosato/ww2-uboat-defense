@@ -273,12 +273,13 @@ export class Hud {
 
   /**
    * `display.nightOutline`: after dark the player's own hull is a dark shape on dark water (worse under moon
-   * glitter), so a faint outline traces its plan at the surface; dashed while it is under water.
+   * glitter), so a faint outline traces its plan at the surface; dashed while it is under water, where even
+   * by day it is only a shadow (U-boats start at periscope depth).
    */
   private drawOwnOutline(g: CanvasRenderingContext2D, m: Mission) {
     const v = m.world.player, mode = dev.str('display.nightOutline');
     if (!v || !v.alive || mode === 'off') return;
-    const k = mode === 'always' ? 1 : clamp((m.world.env.darkness - 0.3) / 0.35, 0, 1);
+    const k = mode === 'always' ? 1 : Math.max(clamp((m.world.env.darkness - 0.3) / 0.35, 0, 1), v.submerged ? 0.6 : 0);
     if (k <= 0) return;
     const pts = hullPoints(v.cls.length, v.cls.beam, 0, 1), side: [number, number][] = [];
     for (let i = 0; i < pts.length; i += 12) side.push([pts[i], pts[i + 1]]);
