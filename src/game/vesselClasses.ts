@@ -5,6 +5,7 @@
 import { KNOT } from '../core/math';
 import * as art from '../art/ships';
 import type { ShipArt } from '../art/ships';
+import { NAVY } from './historic/navy';
 
 export type VesselKind = 'escort' | 'merchant' | 'uboat';
 export type Side = 'allied' | 'axis';
@@ -25,8 +26,15 @@ export interface VesselClass {
   id: string;
   name: string;
   kind: VesselKind;
-  /** special duties: an escort carrier launches the convoy's air patrols, a rescue ship picks up survivors */
-  role?: 'carrier' | 'rescue';
+  /** special duties: an escort carrier launches the convoy's air patrols, a rescue ship picks up survivors; capital ships are prize targets */
+  role?: 'carrier' | 'rescue' | 'capital';
+  /** historical fleets (src/game/historic/navy.ts): navy and hull designation (BB, CV, CA, CL, DD, SS...) */
+  navy?: 'USN' | 'IJN';
+  hullType?: string;
+  /** anti-aircraft battery: heavy (5-inch / 12.7 cm) and light (1.1-inch, .50 cal, 25 mm) barrels, reach (m) */
+  aa?: { heavy: number; light: number; range: number };
+  /** a heavy bomb through the deck can set off the magazines (USS Arizona) */
+  magazine?: number;
   side: Side;
   art: () => ShipArt;
   length: number; beam: number; draft: number; freeboard: number;
@@ -41,7 +49,8 @@ export interface VesselClass {
   guns: GunSpec[];
   dc?: { capacity: number; rails: number; kguns: number; reload: number };
   hedgehog?: { salvos: number; minYear: number };
-  torpedoes?: { bow: number; stern: number; reloads: number; reloadTime: number; speedKn: number; range: number; damage: number; wake: boolean };
+  /** dud: the class's own dud rate (the US Mark 14 of 1942), else `game.duds` */
+  torpedoes?: { bow: number; stern: number; reloads: number; reloadTime: number; speedKn: number; range: number; damage: number; wake: boolean; dud?: number };
   sub?: {
     surfacedKn: number; submergedKn: number; silentKn: number;
     periscopeDepth: number; testDepth: number; crushDepth: number;
@@ -187,3 +196,6 @@ export const MERCHANT_NAMES = [
 ];
 export const ESCORT_NAMES = ['Hesperus', 'Vanoc', 'Walker', 'Starling', 'Kite', 'Wren', 'Pimpernel', 'Clematis', 'Snowflake', 'Sunflower', 'Loosestrife', 'Itchen', 'Jed', 'Tay', 'Spey', 'Rother'];
 export const UBOAT_NAMES = ['U-213', 'U-334', 'U-407', 'U-411', 'U-436', 'U-519', 'U-571', 'U-594', 'U-618', 'U-642', 'U-709', 'U-731', 'U-762', 'U-814', 'U-861', 'U-927'];
+
+// the 1941-42 Pacific fleets for the historical battles live in their own module
+Object.assign(VESSELS, NAVY);

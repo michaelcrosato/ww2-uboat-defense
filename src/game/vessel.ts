@@ -5,7 +5,7 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { RAPIER as R, GROUPS } from '../physics/physics';
 import { HullHydro, type HydroControls } from '../physics/hydro';
-import { angleDiff, approach, clamp, fx, qrot, quatFromYaw, rollPitchOf, v3, yawOf, KNOT, type Quat } from '../core/math';
+import { angleDiff, approach, clamp, fx, qrot, quatFromEuler, quatFromYaw, rollPitchOf, v3, yawOf, KNOT, type Quat } from '../core/math';
 import type { VesselClass, Side, VesselKind, GunSpec } from './vesselClasses';
 import type { StackModel } from '../art/voxel';
 import type { World } from './world';
@@ -53,6 +53,13 @@ export interface SubState {
 }
 
 let nextId = 1;
+
+/**
+ * Spawn options. `side` overrides the class's side: the two sides are mechanical roles (the surface force
+ * and the submarine force), so a historical battle can put any navy on either (Midway: the IJN screen
+ * hunts USS Nautilus).
+ */
+export interface SpawnOpts { name?: string; submerged?: number; fragment?: [number, number]; side?: Side }
 
 export class Vessel {
   readonly id = nextId++;
@@ -110,6 +117,18 @@ export class Vessel {
   sub?: SubState;
   /** AI controller or null for the player */
   ai: { update(dt: number): void; debug?: string } | null = null;
+  /**
+   * Moored at a berth (historical harbors): mooring lines hold the ship on the spot until she casts off
+   * (`moored = null`) or sinks; they part under a big enough pull.
+   */
+  moored: { x: number; y: number; h: number } | null = null;
+  /**
+   * damage control readiness (1 = closed up at sea): scales how fast leaks are stemmed and water pumped
+   * out. A ship surprised in harbour, watertight doors open and half the crew ashore, floods unchecked.
+   */
+  leakControl = 1;
+  /** a scripted capsize (historic battles): roll toward this side (+1 port, -1 starboard) at `rate` rad/s */
+  capsize: { sign: number; dur: number; t: number; h?: number } | null = null;
   /** convoy slot for merchants */
   slot?: { col: number; row: number };
   grt = 0;
@@ -125,10 +144,12 @@ export class Vessel {
   hits: { x: number; r: number }[] = [];
   /** broken in two: the local x range this body still carries (rendering clip, buoyancy, collider) */
   clip: [number, number] | null = null;
+  /** the bow half of a broken hull (a second Vessel for the same ship) */
+  fragment = false;
   broken = false;
 
-  constructor(readonly world: World, cls: VesselClass, x: number, y: number, heading: number, opts: { name?: string; submerged?: number; fragment?: [number, number] } = {}) {
-    this.cls = cls; this.side = cls.side; this.kind = cls.kind;
+  constructor(readonly world: World, cls: VesselClass, x: number, y: number, heading: number, opts: SpawnOpts = {}) {
+    this.cls = cls; this.side = opts.side ?? cls.side; this.kind = cls.kind;
     this.name = opts.name ?? cls.name;
     const art = world.artFor(cls);
     this.hullModel = art.hull;
@@ -188,6 +209,7 @@ export class Vessel {
     if (cls.grt) this.grt = cls.grt;
     // the bow half of a hull that broke in two: already lost, sinking, never scored again
     if (opts.fragment) {
+      this.fragment = true;
       this.alive = false; this.sinking = true; this.sunkTime = world.time; this.removeAt = world.time + 90;
       this.hp = -this.maxHp; this.tubes = []; this.dcLeft = 0;
       this.makeFragment(opts.fragment);
@@ -322,6 +344,7 @@ export class Vessel {
     if (!this.alive) {
       this.controls.thrust = 0; this.controls.rudder = 0;
       this.hydro.apply(this.body, w.ocean, this.controls, dt);
+      if (this.capsize) this.rollOver(dt);
       // a broken half lingers, rears up as its open end fills, then slips under within about a minute
       if (this.clip) {
         const k = clamp((w.time - this.sunkTime - 20) / 40, 0, 0.6);
@@ -348,8 +371,42 @@ export class Vessel {
     this.controls.thrust = this.thrust;
     this.controls.rudder = this.rudder;
     this.hydro.apply(this.body, w.ocean, this.controls, dt);
+    if (this.moored) this.holdMooring();
+    if (this.capsize) this.rollOver(dt);
     this.updateDamage(dt);
     this.updateWeapons(dt);
+  }
+
+  /**
+   * A flooded hull rolling over in shallow water (Oklahoma, Utah, Oglala). Driven kinematically: a hull
+   * resting on the bottom pivots on its bilge, which forces about its centre cannot reproduce against the
+   * seabed contact. She rolls to 150 degrees, faster as she goes, the lowest corner of her section kept on
+   * the bottom, so she ends upside down with her bottom out of the water and her masts in the mud.
+   */
+  private rollOver(dt: number) {
+    const c = this.capsize!, b = this.body, d = this.world.seabed ?? 12;
+    if (b.bodyType() !== R.RigidBodyType.KinematicPositionBased) b.setBodyType(R.RigidBodyType.KinematicPositionBased, true);
+    this.moored = null;
+    c.t = Math.min(c.dur, c.t + dt);
+    c.h ??= this.heading;
+    const phi = 2.6 * (c.t / c.dur) ** 2, sn = Math.sin(phi), cs = Math.cos(phi);
+    const hb = this.cls.beam / 2, T = this.cls.draft, F = this.cls.freeboard;
+    let low = Infinity;
+    for (const y of [-hb, hb]) for (const z of [-T, F]) low = Math.min(low, y * sn + z * cs);
+    const p = b.translation();
+    b.setNextKinematicTranslation({ x: p.x, y: p.y, z: -d - low });
+    b.setNextKinematicRotation(quatFromEuler(c.sign * phi, 0, c.h));
+  }
+
+  /** mooring lines: a damped spring toward the berth (position and heading), parting under a large pull */
+  private holdMooring() {
+    const m = this.moored!, b = this.body, mass = b.mass(), p = this.pos, lv = b.linvel();
+    const om = 0.35, k = mass * om * om, c = 2 * mass * om * 0.9;
+    const ex = m.x - p.x, ey = m.y - p.y;
+    if (Math.hypot(ex, ey) > 25) { this.moored = null; return; }
+    b.addForce({ x: ex * k - lv.x * c, y: ey * k - lv.y * c, z: 0 }, true);
+    const I = mass * this.cls.length * this.cls.length / 12, av = b.angvel();
+    b.addTorque({ x: 0, y: 0, z: angleDiff(this.heading, m.h) * I * om * om - av.z * 2 * I * om * 0.9 }, true);
   }
 
   /** reload timers for guns, tubes and racks */
@@ -508,8 +565,9 @@ export class Vessel {
     if (kind !== 'fire' && kind !== 'crush') this.recordHit(clamp(loc.x, -this.cls.length / 2, this.cls.length / 2), dmg);
     const along = clamp((loc.x / this.cls.length + 0.5), 0, 0.999);
     const ci = Math.floor(along * 5) * 2 + (loc.y < 0 ? 0 : 1);
-    const flood = this.stats.mul('flooding_pct');
     const below = wz < this.pos.z + 0.5;
+    // big armoured ships: torpedo bulges and many small compartments take far less water per hit
+    const flood = this.stats.mul('flooding_pct') * (this.cls.role ? clamp(Math.sqrt(8000 / this.cls.displacement), 0.35, 1) : 1);
     if (kind === 'torpedo') {
       this.ingress[ci] += 0.05 * flood * (dmg / 1000);
       const n1 = ci - 2, n2 = ci + 2;
@@ -521,7 +579,8 @@ export class Vessel {
       if (below || this.submerged) this.ingress[ci] += 0.004 * flood * (dmg / 80);
       if (this.world.rng.next() < 0.18 && this.kind !== 'uboat') this.ignite(loc.x, loc.y, 0.4);
     } else if (kind === 'dc' || kind === 'hedgehog' || kind === 'explosion') {
-      this.ingress[ci] += 0.012 * flood * (dmg / 300);
+      // a bomb bursting on deck holes the hull far less than one under water alongside
+      this.ingress[ci] += 0.012 * flood * (dmg / 300) * (kind === 'explosion' && !below && !this.sub ? 0.2 : 1);
       if (this.sub) this.sub.hullStress += dmg / this.maxHp * 0.12;
       if (this.sub && this.world.rng.next() < 0.35) this.engineDamage = Math.min(1, this.engineDamage + 0.15);
     } else if (kind === 'ram') {
@@ -530,9 +589,11 @@ export class Vessel {
     if (crit && this.world.rng.next() < 0.5) this.engineDamage = Math.min(1, this.engineDamage + 0.3);
     this.world.emit('damaged', { v: this, amount: dmg, kind, from, crit, x: wx, y: wy });
     // a hulk pounded far past zero while still afloat breaks its back at the hit
-    if (!this.sub && this.hp < -0.6 * this.maxHp && dev.bool('game.breakup')) this.breakUp(loc.x);
-    if (this.hp <= 0 && !this.clip) {
-      // structural failure: the hull opens up everywhere
+    // (armoured capital ships only break to a magazine explosion: one blast of more than their whole hp)
+    if (!this.sub && this.hp < -0.6 * this.maxHp && dev.bool('game.breakup') && (!this.cls.role || amount >= this.maxHp)) this.breakUp(loc.x);
+    if (this.hp <= 0 && !this.clip && !this.cls.role) {
+      // structural failure: the hull opens up everywhere (not armoured capital ships: wrecked and burning
+      // above the waterline, they float until flooding or a magazine finishes them, as the carriers did for hours)
       for (let i = 0; i < this.ingress.length; i++) this.ingress[i] += 0.06;
       if (this.sub) this.destroy('destroyed');
     }
@@ -540,18 +601,19 @@ export class Vessel {
   }
 
   ignite(lx: number, ly: number, power: number) {
-    if (this.fires.length >= 5) { this.fires[(this.world.rng.next() * this.fires.length) | 0].power += power * 0.5; return; }
+    // more hits feed the existing fires, up to a blaze (uncapped, a burning battle line outshone the sun)
+    if (this.fires.length >= 5) { const f = this.fires[(this.world.rng.next() * this.fires.length) | 0]; f.power = Math.min(1.6, f.power + power * 0.5); return; }
     const lz = this.cls.freeboard + 1;
     this.fires.push({ lx, ly: clamp(ly, -this.cls.beam * 0.3, this.cls.beam * 0.3), lz, power, t: 0 });
   }
 
   private updateDamage(dt: number) {
     const h = this.hydro;
-    const repair = this.stats.mul('repair_pct');
+    const repair = this.stats.mul('repair_pct'), leaks = repair * this.leakControl;
     for (let i = 0; i < this.ingress.length; i++) {
       // damage control slowly stems leaks and pumps water out
-      this.ingress[i] = Math.max(0, this.ingress[i] - dt * 0.0012 * repair * (this.hp > 0 ? 1 : 0.1));
-      h.flood[i] = clamp(h.flood[i] + this.ingress[i] * dt - (this.ingress[i] < 0.002 ? dt * 0.002 * repair : 0), 0, 1);
+      this.ingress[i] = Math.max(0, this.ingress[i] - dt * 0.0012 * leaks * (this.hp > 0 ? 1 : 0.1));
+      h.flood[i] = clamp(h.flood[i] + this.ingress[i] * dt - (this.ingress[i] < 0.002 ? dt * 0.002 * leaks : 0), 0, 1);
       // progressive flooding into neighbours
       if (h.flood[i] > 0.92) {
         const j = i + 2 < h.flood.length ? i + 2 : i - 2;
@@ -567,7 +629,7 @@ export class Vessel {
       if (f.power <= 0 || (this.hydro.submergedAll && this.sinking)) this.fires.splice(i, 1);
     }
     // a fire that burns a wreck far past zero breaks it too (tankers)
-    if (this.alive && !this.sub && !this.broken && this.hp < -0.6 * this.maxHp && dev.bool('game.breakup')) {
+    if (this.alive && !this.sub && !this.broken && !this.cls.role && this.hp < -0.6 * this.maxHp && dev.bool('game.breakup')) {
       const biggest = this.hits.reduce((m, h) => (h.r > m.r ? h : m), { x: 0, r: 0 });
       this.breakUp(biggest.x);
     }
@@ -575,7 +637,10 @@ export class Vessel {
     if (this.alive && !this.sub) {
       const p = this.pos;
       const deckUnder = h.centerEta - (p.z + this.cls.freeboard);
-      if (deckUnder > 0.6 || (this.hp <= -this.maxHp * 0.6)) {
+      // in a shallow harbour a flooded hull settles on the bottom with its upperworks still above water
+      const settled = this.world.seabed !== null && this.cls.draft - p.z > this.world.seabed - 0.3 && h.floodTotal() > 0.45;
+      // burnt out but afloat: capital ships only sink by flooding
+      if (deckUnder > 0.6 || settled || (this.hp <= -this.maxHp * 0.6 && !this.cls.role)) {
         this.sinkTimer += dt;
         if (this.sinkTimer > 2.5) this.destroy('sunk');
       } else this.sinkTimer = Math.max(0, this.sinkTimer - dt);
@@ -605,7 +670,7 @@ export class Vessel {
   submit(dt: number) {
     const w = this.world, R = w.scene;
     const p = this.pos, q = this.rot;
-    const removedSoon = !this.alive && w.time > this.removeAt - 3;
+    const removedSoon = !this.alive && w.seabed === null && w.time > this.removeAt - 3;
     if (removedSoon) return;
     const visible = w.isVisibleToPlayer(this);
     const flags = (this.searchlightOn ? 1 : 0) | (this.isPlayer && this.sub ? 2 : 0);
@@ -674,12 +739,18 @@ export class Vessel {
         R.particles.spawn(PK.SMOKE, wp.x, wp.y, wp.z, v.x * 0.5, v.y * 0.5, 2.6, fx.range(7, 12), 2.6, [g, g, g + 0.01]);
       }
     }
-    // fires
+    // fires: one light per ship at the power-weighted centre of her fires (a burning battle line would
+    // otherwise stack dozens of lights), dimmer by day when they compete with the sun
+    let fp = 0, flx = 0, fly = 0, flz = 0;
     for (const fr of this.fires) {
       const wp = this.local(fr.lx, fr.ly, fr.lz);
       if (fx.next() < fr.power * 0.9) R.particles.spawn(PK.FIRE, wp.x + fx.range(-1.5, 1.5), wp.y + fx.range(-1.5, 1.5), wp.z, v.x, v.y, fx.range(2, 5), fx.range(0.5, 1.0), fx.range(1, 2.2), [1, 0.6, 0.2]);
       if (fx.next() < fr.power * 0.6) R.particles.spawn(PK.SMOKE, wp.x, wp.y, wp.z + 2, v.x * 0.5, v.y * 0.5, 3, fx.range(6, 12), 3, [0.06, 0.06, 0.07]);
-      w.lights.add({ x: wp.x, y: wp.y, z: wp.z + 3, reach: 40 + fr.power * 50, r: 1, g: 0.5, b: 0.18, intensity: (1.4 + fr.power) * (0.8 + 0.2 * Math.sin(w.time * 17 + fr.lx)), shadow: true });
+      fp += fr.power; flx += wp.x * fr.power; fly += wp.y * fr.power; flz += wp.z * fr.power;
+    }
+    if (fp > 0) {
+      const p = Math.min(fp, 3), day = 0.45 + 0.55 * w.env.darkness;
+      w.lights.add({ x: flx / fp, y: fly / fp, z: flz / fp + 3, reach: 40 + p * 45, r: 1, g: 0.5, b: 0.18, intensity: (1.4 + p * 0.8) * day * (0.8 + 0.2 * Math.sin(w.time * 17 + this.id)), shadow: true });
     }
     // bow spray and green water when the bow digs into a wave
     if (dev.bool('water.splashes') && (!isSub || this.sub!.surfaced) && this.alive) {

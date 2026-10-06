@@ -120,7 +120,7 @@ export class App {
       this.player.aimX = p.pos.x + 200; this.player.aimY = p.pos.y;
       if (hooks.tutorial) this.tutorial = new Tutorial(hooks.tutorial, m, this.player, this.input);
     }
-    this.hud.tutorial = this.tutorial;
+    this.hud.tutorial = this.tutorial ?? m.scenario;
     this.cam.zoom = this.cam.targetZoom = dev.num('camera.zoom');
     if (m.spectator) {
       this.cam.x = m.convoy.x; this.cam.y = m.convoy.y;
@@ -152,10 +152,10 @@ export class App {
   }
 
   /** art review (`?scene=fleet`): one of every class lined up, AI frozen, camera fixed on the grid */
-  startFleet(overrides: Record<string, number | string | boolean> = {}) {
+  startFleet(overrides: Record<string, number | string | boolean> = {}, pacific = false) {
     dev.set('ai.freeze', true, false);
     this.startMission({ 'arena.timeFlow': 0, 'arena.convoy': 0, 'arena.escorts': 0, 'arena.uboats': 0, 'arena.aircraft': 'none', 'arena.seaState': 2, ...overrides }, { spectator: true });
-    const c = buildFleet(this.mission!.world);
+    const c = buildFleet(this.mission!.world, 0, 0, pacific);
     this.cam.x = c.x; this.cam.y = c.y;
     this.cam.zoom = this.cam.targetZoom = dev.num('camera.zoom');
     this.fixedCam = true;
@@ -322,6 +322,11 @@ export class App {
     const step = 1 / hz;
     for (let t = 0; t < seconds && !m.over; t += step) { m.world.step(step); m.update(step); this.scene.splats.length = 0; this.scene.hulls.length = 0; }
     off();
+    // particles and explosion flashes spawned during the jump never aged (they fade per rendered frame):
+    // every fire, smoke puff and flash of the skipped minutes would be on screen at once
+    this.scene.particles.n = 0;
+    m.world.transient.length = 0;
+    m.world.flash = 0;
     // the camera follows smoothly, so after a jump in time put it back on the player at once
     const p = m.world.player;
     if (p) { this.cam.x = p.pos.x; this.cam.y = p.pos.y; }

@@ -208,7 +208,11 @@ export class Sensors {
   seenBy(v: Vessel, side: Side, within = 1.5) { const s = this.seen.get(v.id); return !!s && this.w.time - s[side] < within; }
   seenByPlayer(v: Vessel) { return this.seenBy(v, this.w.playerSide, 1.6); }
 
-  private classify(t: Vessel) { return t.kind === 'uboat' ? 'U-boat' : t.kind === 'escort' ? 'Escort' : t.cls.id === 'tanker' ? 'Tanker' : 'Merchant'; }
+  private classify(t: Vessel) {
+    const h = t.cls.hullType;
+    if (h) return HULL_LABEL[h] ?? (t.kind === 'uboat' ? 'Submarine' : 'Warship');
+    return t.kind === 'uboat' ? 'U-boat' : t.kind === 'escort' ? 'Escort' : t.cls.id === 'tanker' ? 'Tanker' : 'Merchant';
+  }
 
   /** register a position fix */
   fix(side: Side, t: Vessel | null, x: number, y: number, err: number, src: number, depth: number | null, key?: number, decoy = false) {
@@ -354,3 +358,9 @@ function intersect(x1: number, y1: number, b1: number, x2: number, y2: number, b
   if (t < 0 || t > 6000) return null;
   return { x: x1 + d1x * t, y: y1 + d1y * t };
 }
+
+/** contact labels for the historical navies' hull types (src/game/historic/navy.ts) */
+const HULL_LABEL: Record<string, string> = {
+  BB: 'Battleship', CV: 'Carrier', CA: 'Heavy cruiser', CL: 'Light cruiser', DD: 'Destroyer', SS: 'Submarine', SSm: 'Midget submarine',
+  AG: 'Target ship', AR: 'Repair ship', AO: 'Oiler', CM: 'Minelayer', AV: 'Seaplane tender',
+};

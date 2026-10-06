@@ -22,6 +22,8 @@ a passive skill tree per side, loot with affixes and legendary powers, active ab
 |---|---|
 | ![Night action: a burning freighter, a searchlight and a star shell](docs/img/night-action.png) | ![Arctic pack ice](docs/img/arctic.png) |
 | ![Every vessel class lined up](docs/img/fleet.png) | ![Escort carrier with Swordfish on deck](docs/img/escort-carrier.png) |
+| ![Battleship Row at 07:50 on 7 December 1941](docs/img/battleship-row.png) | ![Battleship Row at 08:15: Oklahoma capsized, West Virginia and Arizona burning](docs/img/pearl-harbor.png) |
+| ![Kaga under the dive bombers at Midway, 10:22](docs/img/midway.png) | |
 
 ## Running it
 
@@ -82,6 +84,13 @@ After dark, and whenever it is submerged, your own boat gets a faint outline (Se
 - **Tutorial**: a guided battle for each side (title screen → Tutorial). A panel under the compass says what
   to do next (helm, hydrophones, diving, periscope, torpedoes and going deep; or ASDIC and depth-charge
   attacks for the escort) and ticks each step off as you do it.
+- **Historic Battles** (title screen): Pearl Harbor (7 December 1941) and Midway (4 June 1942), every ship
+  at true scale with the historical order of battle and timeline. Pearl Harbor is the real harbour (Ford
+  Island, Battleship Row, the Navy Yard, the lochs) with the fleet at its berths and both air waves; play the
+  destroyer Monaghan getting under way to hunt the midget submarine, or the midget submarine itself. At Midway
+  the Kido Butai (Akagi, Kaga, Soryu, Hiryu and their screen) steams through the morning's attacks; play the
+  destroyer Arashi hunting USS Nautilus, or Nautilus working in on the carriers. Your actions are free;
+  whatever you leave alone happens as it did (scripted hits that your flak can still prevent).
 - **Arena** (free play): pick the side, theater (North Atlantic, Arctic, Mediterranean, US East Coast,
   Caribbean, Indian Ocean), year (1939–1945 sets the technology), time of day, weather, sea state, convoy
   size, escorts, wolfpack size, air cover (air gap, occasional, escort carrier, constant) and more.

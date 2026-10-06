@@ -55,11 +55,12 @@ export class UboatAI {
   constructor(private w: World, private v: Vessel, private pack: Wolfpack) { this.side = w.rng.sign() as 1 | -1; pack.boats.push(this); }
 
   private convoyContacts(): Contact[] {
-    // merchants, and the escort carrier sailing with them (a prize worth any risk)
-    return this.w.sensors.list(this.v.side).filter((c) => c.kind === 'surface' && c.truth && (c.truth.kind === 'merchant' || c.truth.cls.role === 'carrier') && this.w.time - c.last < 120);
+    // merchants, and the escort carrier sailing with them (a prize worth any risk); capital ships in the
+    // historical battles
+    return this.w.sensors.list(this.v.side).filter((c) => c.kind === 'surface' && c.truth && (c.truth.kind === 'merchant' || c.truth.cls.role === 'carrier' || c.truth.cls.role === 'capital') && this.w.time - c.last < 120);
   }
   private escortContacts(): Contact[] {
-    return this.w.sensors.list(this.v.side).filter((c) => c.kind === 'surface' && c.truth && c.truth.kind === 'escort' && this.w.time - c.last < 60);
+    return this.w.sensors.list(this.v.side).filter((c) => c.kind === 'surface' && c.truth && c.truth.kind === 'escort' && !c.truth.cls.role && this.w.time - c.last < 60);
   }
 
   update(dt: number) {
