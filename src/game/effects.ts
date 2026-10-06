@@ -7,7 +7,7 @@
 
 import type { World } from './world';
 import { PK } from '../render/materials';
-import { FX } from '../render/fx';
+import { FX, MAX_GI_EMITTERS } from '../render/fx';
 import { fx } from '../core/math';
 
 const SPRAY_COL: [number, number, number] = [0.92, 0.95, 0.97];
@@ -137,6 +137,12 @@ export function fireEmit(w: World, x: number, y: number, z: number, power: numbe
   if (fx.next() < dt * 2.6 * p) F.burst(FX.SMOKE, x, y, z + 3, { n: 1, speed: 1, up: 4, spread: 0.3, radius: 2, life: 22 + p * 10, size: 4 + p * 2, size1: 20 + p * 16, col: [0.62, 0.6, 0.58], heat: 0.5, vx: vx * 0.5, vy: vy * 0.5 });
   // heat haze only from fires in view, so the frame's few haze slots go to what can be seen
   if (F.heat.length < 24 && dx < V.r && dy < V.r) F.heat.push({ x, y, z: z + 4, r: 6 + p * 6, k: 0.5 + p * 0.4 });
+  // the fire's light for the GI grid: a flickering pool on the water and the walls round it, occluded by
+  // whatever stands between (no slot in the frame's few dynamic lights needed)
+  if (F.emitters.length < MAX_GI_EMITTERS && dx < V.r + 400 && dy < V.r + 400) {
+    const fl = 0.75 + 0.25 * Math.sin(w.time * 13 + x * 0.37) * Math.sin(w.time * 7.3 + y * 0.21);
+    F.emitters.push({ x, y, z, r: 3 + p * 3.5, cr: 1, cg: 0.46, cb: 0.16, k: (1.1 + p * 1.2) * fl });
+  }
 }
 
 export function muzzleFlash(w: World, x: number, y: number, z: number, dx: number, dy: number, caliber: number) {

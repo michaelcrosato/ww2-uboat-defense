@@ -6,6 +6,7 @@ import { MAT, PK } from './materials';
 import type { ParticleSystem } from './particles';
 import type { StackInstance } from './scene';
 import type { HullInput, SplatInput } from '../water/simInputs';
+import { MAX_GI_EMITTERS, type GiEmitter } from './fx';
 
 /** floats per sprite-stack slice instance: pos+sliceZ, quat, rect, atlas uv, misc */
 export const STACK_FLOATS = 24;
@@ -133,4 +134,22 @@ export function packForces(hulls: HullInput[], splats: SplatInput[], winOx: numb
     o += FORCE_FLOATS;
   }
   return { data: d, count: n };
+}
+
+/**
+ * Steady GI emitters packed like lights (16 floats: pos rel origin + reach 0 · colour + strength · omni ·
+ * size), so the GI pass splats them with the same disc pipeline as the omni lights.
+ */
+export function packEmitters(es: GiEmitter[], ox: number, oy: number, gain: number, out: F32): { data: F32; count: number } {
+  const n = Math.min(es.length, MAX_GI_EMITTERS);
+  for (let i = 0; i < n; i++) {
+    const e = es[i], o = i * 16;
+    out[o] = e.x - ox; out[o + 1] = e.y - oy; out[o + 2] = e.z; out[o + 3] = 0;
+    out[o + 4] = e.cr; out[o + 5] = e.cg; out[o + 6] = e.cb; out[o + 7] = e.k * gain;
+    out[o + 8] = 0; out[o + 9] = 0; out[o + 10] = 0; out[o + 11] = -2;
+    // the disc is drawn wider than the blaze so it reaches past the hull it burns on (in 2D the hull would
+    // otherwise box in a fire that in truth burns above it)
+    out[o + 12] = 0; out[o + 13] = 0; out[o + 14] = 0; out[o + 15] = e.r * 0.9;
+  }
+  return { data: out, count: n };
 }

@@ -66,6 +66,7 @@ uniform vec4 uO;      // origin x, y, maxPx, time
 uniform vec4 uLight;  // smoke light rgb
 uniform vec4 uOccRect;
 uniform vec4 uQ;      // occScale, occRes, intensity
+uniform vec4 uGi;     // GI emission: giScale texels/m, giRes, gain, min size m
 vec3 fireRamp(float k) {
   vec3 a = vec3(3.4, 2.4, 1.1), b = vec3(2.2, 0.85, 0.18), c = vec3(0.7, 0.14, 0.03);
   return k < 0.5 ? mix(c, b, k * 2.0) : mix(b, a, (k - 0.5) * 2.0);
@@ -140,6 +141,17 @@ void main() {
     gl_Position = vec4(uv * 2.0 - 1.0 + c * s, 0.0, 1.0);
     return;
   }
+  if (uOcc == 2) {
+    // hot particles splat their light into the GI grid (see webgpu/passes/fx.ts vsFxEmit)
+    if (kind == 1 || kind == 2 || kind == 3 || kind == 5 || kind == 7 || kind == 9 || kind == 10) return;
+    vec3 hot = col.rgb * col.a * add;
+    if (max(hot.r, max(hot.g, hot.b)) < 0.01) return;
+    vec2 uv = (rel - uOccRect.xy) / uOccRect.zw;
+    float sz = max(size, uGi.w);
+    gl_Position = vec4(uv * 2.0 - 1.0 + c * (sz * uGi.x / uGi.y), 0.0, 1.0);
+    vCol = vec4(hot * (size * size) / (sz * sz) * uGi.z, 1.0);
+    return;
+  }
   if (kind == 9) {
     gl_Position = worldToClip(vec3(rel + c * max(size, 0.5), aA.z));
     return;
@@ -177,6 +189,12 @@ void main() {
     float r = dot(vUv, vUv);
     if (r > 1.0) discard;
     o = vec4(-50.0, 0.0, 0.0, vCol.a * (1.0 - r) * 0.9);
+    return;
+  }
+  if (uOcc == 2) {
+    float r = dot(vUv, vUv);
+    if (r > 1.0) discard;
+    o = vec4(vCol.rgb * (1.0 - r) * 2.0, 0.0);
     return;
   }
   int kind = int(vInfo.y + 0.5);
@@ -270,6 +288,21 @@ export class FxGL {
   uniforms(ox: number, oy: number, time: number, maxPx: number, light: [number, number, number], occRel: [number, number, number, number], occRes: number, intensity: number) {
     this.draw.use().f4('uO', ox, oy, maxPx, time).f4('uLight', light[0], light[1], light[2], 0)
       .f4('uOccRect', ...occRel).f4('uQ', occRes / occRel[2], occRes, intensity, 0);
+  }
+
+  /** GI emission parameters (texels per metre and size of the GI grid, light gain, minimum splat size m) */
+  setGi(giScale: number, giRes: number, gain: number, minSize: number) {
+    this.draw.use().f4('uGi', giScale, giRes, gain, minSize);
+  }
+
+  /** splat hot particles' light into the GI emission grid (caller binds it, with additive blending) */
+  drawEmit() {
+    if (!this.count) return;
+    const gl = this.gl;
+    this.draw.use().i1('uOcc', 2);
+    gl.bindVertexArray(this.vaos[this.cur * 2 + 1]);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, this.count);
+    gl.bindVertexArray(null);
   }
 
   /** draw into the occluder map (caller binds it and its MAX/ADD blending) */

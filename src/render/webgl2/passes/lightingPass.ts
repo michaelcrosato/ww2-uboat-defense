@@ -20,6 +20,8 @@ uniform int uLightCount;
 uniform vec4 uOccRect;
 uniform float uOccTop;   // highest occluder or smoke this frame (m)
 uniform float uAo;       // heightmap ambient occlusion strength
+uniform sampler2D uGI;   // 2D global illumination (same window as the occluder map)
+uniform vec2 uGIp;       // GI strength, GI grid size
 uniform vec3 uAmbient, uSky, uFogCol;
 uniform vec3 uSunDir, uSunCol, uMoonDir, uMoonCol;
 uniform float uReach, uStrength, uAmbientFill, uSoft, uBands, uDitherAmt, uBeams, uSpec, uReflect, uFog, uLightning, uHaze;
@@ -77,6 +79,19 @@ float heightAO(vec3 p, float amt) {
     occ += clamp((occAt(p.xy + e * 4.0).x - p.z) / 8.0, 0.0, 1.0) * 0.4;
   }
   return 1.0 - clamp(occ * 0.25 * amt, 0.0, 0.85);
+}
+
+// indirect light from the GI grid; walls (a = 0) borrow it from the open texels beside them
+vec3 giAt(vec2 p) {
+  vec2 uv = (p - uOccRect.xy) / uOccRect.zw;
+  if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec3(0.0);
+  float ts = 2.0 / uGIp.y;
+  vec4 s = vec4(0.0);
+  for (int k = 0; k < 9; k++) {
+    vec2 o = vec2(float(k % 3) - 1.0, float(k / 3) - 1.0);
+    s += texture(uGI, uv + o * ts) * (2.0 - 0.5 * dot(o, o));
+  }
+  return s.rgb / max(s.a, 0.5);
 }
 
 float blinn(vec3 n, vec3 L, vec3 V, float k) {
@@ -183,6 +198,12 @@ void main() {
       light += c * ndl;
       if (glossy) spec += c * blinn(n, Ld, V, shininess) * specK * 3.0;
     }
+  }
+  // ---- indirect light (2D global illumination), banded with the direct light below
+  if (uGIp.x > 0.0) {
+    vec3 gi = giAt(P.xy) * uGIp.x;
+    light += gi;
+    if (water) spec += gi * blinn(n, normalize(vec3(0.0, 0.0, 1.0) + V), V, 24.0) * 1.6;
   }
   // ---- pixel-art quantization of the direct light; the flat ambient base stays smooth so dark
   // scenes don't break up into dither speckle where everything sits below the first band

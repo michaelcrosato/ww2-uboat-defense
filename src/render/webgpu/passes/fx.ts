@@ -69,14 +69,14 @@ fn curl2(p: vec2f) -> vec2f {
 
 /**
  * draw uniforms (float offsets): 0 origin (x, y), maxPx, time · 4 smokeLight (rgb, -) · 8 occRect (x, y rel,
- * w, h) · 12 (occScale texels/m, occRes, intensity, -)
+ * w, h) · 12 (occScale texels/m, occRes, intensity, -) · 16 GI emission (giScale texels/m, giRes, gain, min size m)
  */
 const DRAW_WGSL = /* wgsl */ `
 ${CAMERA_WGSL}
 ${MATH_WGSL}
 ${NOISE_WGSL}
 ${COMMON}
-struct Draw { o: vec4f, light: vec4f, occRect: vec4f, q: vec4f };
+struct Draw { o: vec4f, light: vec4f, occRect: vec4f, q: vec4f, gi: vec4f };
 @group(0) @binding(1) var<uniform> D: Draw;
 @group(0) @binding(2) var<storage, read> ps: array<Pt>;
 struct VOut {
@@ -222,12 +222,44 @@ fn bayer4(p: vec2f) -> f32 {
   o.uv = c; o.col = L[0]; o.info = vec4f(L[1].x, f32(kind), p.c.z, t);
   return o;
 }
+// hot particles splat their light into the GI emission grid (same window as the occluder map, coarser):
+// fire while it burns, flashes, glowing debris, a flak burst's core. A particle smaller than
+// a GI texel is drawn at the minimum size with its light thinned to match, so the total stays the same
+@vertex fn vsFxEmit(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
+  var o: VOut;
+  let p = ps[ii];
+  o.pos = vec4f(2.0, 2.0, 2.0, 1.0);
+  let kind = i32(p.c.w + 0.5);
+  // embers and sparks are too small and too many: as GI emitters they only add speckle
+  if (p.a.w >= p.b.w || kind == 1 || kind == 2 || kind == 3 || kind == 5 || kind == 7 || kind == 9 || kind == 10) { return o; }
+  let t = clamp(p.a.w / max(p.b.w, 1e-3), 0.0, 1.0);
+  let L = look(p, t);
+  let hot = L[0].rgb * L[0].a * L[1].x;
+  if (max(hot.r, max(hot.g, hot.b)) < 0.01) { return o; }
+  let c = corner(vi);
+  let rel = p.a.xy - D.o.xy;
+  let uv = (rel - D.occRect.xy) / D.occRect.zw;
+  let sz = max(L[1].y, D.gi.w);
+  let half = sz * 0.5 * D.gi.x / D.gi.y * 2.0;
+  o.pos = vec4f(uv.x * 2.0 - 1.0 + c.x * half, 1.0 - uv.y * 2.0 - c.y * half, 0.0, 1.0);
+  let thin = (L[1].y * L[1].y) / (sz * sz);
+  o.uv = c; o.col = vec4f(hot * thin * D.gi.z, 1.0); o.info = vec4f(L[1].x, f32(kind), p.c.z, t);
+  return o;
+}
+@fragment fn fsFxEmit(i: VOut) -> @location(0) vec4f {
+  let r = dot(i.uv, i.uv);
+  if (r > 1.0) { discard; }
+  return vec4f(i.col.rgb * (1.0 - r) * 2.0, 0.0);
+}
+
 @fragment fn fsFxOcc(i: VOut) -> @location(0) vec4f {
   let r = dot(i.uv, i.uv);
   if (r > 1.0) { discard; }
   return vec4f(-50.0, 0.0, 0.0, i.col.a * (1.0 - r) * 0.9);
 }
 `;
+
+const ADD: GPUBlendState = { color: { operation: 'add', srcFactor: 'one', dstFactor: 'one' }, alpha: { operation: 'add', srcFactor: 'one', dstFactor: 'one' } };
 
 const PREMULT: GPUBlendState = {
   color: { operation: 'add', srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
@@ -238,6 +270,7 @@ export class FxPassGPU {
   private pSim!: GPUComputePipeline;
   private pDraw!: GPURenderPipeline;
   private pOcc!: GPURenderPipeline;
+  private pEmit!: GPURenderPipeline;
   private simUbo: Ubo; private drawUbo: Ubo;
   readonly buf: GPUBuffer;
   private bgSim!: GPUBindGroup;
@@ -249,7 +282,7 @@ export class FxPassGPU {
   private constructor(private g: GpuContext) {
     const d = g.device;
     this.simUbo = new Ubo(d, 8, 'fx.sim');
-    this.drawUbo = new Ubo(d, 16, 'fx.draw');
+    this.drawUbo = new Ubo(d, 20, 'fx.draw');
     this.buf = d.createBuffer({ label: 'fx particles', size: FxPassGPU.CAP * FX_FLOATS * 4, usage: BU.STORAGE | BU.COPY_DST });
   }
 
@@ -284,6 +317,12 @@ export class FxPassGPU {
         label: 'fx.occ', layout: pl,
         vertex: { module: draw, entryPoint: 'vsFxOcc' },
         fragment: { module: draw, entryPoint: 'fsFxOcc', targets: [{ format: 'rgba16float', blend: OCC_BLEND }] },
+        primitive: { topology: 'triangle-list' },
+      });
+      p.pEmit = d.createRenderPipeline({
+        label: 'fx.emit', layout: pl,
+        vertex: { module: draw, entryPoint: 'vsFxEmit' },
+        fragment: { module: draw, entryPoint: 'fsFxEmit', targets: [{ format: 'rgba16float', blend: ADD }] },
         primitive: { topology: 'triangle-list' },
       });
     });
@@ -327,9 +366,15 @@ export class FxPassGPU {
     this.drawUbo.write();
   }
 
-  encode(pass: GPURenderPassEncoder, which: 'draw' | 'occ') {
+  /** GI emission parameters (texels per metre and size of the GI grid, light gain, minimum splat size m) */
+  setGi(giScale: number, giRes: number, gain: number, minSize: number) {
+    const f = this.drawUbo.f;
+    f[16] = giScale; f[17] = giRes; f[18] = gain; f[19] = minSize;
+  }
+
+  encode(pass: GPURenderPassEncoder, which: 'draw' | 'occ' | 'emit') {
     if (!this.count || !this.bgDraw) return;
-    pass.setPipeline(which === 'draw' ? this.pDraw : this.pOcc);
+    pass.setPipeline(which === 'draw' ? this.pDraw : which === 'occ' ? this.pOcc : this.pEmit);
     pass.setBindGroup(0, this.bgDraw);
     pass.draw(6, this.count);
   }

@@ -7,7 +7,7 @@ import type { Screen } from '../screen';
 import type { RenderScene } from '../scene';
 import type { BackendInfo, BackendStats, FrameParams, RenderBackend } from '../types';
 import { postParams } from '../common/post';
-import { lightParams, occluderRect, occluderRes, seaTop, smokeLight, waterParams } from '../common/frameUniforms';
+import { giRes, lightParams, occluderRect, occluderRes, seaTop, smokeLight, waterParams } from '../common/frameUniforms';
 import { LIGHT_FLOATS, MAX_LIGHTS, packLights } from '../lights';
 import { MAX_WAVES } from '../../water/ocean';
 import { dev } from '../../core/devSettings';
@@ -22,8 +22,10 @@ import { LightingPassGPU } from './passes/lighting';
 import { StackPassGPU } from './passes/stacks';
 import { ParticlePassGPU } from './passes/particles';
 import { FxPassGPU } from './passes/fx';
+import { GiPassGPU } from './passes/gi';
 import { DebugPassGPU, DEBUG_TEX_MODES } from './passes/debug';
-import { packForces, packParticles, packStacks, type F32 } from '../pack';
+import { packEmitters, packForces, packParticles, packStacks, type F32 } from '../pack';
+import { MAX_GI_EMITTERS } from '../fx';
 import { WaterSimsGPU, type SimParams } from './sims/waterSims';
 import { GpuTimer } from './timing';
 import type { SplatInput } from '../../water/simInputs';
@@ -37,7 +39,7 @@ export interface WebGPUOpts {
 }
 
 interface Passes {
-  post: PostPassGPU; water: WaterPassGPU; lighting: LightingPassGPU; stacks: StackPassGPU; particles: ParticlePassGPU; fx: FxPassGPU;
+  post: PostPassGPU; water: WaterPassGPU; lighting: LightingPassGPU; stacks: StackPassGPU; particles: ParticlePassGPU; fx: FxPassGPU; gi: GiPassGPU;
   debug: DebugPassGPU; pattern: TestPatternPass | null; sims: WaterSimsGPU;
 }
 
@@ -58,6 +60,10 @@ export class WebGPUBackend implements RenderBackend {
   stats: BackendStats = { stackInstances: 0, particles: 0, lights: 0 };
   origin = { x: 0, y: 0 };
   occRect = { x: 0, y: 0, s: 1 };
+  /** last frame's GI window (absolute) and grid size: the GI history is reprojected from it */
+  private giPrev: { x: number; y: number; s: number; n: number } | null = null;
+  private giFrame = 0;
+  private emitData: F32 = new Float32Array(MAX_GI_EMITTERS * 16);
   private inFlight = 0;
   // targets (recreated lazily on size change)
   private gA: GpuTarget | null = null;      // albedo + material
@@ -104,7 +110,7 @@ export class WebGPUBackend implements RenderBackend {
     this.frameUbo = frameUbo; this.oceanUbo = oceanUbo;
     this.zeroTex = g.device.createTexture({ label: 'zero', format: HDR, size: { width: 1, height: 1 }, usage: TU.TEXTURE_BINDING });
     this.zeroView = this.zeroTex.createView();
-    this.timer = g.hasTimestamps ? new GpuTimer(g.device, ['sims', 'fx', 'occluder', 'under', 'gbuffer', 'lighting', 'fxdraw', 'present']) : null;
+    this.timer = g.hasTimestamps ? new GpuTimer(g.device, ['sims', 'fx', 'occluder', 'gi', 'under', 'gbuffer', 'lighting', 'fxdraw', 'present']) : null;
     this.stats.passMs = this.timer?.ms;
   }
 
@@ -122,6 +128,7 @@ export class WebGPUBackend implements RenderBackend {
         stacks: await StackPassGPU.create(g, samplers),
         particles: await ParticlePassGPU.create(g),
         fx: await FxPassGPU.create(g),
+        gi: await GiPassGPU.create(g, samplers),
         debug: await DebugPassGPU.create(g, samplers, HDR),
         pattern: wopts.testPattern ? await TestPatternPass.create(g, frameUbo.buffer, HDR) : null,
         sims: await (() => { const z = simSizes(); return WaterSimsGPU.create(g, samplers, z.n, z.cell, z.nf); })(),
@@ -237,6 +244,9 @@ export class WebGPUBackend implements RenderBackend {
     this.partData = pk.data;
     P.lighting.write(L, occRel, lp.data, lp.count, Math.max(st.top, pk.top) + 1);
     P.particles.write(occRel, occRes, 24, pk.data, pk.count);
+    // GI: the effect particles splat their light into a grid over the occluder window (min size one texel)
+    const giN = giRes(), giOn = L.gi > 0 && !P.pattern;
+    P.fx.setGi(giN / occRel[2], giN, dev.num('light.giEmit'), occRel[2] / giN);
     P.fx.write(O.x, O.y, f.time, 160, smokeLight(L), occRel, occRes, dev.num('fx.intensity'));
     this.stats.particles = pk.count;
 
@@ -249,6 +259,22 @@ export class WebGPUBackend implements RenderBackend {
       P.particles.encode(op, 'occ');
       P.fx.encode(op, 'occ');
       op.end();
+      // ---- global illumination over the occluder window: emitters, jump flood, ray march, history
+      if (giOn) {
+        P.gi.setInputs(this.occ!.view, sp.fluid ? S.dyeView : this.zeroView, P.lighting.lightBuf);
+        const R = this.occRect, pv = this.giPrev && this.giPrev.n === giN ? this.giPrev : null;
+        P.gi.encode(enc, {
+          N: giN, wallH: dev.num('light.giWall'), frame: this.giFrame++, rays: dev.num('light.giRays'), steps: 32,
+          bounce: dev.num('light.giBounce'), blend: 1 - dev.num('light.giHistory'), lightGain: 0.35,
+          occRel, cur: [R.x, R.y, R.s], prev: pv ? [pv.x, pv.y, pv.s] : null,
+          sim: [simRel.x, simRel.y, simRel.size], oilGain: sp.fluid ? 1 : 0, lightCount: lp.count,
+          // a fire is far brighter per square metre than a lamp: its disc carries the light of the whole blaze
+          ...(() => { const e = packEmitters(scene.fx.emitters, O.x, O.y, 45 * dev.num('light.giFire'), this.emitData); return { emitters: e.data, emitterCount: e.count }; })(),
+          clamp: 12,
+        }, P.fx, tw('gi'));
+        this.giPrev = { x: R.x, y: R.y, s: R.s, n: giN };
+      } else this.giPrev = null;
+      P.lighting.setGi(giOn ? P.gi.views : null);
       // ---- underwater: submerged parts of everything (depth = distance below surface)
       const up = enc.beginRenderPass({
         label: 'underwater', timestampWrites: tw('under'),
@@ -275,7 +301,7 @@ export class WebGPUBackend implements RenderBackend {
       gp.end();
       // ---- lighting
       const lpass = enc.beginRenderPass({ label: 'lighting', timestampWrites: tw('lighting'), colorAttachments: [{ view: this.lit!.view, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
-      P.lighting.encode(lpass);
+      P.lighting.encode(lpass, giOn ? P.gi.cur : 0);
       lpass.end();
       // ---- effect particles over the lit image (fire adds light, smoke covers), behind whatever the
       // G-buffer depth says stands in front
@@ -289,9 +315,10 @@ export class WebGPUBackend implements RenderBackend {
       // debug texture views drawn straight into the lit buffer
       const dv = dev.str('debug.view');
       if (dv in DEBUG_TEX_MODES) {
-        const occ = dv === 'occluder';
-        const tex = occ ? this.occ!.view : dv === 'wave' ? S.heightView : dv === 'fluid' ? S.velView : S.dyeView;
-        P.debug.encode(enc, this.lit!.view, this.frameUbo.buffer, tex, occ ? occRel : [simRel.x, simRel.y, simRel.size, simRel.size], DEBUG_TEX_MODES[dv]);
+        const occ = dv === 'occluder' || dv === 'gi' || dv === 'giSeeds', gv = giOn ? P.gi.views : null;
+        const tex = dv === 'gi' ? (gv ? gv[P.gi.cur] : this.zeroView) : dv === 'giSeeds' ? (P.gi.seedView ?? this.zeroView)
+          : occ ? this.occ!.view : dv === 'wave' ? S.heightView : dv === 'fluid' ? S.velView : S.dyeView;
+        P.debug.encode(enc, this.lit!.view, this.frameUbo.buffer, tex, occ ? occRel : [simRel.x, simRel.y, simRel.size, simRel.size], DEBUG_TEX_MODES[dv], P.gi.size);
       }
     }
 
@@ -350,7 +377,7 @@ export class WebGPUBackend implements RenderBackend {
     const P = this.p;
     for (const u of this.unsub) u();
     P.sims.dispose();
-    P.post.dispose(); P.water.dispose(); P.lighting.dispose(); P.stacks.dispose(); P.particles.dispose(); P.fx.dispose(); P.debug.dispose(); P.pattern?.dispose();
+    P.post.dispose(); P.water.dispose(); P.lighting.dispose(); P.stacks.dispose(); P.particles.dispose(); P.fx.dispose(); P.gi.dispose(); P.debug.dispose(); P.pattern?.dispose();
     this.frameUbo.destroy(); this.oceanUbo.destroy();
     for (const t of [this.gA, this.gN, this.gDepth, this.uC, this.uD, this.uDepth, this.occ, this.lit, this.outTex]) t?.texture.destroy();
     this.zeroTex.destroy();

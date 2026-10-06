@@ -44,6 +44,8 @@ export interface LightParams {
   steps: number; shadows: boolean; celShadows: boolean; lightsOn: boolean;
   /** heightmap ambient occlusion strength (contact shadows) */
   ao: number;
+  /** 2D global illumination: strength (0 = off) and grid size */
+  gi: number; giRes: number;
   /** 0 final, 1 albedo, 2 normal, 3 height, 4 light only */
   view: number;
 }
@@ -63,6 +65,7 @@ export function lightParams(f: FrameParams): LightParams {
     steps: dev.num('light.shadowSteps'), shadows: dev.bool('light.shadows'),
     celShadows: dev.bool('light.celestialShadows'), lightsOn: dev.bool('light.enabled'),
     ao: dev.num('light.ao'),
+    gi: dev.num('light.gi'), giRes: giRes(),
     view: DEBUG_VIEWS[dev.str('debug.view')] ?? 0,
   };
 }
@@ -95,3 +98,6 @@ export function occluderRect(cam: Camera, occRes: number): { x: number; y: numbe
 }
 
 export function occluderRes(): number { return parseInt(dev.str('light.shadowRes')) || 1024; }
+
+/** GI grid size (texels across the occluder window) */
+export function giRes(): number { return parseInt(dev.str('light.giRes')) || 256; }

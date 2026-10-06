@@ -36,6 +36,7 @@ export class RenderScene {
   beginFrame() {
     this.stacks.length = 0;
     this.fx.heat.length = 0;
+    this.fx.emitters.length = 0;
     this.lights.clear();
     this.hulls.length = 0;
   }

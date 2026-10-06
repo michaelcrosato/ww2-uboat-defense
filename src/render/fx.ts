@@ -60,6 +60,10 @@ export interface BurstOpts {
 
 export interface ShockRing { x: number; y: number; z: number; t: number; life: number; r: number; str: number }
 export interface HeatSource { x: number; y: number; z: number; r: number; k: number }
+/** a steady emitter of light for the GI grid (a burning point): radius m, colour, strength */
+export interface GiEmitter { x: number; y: number; z: number; r: number; cr: number; cg: number; cb: number; k: number }
+/** most GI emitters a frame carries (the backends size their buffers by it) */
+export const MAX_GI_EMITTERS = 256;
 export interface GlowSource { x: number; y: number; z: number; k: number; t: number; life: number }
 
 /** most particles generated in one frame (a magazine explosion is ~2,500) */
@@ -83,6 +87,8 @@ export class FxSystem {
   rings: ShockRing[] = [];
   /** heat haze sources this frame (fires), filled every frame by the game */
   heat: HeatSource[] = [];
+  /** steady GI emitters (fires), refilled by the game every frame like `heat` */
+  emitters: GiEmitter[] = [];
   /** brief bright sources for light shafts (explosion flashes) */
   glows: GlowSource[] = [];
   /** camera shake: trauma adds up, decays; shake = trauma² */
@@ -166,5 +172,5 @@ export class FxSystem {
   consumed() { this.staging = 0; this.runs.length = 0; }
 
   /** forget everything (new mission, a fast-forward that never rendered) */
-  clear() { this.consumed(); this.head = 0; this.used = 0; this.rings.length = 0; this.glows.length = 0; this.heat.length = 0; this.trauma = 0; }
+  clear() { this.consumed(); this.head = 0; this.used = 0; this.rings.length = 0; this.glows.length = 0; this.heat.length = 0; this.emitters.length = 0; this.trauma = 0; }
 }
