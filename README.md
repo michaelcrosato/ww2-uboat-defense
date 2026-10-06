@@ -56,12 +56,19 @@ Browsers with only WebGL2 still run the game (best effort, see Renderer).
 | Searchlight | L | — |
 | Cycle target, tactical plot, chart | T, Tab, M | D-pad →, Create, touchpad |
 | Time compression | + / − | — |
-| Zoom; camera mode | wheel or PgUp / PgDn; C | —; L3 |
+| Zoom; free camera on / off | wheel or PgUp / PgDn; C | —; L3 |
+| Free camera: look around the map | ← ↑ → ↓, middle-drag, or rest the mouse at a screen edge; the wheel zooms toward the cursor | right stick |
 | Collect salvage | G | D-pad ← |
 | Pause / menu | Esc or P | Options |
 | Tutorial: skip step | Enter | pause menu |
 
 Every binding can be changed under Settings → Controls.
+
+**Free camera.** Press C (or drag with the middle mouse button) to leave your ship and scroll around the whole
+map to watch the battle: the arrow keys pan instead of steering (WASD still steers), the view zooms out further
+(to 0.1 px/m, so the whole of Pearl Harbor fits), the plot marks what you are looking at, and an arrow on the screen
+edge points back to your ship with its range. C again rides the ship. Pan speed, edge scrolling and the zoom limit
+are under Settings → Developer → Camera.
 
 ### Phones and tablets
 
@@ -76,6 +83,8 @@ Screen for a fullscreen app).
   A context button appears when one action matters: crash dive, fire a spread, drop a pattern, Hedgehog,
   star shell.
 - **The sea**: tap a ship to lock it, drag to aim, pinch to zoom. Swipe a notification away to dismiss it.
+- **LOOK** (beside the time and menu buttons): free camera, one finger drags the map and two fingers pan and
+  zoom; the button turns into **SHIP** to ride your ship again.
 - **Auto attack** (Settings → Controls, on for touch by default): FIRE picks a target and fires on the
   solution, the guns engage surfaced U-boats, the ASDIC keeps pinging a fresh contact and charge depths
   follow the plot.

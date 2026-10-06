@@ -14,6 +14,8 @@ const PATHS: Record<string, string> = {
   surface: '<path d="M12 3l4.5 6h-3.3v7h-2.4V9H7.5z"/><path d="M2 18.5h20V21H2z"/>',
   hedgehog: '<circle cx="12" cy="5" r="2"/><circle cx="18" cy="9" r="2"/><circle cx="18" cy="16" r="2"/><circle cx="12" cy="19.5" r="2"/><circle cx="6" cy="16" r="2"/><circle cx="6" cy="9" r="2"/><circle cx="12" cy="12" r="2"/>',
   light: '<path d="M2.5 9.5h5v5h-5z"/><path d="M8 9.8L21.5 4v16L8 14.2z" opacity=".55"/>',
+  look: '<path d="M12 5.5c4.6 0 8.2 3.1 10 6.5-1.8 3.4-5.4 6.5-10 6.5S3.8 15.4 2 12c1.8-3.4 5.4-6.5 10-6.5zm0 2.6a3.9 3.9 0 1 0 0 7.8 3.9 3.9 0 0 0 0-7.8z"/><circle cx="12" cy="12" r="1.8"/>',
+  ship: '<path d="M2 14h20l-3 5H5z"/><path d="M8 10h7v3H8zM10 6.5h2.4V10H10z"/>',
   target: '<path d="M11 2h2v5h-2zM11 17h2v5h-2zM2 11h5v2H2zM17 11h5v2h-5z"/><circle cx="12" cy="12" r="2.4"/>',
 };
 

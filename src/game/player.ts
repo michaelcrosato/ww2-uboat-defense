@@ -2,7 +2,7 @@
 // stick aiming, guns, depth charges, ASDIC, torpedoes with TDC assistance, periscope, depth
 // orders, searchlight, abilities, target selection and time compression.
 
-import type { Input } from '../input/input';
+import type { Action, Input } from '../input/input';
 import type { Camera } from '../render/camera';
 import type { Mission } from './mission';
 import type { Vessel } from './vessel';
@@ -15,6 +15,9 @@ import { Assist } from './assist';
 
 export const CHARGE_DEPTHS = [25, 45, 70, 100, 140, 190];
 export const TIME_STEPS = [1, 2, 4, 8, 16];
+const PAN_ACTIONS: Action[] = ['panUp', 'panDown', 'panLeft', 'panRight'];
+/** the ship-following camera's widest zoom (Camera.minZoom); the free camera goes to camera.freeMinZoom */
+const FOLLOW_MIN_ZOOM = 0.15;
 
 export class PlayerControl {
   aimX = 0; aimY = 0;
@@ -25,6 +28,7 @@ export class PlayerControl {
   abilities: AbilityRunner;
   timeIdx = 0;
   weaponMode: 'torpedo' | 'gun' = 'torpedo';
+  /** the view is off the ship: the player scrolls around the map (C / L3, a middle drag, the touch button) */
   freeCam = false;
   /** last torpedo solution for HUD */
   solution: { heading: number; tx: number; ty: number; t: number } | null = null;
@@ -59,10 +63,12 @@ export class PlayerControl {
     if (inp.pressed('timeUp')) this.timeIdx = Math.min(TIME_STEPS.findIndex((t) => t >= maxT), this.timeIdx + 1);
     if (inp.pressed('timeDown')) this.timeIdx = Math.max(0, this.timeIdx - 1);
     if (TIME_STEPS[this.timeIdx] > maxT) this.timeIdx = 0;
-    // ---- zoom
+    // ---- camera: the free camera takes the arrow keys (WASD still steers) and may zoom out further
+    if (inp.pressed('camera')) this.freeCam = !this.freeCam;
+    inp.suppress = this.freeCam ? PAN_ACTIONS : [];
+    this.zoomRange();
     if (inp.pressed('zoomIn')) this.cam.zoomBy(1.15);
     if (inp.pressed('zoomOut')) this.cam.zoomBy(1 / 1.15);
-    if (inp.pressed('camera')) this.freeCam = !this.freeCam;
     if (!v) return;
     // ---- aim point
     if (inp.usingPad) {
@@ -303,12 +309,9 @@ export class PlayerControl {
   /** camera follow with look-ahead */
   updateCamera(dt: number) {
     const v = this.v, cam = this.cam, inp = this.input;
-    if (!v) return;
-    if (this.freeCam) {
-      cam.x -= inp.dragX / cam.zoom; cam.y -= inp.dragY / (cam.zoom * cam.cosT);
-      if (inp.usingPad) { cam.x += inp.rx * 600 * dt / cam.zoom; cam.y += inp.ry * 600 * dt / cam.zoom; }
-      return;
-    }
+    this.zoomRange();
+    cam.anchor = null;
+    if (this.freeCam || !v) { this.freeLook(dt); return; }
     const la = dev.num('camera.lookAhead');
     let ax = (this.aimX - v.pos.x) * la * 0.5, ay = (this.aimY - v.pos.y) * la * 0.5;
     if (this.mobile) {
@@ -323,5 +326,33 @@ export class PlayerControl {
     const tx = v.pos.x + clamp(ax, -lim, lim), ty = v.pos.y + clamp(ay, -lim * 0.7, lim * 0.7);
     cam.follow(tx, ty, dt, dev.num('camera.follow'));
     if (inp.dragX || inp.dragY) { this.freeCam = true; }
+  }
+
+  /** the free camera may zoom out further to watch the whole battle; the follow camera comes back in range */
+  private zoomRange() {
+    const cam = this.cam;
+    cam.minZoom = this.freeCam ? Math.min(FOLLOW_MIN_ZOOM, dev.num('camera.freeMinZoom')) : FOLLOW_MIN_ZOOM;
+    if (cam.targetZoom < cam.minZoom) cam.targetZoom = cam.minZoom;
+  }
+
+  /** free camera: drag (middle mouse / one finger), arrow keys, screen edges or the right stick move the view;
+   * the wheel zooms toward the cursor */
+  private freeLook(dt: number) {
+    const cam = this.cam, inp = this.input;
+    let px = -inp.dragX, py = -inp.dragY;    // screen pixels this frame
+    const step = dev.num('camera.panSpeed') * Math.min(dt, 0.1);
+    let kx = (inp.down('panRight') ? 1 : 0) - (inp.down('panLeft') ? 1 : 0);
+    let ky = (inp.down('panDown') ? 1 : 0) - (inp.down('panUp') ? 1 : 0);
+    if (inp.usingPad) { kx += inp.rx; ky += inp.ry; }
+    const kbm = inp.device === 'kbm';
+    if (kbm && inp.pointerIn && dev.bool('camera.edgeScroll') && !this.mobile) {
+      // faster the closer the cursor sits to the edge
+      const e = Math.max(8, Math.min(cam.W, cam.H) * 0.04);
+      if (inp.mx < e) kx -= 1 - inp.mx / e; else if (inp.mx > cam.W - e) kx += 1 - (cam.W - inp.mx) / e;
+      if (inp.my < e) ky -= 1 - inp.my / e; else if (inp.my > cam.H - e) ky += 1 - (cam.H - inp.my) / e;
+    }
+    px += clamp(kx, -1, 1) * step; py += clamp(ky, -1, 1) * step;
+    cam.x += px / cam.zoom; cam.y += py / (cam.zoom * cam.cosT);
+    if (kbm && inp.pointerIn && !this.mobile) cam.anchor = [inp.mx, inp.my];
   }
 }

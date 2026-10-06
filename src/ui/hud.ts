@@ -53,6 +53,8 @@ export class Hud {
   /** lesson coach (tutorial missions) and the bottom edge of its panel this frame */
   tutorial: { view(): TutorialView | null } | null = null;
   private tutBottom = 0;
+  /** the player's view is in free camera mode (drawPlot marks the view) */
+  private freeCam = false;
   /**
    * Touch layout (set by the touch overlay): vessel status under the objectives at the top (the bottom of the
    * screen belongs to the thumbs), crew messages and warnings handed to the swipeable DOM toasts, the FPS
@@ -119,11 +121,13 @@ export class Hud {
     this.drawCompass(g, v, W);
     if (v) this.drawStatus(g, v, pc, H);
     this.drawAbilities(g, pc, W, H);
+    this.freeCam = pc.freeCam;
     if (this.showPlot) this.drawPlot(g, m, W);
     // fps: a touch HUD keeps it under the plot (before the tutorial panel, which stacks below), else bottom right
     const fps = dev.bool('display.showFps') ? `${Math.round(this.fps)} fps ${this.backend ? backendLabel(this.backend.info) : ''}`.trimEnd() : '';
     if (fps && this.mobile) { drawText(g, fps, W - 4, this.layout.right + 2, C.dim, { align: 'right' }); this.layout.right += 11; }
     this.drawTutorial(g, W);
+    if (pc.freeCam) this.drawFreeCam(g, m, W, H);
     if (!this.mobile) this.drawMessages(g, H);
     this.drawWarnings(g, m, W, H);
     // time compression
@@ -563,6 +567,12 @@ export class Hud {
     }
     for (const c of w.projectiles.crates) { const [x, y] = P(c.x, c.y); if (inside(x, y)) pxFill(g, x, y, 1, 1, RARITY_HEX[c.item.rarity]); }
     for (const a of w.projectiles.aircraft) { const [x, y] = P(a.x, a.y); if (inside(x, y)) drawText(g, '+', x, y - 3, C.allied, { align: 'center', outline: null }); }
+    if (this.freeCam) {
+      // the free camera's view on the plot (clipped to the disc's square; past it, a tick on the rim toward it)
+      const r = this.cam.viewRect(), [x0, y0] = P(r.x0, r.y0), [x1, y1] = P(r.x1, r.y1), [vx, vy] = P(this.cam.x, this.cam.y);
+      if (inside(vx, vy)) pxRect(g, Math.max(cx - R, x0), Math.max(cy - R, y0), Math.min(cx + R, x1) - Math.max(cx - R, x0), Math.min(cy + R, y1) - Math.max(cy - R, y0), C.warn);
+      else { const a = Math.atan2(vy - cy, vx - cx); pxFill(g, cx + Math.cos(a) * (R - 3) - 1, cy + Math.sin(a) * (R - 3) - 1, 3, 3, C.warn); }
+    }
     // convoy route
     const conv = m.convoy;
     const [ex, ey] = P(conv.exitX, conv.y);
@@ -572,6 +582,33 @@ export class Hud {
     const hh = Math.floor(env.hour), mm = Math.floor((env.hour % 1) * 60);
     drawText(g, `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}  ${env.weather}  Bf ${Math.round(w.ocean.params.seaState)}`, cx, cy + R + 12, C.dim, { align: 'center' });
     void BEAUFORT_NAME;
+  }
+
+  /** free camera: what it is and how to drive it under the compass, and a pointer back to the own ship when it is off screen */
+  private drawFreeCam(g: CanvasRenderingContext2D, m: Mission, W: number, H: number) {
+    const inp = this.input, pad = inp.usingPad;
+    const hint = this.mobile ? 'drag to look around  ·  pinch to zoom  ·  [SHIP] to return'
+      : pad ? `[R stick] look around  ·  [${inp.glyph('camera')}] back to ship`
+        : `[arrows] [MMB drag] [edges] look around  ·  [wheel] zoom  ·  [${inp.glyph('camera')}] back to ship`;
+    const w = Math.min(W - 8, textWidth(hint) + 12), x = Math.round(W / 2 - w / 2), y = Math.max(34, this.tutBottom + 4);
+    panel(g, x, y, w, 25, 0.6);
+    drawText(g, 'FREE CAMERA', W / 2, y + 3, C.warn, { align: 'center' });
+    drawKeys(g, hint, x + 6, y + 14, C.dim, '#a0ffd0', 1);
+    this.tutBottom = this.layout.center = y + 25;
+    const v = m.world.player;
+    if (!v || !v.alive) return;
+    const [sx, sy] = this.ts(v.pos.x, v.pos.y, 0), pad0 = 14;
+    if (sx > pad0 && sy > pad0 && sx < W - pad0 && sy < H - pad0) return;
+    // on an ellipse inside the screen edge (clear of the corner panels), toward the ship, with its range
+    const cx = W / 2, cy = H / 2, a = Math.atan2(sy - cy, sx - cx);
+    const ex = cx + Math.cos(a) * (W / 2 - pad0 - 8), ey = cy + Math.sin(a) * (H / 2 - pad0 - 8);
+    const tip = (d: number, s: number): [number, number] => [ex + Math.cos(a + s) * d, ey + Math.sin(a + s) * d];
+    const [ax, ay] = tip(5, 0), [bx, by] = tip(5, 2.5), [qx, qy] = tip(5, -2.5);
+    pxLine(g, ax, ay, bx, by, C.good); pxLine(g, ax, ay, qx, qy, C.good); pxLine(g, bx, by, qx, qy, C.good);
+    const km = Math.hypot(v.pos.x - this.cam.x, v.pos.y - this.cam.y) / 1000;
+    const label = `${v.name} ${km < 10 ? km.toFixed(1) : Math.round(km)} km`;
+    const lw = textWidth(label);
+    drawText(g, label, clamp(ex - Math.cos(a) * 12 - lw / 2, 4, W - 4 - lw), clamp(ey - Math.sin(a) * 12 - 3, 4, H - 12), C.good);
   }
 
   private drawObjectives(g: CanvasRenderingContext2D, m: Mission) {
