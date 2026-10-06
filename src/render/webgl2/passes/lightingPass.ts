@@ -66,17 +66,17 @@ float shadowDir(vec3 p, vec3 L, float maxD, float jitter, int steps) {
 
 // heightmap ambient occlusion: occluder-map neighbours that stand above this point (hull walls,
 // superstructure, buildings) shade its sky light, so decks under a bridge, gun tubs, street canyons and
-// the water at a hull's foot darken (two rings of 8 taps, 1.5 m and 4 m out)
+// the water at a hull's foot darken (two rings of 4 taps, 1.5 m and 4 m out, turned 45 degrees apart)
 float heightAO(vec3 p, float amt) {
   if (amt <= 0.0) return 1.0;
   float occ = 0.0;
-  for (int k = 0; k < 8; k++) {
-    float a = float(k) * 0.7853982 + 0.3927;
-    vec2 d = vec2(cos(a), sin(a));
+  for (int k = 0; k < 4; k++) {
+    float a = float(k) * 1.5707963 + 0.3927;
+    vec2 d = vec2(cos(a), sin(a)), e = vec2(-d.y, d.x) * 0.7071 + d * 0.7071;
     occ += clamp((occAt(p.xy + d * 1.5).x - p.z) / 3.0, 0.0, 1.0) * 0.6;
-    occ += clamp((occAt(p.xy + d * 4.0).x - p.z) / 8.0, 0.0, 1.0) * 0.4;
+    occ += clamp((occAt(p.xy + e * 4.0).x - p.z) / 8.0, 0.0, 1.0) * 0.4;
   }
-  return 1.0 - clamp(occ * 0.125 * amt, 0.0, 0.85);
+  return 1.0 - clamp(occ * 0.25 * amt, 0.0, 0.85);
 }
 
 float blinn(vec3 n, vec3 L, vec3 V, float k) {

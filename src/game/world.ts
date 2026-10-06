@@ -12,7 +12,7 @@ import { Vessel, type SpawnOpts } from './vessel';
 import type { Light } from '../render/lights';
 import type { RenderScene } from '../render/scene';
 import { dev } from '../core/devSettings';
-import { clamp, Rng, smoothstep } from '../core/math';
+import { clamp, quatFromYaw, Rng, smoothstep, type Quat } from '../core/math';
 import type { Projectiles } from './weapons';
 import type { Sensors } from './sensors';
 import type { Item } from '../meta/types';
@@ -44,6 +44,9 @@ export interface WorldEvents extends Record<string, unknown> {
   reinforce: { n: number };
 }
 
+export interface Scenery { x: number; y: number; z: number; model: StackModel; q?: Quat }
+const IDENT: Quat = { x: 0, y: 0, z: 0, w: 1 };
+
 export class World {
   physics = new Physics();
   ocean = new Ocean();
@@ -71,8 +74,12 @@ export class World {
   /** AI U-boats loiter at periscope depth and hold their fire (escort tutorial, until the attack lesson) */
   holdFire = false;
   islands: { x: number; y: number; r: number; model: StackModel }[] = [];
-  /** static scenery stacks (coastline chunks, lighthouse tower) */
-  scenery: { x: number; y: number; z: number; model: StackModel }[] = [];
+  /** static scenery stacks (coastline chunks, lighthouse tower, harbour buildings; `h` = heading) */
+  scenery: Scenery[] = [];
+  /** what the camera sees (centre, radius m), set by the app each frame: scenery far outside is skipped */
+  view = { x: 0, y: 0, r: Infinity };
+  private sceneryGrid: Map<number, Scenery[]> | null = null;
+  private gridCount = -1;
   /** shore lights (town windows, harbour lamps): drawn at night only */
   shoreLights: Light[] = [];
   /** rotating lighthouse beam origin */
@@ -192,6 +199,43 @@ export class World {
     }
   }
 
+  /** place a static scenery model (heading h, radians clockwise from east) */
+  addScenery(model: StackModel, x: number, y: number, z = 0, h = 0) {
+    this.scenery.push({ x, y, z, model, q: quatFromYaw(h) });
+  }
+
+  /**
+   * Scenery near the view only: a harbour carries thousands of buildings, trees and parked aircraft, so
+   * they are bucketed into 250 m cells once and the cells round the camera are submitted each frame.
+   */
+  private submitScenery() {
+    const R = this.scene, V = this.view, C = 250;
+    if (this.scenery.length < 400 || !isFinite(V.r)) {
+      for (const s of this.scenery) R.stacks.push({ model: s.model, x: s.x, y: s.y, z: s.z, q: s.q ?? IDENT });
+      return;
+    }
+    if (!this.sceneryGrid || this.gridCount !== this.scenery.length) {
+      this.sceneryGrid = new Map();
+      for (const s of this.scenery) {
+        const key = (Math.floor(s.x / C) + 2048) * 4096 + Math.floor(s.y / C) + 2048;
+        const cell = this.sceneryGrid.get(key);
+        if (cell) cell.push(s); else this.sceneryGrid.set(key, [s]);
+      }
+      this.gridCount = this.scenery.length;
+    }
+    // big models (land tiles) reach far beyond their cell: a margin of 1 km catches their origins
+    const r = V.r + 1000;
+    for (let cx = Math.floor((V.x - r) / C); cx <= Math.floor((V.x + r) / C); cx++) for (let cy = Math.floor((V.y - r) / C); cy <= Math.floor((V.y + r) / C); cy++) {
+      const cell = this.sceneryGrid.get((cx + 2048) * 4096 + cy + 2048);
+      if (!cell) continue;
+      for (const s of cell) {
+        const m = s.model.radius + V.r;
+        if (Math.abs(s.x - V.x) > m || Math.abs(s.y - V.y) > m) continue;
+        R.stacks.push({ model: s.model, x: s.x, y: s.y, z: s.z, q: s.q ?? IDENT });
+      }
+    }
+  }
+
   /** gather render data for this frame */
   submit(frameDt: number) {
     const R = this.scene;
@@ -204,7 +248,7 @@ export class World {
     R.lights.reachScale = 1 + fog * 0.6;
     for (const v of this.vessels) v.submit(frameDt);
     for (const isl of this.islands) R.stacks.push({ model: isl.model, x: isl.x, y: isl.y, z: 0, q: { x: 0, y: 0, z: 0, w: 1 } });
-    for (const s of this.scenery) R.stacks.push({ model: s.model, x: s.x, y: s.y, z: s.z, q: { x: 0, y: 0, z: 0, w: 1 } });
+    this.submitScenery();
     const night = smoothstep(0.25, 0.7, this.env.darkness);
     if (night > 0.01) for (const l of this.shoreLights) R.lights.add({ ...l, intensity: l.intensity * night });
     if (this.lighthouse && night > 0.01) {

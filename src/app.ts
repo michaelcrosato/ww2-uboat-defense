@@ -268,6 +268,9 @@ export class App {
       this.cam.update(camDt, dev.num('camera.shake'));
       this.shipSway(m, camDt);
       // render
+      // scenery is culled round the view (plus room for long shadows and the oblique lift of tall things)
+      const cv = m.world.view, cam = this.cam;
+      cv.x = cam.x; cv.y = cam.y; cv.r = 0.5 * Math.hypot(cam.bw / cam.zoom, cam.bh / (cam.zoom * cam.cosT)) + 250;
       m.world.submit(halted ? 0 : dt * tempo);
       this.hud.weather.update(m.world, this.cam, halted ? 0 : dt * tempo);
       const ps = this.scene.particles;

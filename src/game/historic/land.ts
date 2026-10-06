@@ -7,7 +7,7 @@
 import type { World } from '../world';
 import type { RenderScene } from '../../render/scene';
 import { VoxelModel, VM } from '../../art/voxel';
-import { hash2, noise2 } from '../../core/math';
+import { hash2, hexToRgb, noise2 } from '../../core/math';
 
 export type Pt = [number, number];
 
@@ -41,9 +41,13 @@ export class LandMap {
   readonly nx: number; readonly ny: number;
   /** 0 water, else 1 + index of the area */
   readonly cell: Uint8Array;
+  /** ground paint over the area colour (roads, runways, aprons, lawns): 0 none, else 1 + palette index */
+  readonly paint: Uint8Array;
+  readonly palette: string[] = [];
   constructor(readonly x0: number, readonly y0: number, x1: number, y1: number, readonly res: number, readonly areas: LandArea[], carves: Carve[]) {
     this.nx = Math.ceil((x1 - x0) / res); this.ny = Math.ceil((y1 - y0) / res);
     this.cell = new Uint8Array(this.nx * this.ny);
+    this.paint = new Uint8Array(this.nx * this.ny);
     areas.forEach((a, ai) => {
       let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
       for (const [x, y] of a.pts) { bx0 = Math.min(bx0, x); by0 = Math.min(by0, y); bx1 = Math.max(bx1, x); by1 = Math.max(by1, y); }
@@ -63,6 +67,64 @@ export class LandMap {
       }
     }
   }
+  /** turn an oriented rectangle of land into water after construction (flooded docks) */
+  carve(c: Carve) { this.forRect(c.x, c.y, c.h, c.hl, c.hw, (k) => { this.cell[k] = 0; }); }
+  /** add land after construction (piers built out into a carved loch) */
+  addLand(pts: Pt[], kind: LandArea['kind']) {
+    this.areas.push({ pts, kind });
+    const v = this.areas.length;
+    this.forPoly(pts, (k) => { this.cell[k] = v; });
+  }
+  /** turn a polygon of land into water (lochs the area outlines run across) */
+  carvePoly(pts: Pt[]) { this.forPoly(pts, (k) => { this.cell[k] = 0; }); }
+
+  // ---- ground paint: each feature is rasterised once into the paint grid, the tiles read it
+  private ink(color: string) {
+    let i = this.palette.indexOf(color);
+    if (i < 0) { i = this.palette.length; this.palette.push(color); }
+    return i + 1;
+  }
+  /** a strip of half width hw between two points (roads, runways, rails) */
+  paintStrip(ax: number, ay: number, bx: number, by: number, hw: number, color: string) {
+    const L = Math.hypot(bx - ax, by - ay) || 1;
+    this.paintRect((ax + bx) / 2, (ay + by) / 2, Math.atan2(by - ay, bx - ax), L / 2 + hw * 0.5, hw, color);
+  }
+  /** a polyline of strips */
+  paintLine(pts: Pt[], hw: number, color: string) { for (let i = 1; i < pts.length; i++) this.paintStrip(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1], hw, color); }
+  paintRect(x: number, y: number, h: number, hl: number, hw: number, color: string) { const v = this.ink(color); this.forRect(x, y, h, hl, hw, (k) => { this.paint[k] = v; }); }
+  paintPoly(pts: Pt[], color: string) { const v = this.ink(color); this.forPoly(pts, (k) => { this.paint[k] = v; }); }
+  paintDisc(x: number, y: number, r: number, color: string) {
+    const v = this.ink(color), { res } = this;
+    for (let j = Math.floor((y - r - this.y0) / res); j <= Math.ceil((y + r - this.y0) / res); j++) for (let i = Math.floor((x - r - this.x0) / res); i <= Math.ceil((x + r - this.x0) / res); i++) {
+      if (i < 0 || j < 0 || i >= this.nx || j >= this.ny) continue;
+      const dx = this.x0 + (i + 0.5) * res - x, dy = this.y0 + (j + 0.5) * res - y;
+      if (dx * dx + dy * dy <= r * r) this.paint[j * this.nx + i] = v;
+    }
+  }
+  /** what the ground is painted at a point ('' if bare) */
+  paintAt(x: number, y: number) {
+    const i = Math.floor((x - this.x0) / this.res), j = Math.floor((y - this.y0) / this.res);
+    if (i < 0 || j < 0 || i >= this.nx || j >= this.ny) return '';
+    const v = this.paint[j * this.nx + i];
+    return v ? this.palette[v - 1] : '';
+  }
+  private forRect(x: number, y: number, h: number, hl: number, hw: number, fn: (k: number) => void) {
+    const { res } = this, r = Math.hypot(hl, hw) + res, cs = Math.cos(h), sn = Math.sin(h);
+    for (let j = Math.floor((y - r - this.y0) / res); j <= Math.ceil((y + r - this.y0) / res); j++) for (let i = Math.floor((x - r - this.x0) / res); i <= Math.ceil((x + r - this.x0) / res); i++) {
+      if (i < 0 || j < 0 || i >= this.nx || j >= this.ny) continue;
+      const dx = this.x0 + (i + 0.5) * res - x, dy = this.y0 + (j + 0.5) * res - y;
+      if (Math.abs(dx * cs + dy * sn) <= hl && Math.abs(-dx * sn + dy * cs) <= hw) fn(j * this.nx + i);
+    }
+  }
+  private forPoly(pts: Pt[], fn: (k: number) => void) {
+    let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+    for (const [x, y] of pts) { bx0 = Math.min(bx0, x); by0 = Math.min(by0, y); bx1 = Math.max(bx1, x); by1 = Math.max(by1, y); }
+    const { res } = this;
+    const i0 = Math.max(0, Math.floor((bx0 - this.x0) / res)), i1 = Math.min(this.nx - 1, Math.ceil((bx1 - this.x0) / res));
+    const j0 = Math.max(0, Math.floor((by0 - this.y0) / res)), j1 = Math.min(this.ny - 1, Math.ceil((by1 - this.y0) / res));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (inPoly(this.x0 + (i + 0.5) * res, this.y0 + (j + 0.5) * res, pts)) fn(j * this.nx + i);
+  }
+
   at(x: number, y: number) {
     const i = Math.floor((x - this.x0) / this.res), j = Math.floor((y - this.y0) / this.res);
     return i < 0 || j < 0 || i >= this.nx || j >= this.ny ? 0 : this.cell[j * this.nx + i];
@@ -92,8 +154,11 @@ export class LandMap {
     return rects.length;
   }
 
-  /** flat voxel tiles (ground layer + a layer of buildings, trees and cranes) as scenery */
-  addArt(w: World, scene: RenderScene, tag: string, tile: number, strips: Strip[]) {
+  /**
+   * Flat voxel tiles as scenery: the ground layer (area colours, then the paint grid) and, with `dress`,
+   * a second layer of blocky buildings and trees (Midway; Pearl Harbor places real models instead)
+   */
+  addArt(w: World, scene: RenderScene, tag: string, tile: number, strips: Strip[], dress = true) {
     const { res } = this, n = Math.round(tile / res);
     let tiles = 0;
     for (let tj = 0; tj * n < this.ny; tj++) for (let ti = 0; ti * n < this.nx; ti++) {
@@ -127,8 +192,16 @@ export class LandMap {
           if (u < 0 || u > 1) continue;
           if (Math.abs((x - s.x0) * dy - (y - s.y0) * dx) / Math.sqrt(L2) <= s.hw) c = s.color;
         }
+        const pv = this.paint[gj * this.nx + gi];
+        if (pv) {
+          c = this.palette[pv - 1];
+          // pale paving (aprons, quays, piers) shows its slab joints; every paint varies a touch
+          const [r, g, b] = hexToRgb(c), lum = (r + g + b) / 765;
+          const k = (lum > 0.5 && (gi % 4 === 0 || gj % 4 === 0) ? 0.93 : 1) * (0.97 + nz * 0.06);
+          c = `#${[r, g, b].map((v) => Math.min(255, Math.round(v * k)).toString(16).padStart(2, '0')).join('')}`;
+        }
         m.set(i, j, 0, c, VM.LAND);
-        if (shore) continue;
+        if (shore || !dress) continue;
         // second layer: sheds and shops in the yard, hangars and barracks on the bases, houses and trees
         let roof: string | null = null;
         if (area.kind === 'yard' && lot > 0.3) roof = inLot(1, 6, 1, lot > 0.75 ? 6 : 3) ? (lot > 0.85 ? '#6e4c3a' : lot > 0.6 ? '#8a8478' : '#7c7a72') : null;

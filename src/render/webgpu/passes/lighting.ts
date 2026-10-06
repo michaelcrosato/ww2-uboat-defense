@@ -81,17 +81,17 @@ fn shadowDir(p: vec3f, L: vec3f, maxD: f32, jitter: f32, steps: i32) -> f32 {
 
 // heightmap ambient occlusion: occluder-map neighbours that stand above this point (hull walls,
 // superstructure, buildings) shade its sky light, so decks under a bridge, gun tubs, street canyons and
-// the water at a hull's foot darken (two rings of 8 taps, 1.5 m and 4 m out)
+// the water at a hull's foot darken (two rings of 4 taps, 1.5 m and 4 m out, turned 45 degrees apart)
 fn heightAO(p: vec3f, amt: f32) -> f32 {
   if (amt <= 0.0) { return 1.0; }
   var occ = 0.0;
-  for (var k = 0; k < 8; k++) {
-    let a = f32(k) * 0.7853982 + 0.3927;
-    let d = vec2f(cos(a), sin(a));
+  for (var k = 0; k < 4; k++) {
+    let a = f32(k) * 1.5707963 + 0.3927;
+    let d = vec2f(cos(a), sin(a)); let e = vec2f(-d.y, d.x) * 0.7071 + d * 0.7071;
     occ += clamp((occAt(p.xy + d * 1.5).x - p.z) / 3.0, 0.0, 1.0) * 0.6;
-    occ += clamp((occAt(p.xy + d * 4.0).x - p.z) / 8.0, 0.0, 1.0) * 0.4;
+    occ += clamp((occAt(p.xy + e * 4.0).x - p.z) / 8.0, 0.0, 1.0) * 0.4;
   }
-  return 1.0 - clamp(occ * 0.125 * amt, 0.0, 0.85);
+  return 1.0 - clamp(occ * 0.25 * amt, 0.0, 0.85);
 }
 
 fn blinn(n: vec3f, L: vec3f, V: vec3f, k: f32) -> f32 {

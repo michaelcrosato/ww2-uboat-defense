@@ -15,7 +15,9 @@ sides:
 Ships are procedural voxel models drawn by sprite stacking, so they roll, pitch, list, burn and break in two.
 The sea is a Gerstner swell plus GPU wave-equation and fluid simulations (wakes, foam, oil, burning oil,
 bioluminescence). Rapier 3D drives buoyancy and hydrodynamics. Lighting is deferred, with occluder-heightmap
-soft shadows, searchlight beams, star shells and fires. Progression borrows from Diablo IV / Path of Exile 2:
+soft shadows and contact shadows, searchlight beams, star shells and fires; explosions, fires, flak and spray
+add a second layer of GPU particles (compute shaders on WebGPU) with shockwaves that bend the screen, heat haze
+over fires, light shafts from big blasts and camera shake. Progression borrows from Diablo IV / Path of Exile 2:
 a passive skill tree per side, loot with affixes and legendary powers, active abilities and contracts.
 
 | | |
@@ -86,7 +88,12 @@ After dark, and whenever it is submerged, your own boat gets a faint outline (Se
   attacks for the escort) and ticks each step off as you do it.
 - **Historic Battles** (title screen): Pearl Harbor (7 December 1941) and Midway (4 June 1942), every ship
   at true scale with the historical order of battle and timeline. Pearl Harbor is the real harbour (Ford
-  Island, Battleship Row, the Navy Yard, the lochs) with the fleet at its berths and both air waves; play the
+  Island, Battleship Row, the Navy Yard, the lochs) with the fleet at its berths and both air waves. Ashore:
+  the Navy Yard's dry docks, hammerhead crane and shops, the Naval Hospital on Hospital Point, the Submarine
+  Base and its tank farms, Ford Island's hangars and Catalinas, Hickam's hangar line with its bombers parked
+  wingtip to wingtip, Fort Kamehameha, Pearl City and Aiea with their streets, cars and trucks on the roads,
+  launches and whaleboats on the water and AA guns firing from their pits; bombs set parked aircraft and
+  hangars burning. Play the
   destroyer Monaghan getting under way to hunt the midget submarine, or the midget submarine itself. At Midway
   the Kido Butai (Akagi, Kaga, Soryu, Hiryu and their screen) steams through the morning's attacks; play the
   destroyer Arashi hunting USS Nautilus, or Nautilus working in on the carriers. Your actions are free;
@@ -110,16 +117,16 @@ After dark, and whenever it is submerged, your own boat gets a faint outline (Se
 ## Settings
 
 Settings → Developer exposes every tunable (over a hundred), grouped as Display, Camera, Water, Lighting,
-Physics, Gameplay, AI, Audio, Controls and Debug. Presets: Cinematic / Balanced / Performance for quality,
+Effects, Physics, Gameplay, AI, Audio, Controls and Debug. Presets: Cinematic / Balanced / Performance for quality,
 Authentic / Arcade for gameplay. URL parameters override arena values for testing, for example
 `/?side=uboat&theater=arctic&hour=2&weather=fog&seaState=6`; `CLAUDE.md` lists the test hooks.
 
 ## Renderer
 
-WebGPU is the primary renderer (compute-shader water simulations, timestamp profiling). WebGL2 is a
-best-effort fallback, used when WebGPU is missing, fails to start or loses its device mid-game. The scene is
+WebGPU is the primary renderer (compute-shader water simulations and effect particles, timestamp profiling);
+WebGL2 runs the same effect particles with transform feedback. WebGL2 is a best-effort fallback, used when WebGPU is missing, fails to start or loses its device mid-game. The scene is
 drawn at a low internal resolution (about 640×360) and scaled up by whole pixels; the Performance preset
-and the particle density setting help slower GPUs.
+and the particle density settings (Water, Effects) help slower GPUs.
 
 ## Credits
 
