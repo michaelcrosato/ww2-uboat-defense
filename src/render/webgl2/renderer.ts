@@ -11,12 +11,13 @@ import { WaterPass } from './passes/waterPass';
 import { LightingPass } from './passes/lightingPass';
 import { PostPass } from './passes/postPass';
 import { LIGHT_FLOATS, MAX_LIGHTS, packLights } from '../lights';
-import { packEmitters, packForces, packParticles, packStacks } from '../pack';
+import { packDecals, packEmitters, packForces, packParticles, packStacks } from '../pack';
 import { MAX_GI_EMITTERS } from '../fx';
 import { SpriteStackRenderer } from './spriteStack';
 import { ParticlesGL } from './particlesGL';
 import { FxGL } from './fxGL';
 import { GiPassGL } from './passes/giPass';
+import { DecalsGL } from './decalsGL';
 import { MAX_WAVES } from '../../water/ocean';
 import { WaveSim } from './water/waveSim';
 import { FluidSim } from './water/fluidSim';
@@ -55,6 +56,8 @@ export class WebGL2Backend implements RenderBackend {
   particles: ParticlesGL;
   fx: FxGL;
   gi: GiPassGL;
+  decals: DecalsGL;
+  private decalData: Float32Array<ArrayBuffer> = new Float32Array(512);
   private giPrev: { x: number; y: number; s: number; n: number } | null = null;
   private giFrame = 0;
   private emitData: Float32Array<ArrayBuffer> = new Float32Array(MAX_GI_EMITTERS * 16);
@@ -105,6 +108,7 @@ export class WebGL2Backend implements RenderBackend {
     this.particles = new ParticlesGL(gl);
     this.fx = new FxGL(gl);
     this.gi = new GiPassGL(gl);
+    this.decals = new DecalsGL(gl);
     this.wave = new WaveSim(gl, parseInt(dev.str('water.simRes')), dev.num('water.simCell'));
     this.fluid = new FluidSim(gl);
     this.applySimSizes();
@@ -271,6 +275,12 @@ export class WebGL2Backend implements RenderBackend {
     this.setCam(pg, cam); this.setOcean(pg); this.setSim(pg, 2);
     pg.f3('uFoamCol', fc[0], fc[1], fc[2]).i1('uWaterline', dev.bool('water.waterline') ? 1 : 0).f1('uTime', f.time);
     this.stacks.draw();
+    // ground decals (craters, scorch) over the land's albedo
+    const dk = packDecals(scene.decals, O.x, O.y, this.decalData, { x0: ocx, y0: ocy, x1: ocx + span, y1: ocy + span });
+    this.decalData = dk.data;
+    this.decals.set(dk.data, dk.count);
+    this.setCam(this.decals.prog.use(), cam);
+    this.decals.draw();
     const pp = this.particles.prog.use();
     this.setCam(pp, cam);
     pp.i1('uOccluder', 0).f1('uMaxPx', 24);
@@ -292,7 +302,7 @@ export class WebGL2Backend implements RenderBackend {
       const w = this.wave.win;
       this.gi.render({
         N: giN, wallH: dev.num('light.giWall'), frame: this.giFrame++, rays: dev.num('light.giRays'), steps: 32,
-        bounce: dev.num('light.giBounce'), blend: 1 - dev.num('light.giHistory'), lightGain: 0.35, clamp: 12,
+        bounce: dev.num('light.giBounce'), blend: 1 - dev.num('light.giHistory'), lightGain: 0.35, clamp: 12, reach: dev.num('light.giReach'),
         occRel, cur: [R.x, R.y, R.s], prev: pv ? [pv.x, pv.y, pv.s] : null,
         sim: [w.ox - O.x, w.oy - O.y, w.size], oilGain: fluidOn ? 1 : 0,
         lightTex: this.lightTex, lightCount: lp.count, emitters: em.data, emitterCount: em.count,

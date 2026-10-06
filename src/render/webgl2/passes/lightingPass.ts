@@ -202,6 +202,8 @@ void main() {
   // ---- indirect light (2D global illumination), banded with the direct light below
   if (uGIp.x > 0.0) {
     vec3 gi = giAt(P.xy) * uGIp.x;
+    // a field of fires sums without bound in 2D: roll off toward a ceiling, and less under a high sun
+    gi /= (1.0 + max(gi.r, max(gi.g, gi.b)) * 0.7) * (1.0 + max(uSunCol.r, max(uSunCol.g, uSunCol.b)) * 0.6);
     light += gi;
     if (water) spec += gi * blinn(n, normalize(vec3(0.0, 0.0, 1.0) + V), V, 24.0) * 1.6;
   }

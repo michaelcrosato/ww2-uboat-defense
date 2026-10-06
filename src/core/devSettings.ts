@@ -95,6 +95,8 @@ export const DEV_DEFS: SettingDef[] = [
   { key: 'light.giHistory', group: 'Lighting', label: 'GI smoothing', type: 'range', def: 0.9, min: 0, max: 0.97, step: 0.01, fmt: pct },
   { key: 'light.giWall', group: 'Lighting', label: 'GI wall height', type: 'range', def: 10, min: 2, max: 30, step: 0.5, unit: 'm',
     help: 'What stands taller blocks indirect light (bridges, towers, hangars); hull decks and houses let it pass' },
+  { key: 'light.giReach', group: 'Lighting', label: 'GI reach', type: 'range', def: 40, min: 10, max: 200, step: 5, unit: 'm',
+    help: 'Distance at which bounced light has fallen to half: light carries as over a ground plane, so a field of fires lights pools rather than one glare' },
   { key: 'light.giEmit', group: 'Lighting', label: 'GI particle light', type: 'range', def: 0.6, min: 0, max: 3, step: 0.05, fmt: pct },
   { key: 'light.giFire', group: 'Lighting', label: 'GI firelight', type: 'range', def: 1, min: 0, max: 3, step: 0.05, fmt: pct,
     help: 'How far burning ships and buildings light their surroundings through the GI grid' },

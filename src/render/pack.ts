@@ -4,7 +4,7 @@
 
 import { MAT, PK } from './materials';
 import type { ParticleSystem } from './particles';
-import type { StackInstance } from './scene';
+import type { Decal, StackInstance } from './scene';
 import type { HullInput, SplatInput } from '../water/simInputs';
 import { MAX_GI_EMITTERS, type GiEmitter } from './fx';
 
@@ -150,6 +150,20 @@ export function packEmitters(es: GiEmitter[], ox: number, oy: number, gain: numb
     // the disc is drawn wider than the blaze so it reaches past the hull it burns on (in 2D the hull would
     // otherwise box in a fire that in truth burns above it)
     out[o + 12] = 0; out[o + 13] = 0; out[o + 14] = 0; out[o + 15] = e.r * 0.9;
+  }
+  return { data: out, count: n };
+}
+
+export const DECAL_FLOATS = 8;
+/** ground decals inside `cull`: x, y (rel origin), z, radius · kind, seed, strength, - */
+export function packDecals(ds: Decal[], ox: number, oy: number, out: F32, cull: CullRect): { data: F32; count: number } {
+  if (out.length < ds.length * DECAL_FLOATS) out = new Float32Array(Math.max(64, ds.length) * DECAL_FLOATS);
+  let n = 0;
+  for (const d of ds) {
+    if (d.x + d.r < cull.x0 || d.x - d.r > cull.x1 || d.y + d.r < cull.y0 || d.y - d.r > cull.y1) continue;
+    const o = n++ * DECAL_FLOATS;
+    out[o] = d.x - ox; out[o + 1] = d.y - oy; out[o + 2] = d.z; out[o + 3] = d.r;
+    out[o + 4] = d.kind; out[o + 5] = d.seed; out[o + 6] = d.k; out[o + 7] = 0;
   }
   return { data: out, count: n };
 }

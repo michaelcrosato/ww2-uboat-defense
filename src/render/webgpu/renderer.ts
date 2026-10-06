@@ -23,8 +23,9 @@ import { StackPassGPU } from './passes/stacks';
 import { ParticlePassGPU } from './passes/particles';
 import { FxPassGPU } from './passes/fx';
 import { GiPassGPU } from './passes/gi';
+import { DecalPassGPU } from './passes/decals';
 import { DebugPassGPU, DEBUG_TEX_MODES } from './passes/debug';
-import { packEmitters, packForces, packParticles, packStacks, type F32 } from '../pack';
+import { packDecals, packEmitters, packForces, packParticles, packStacks, type F32 } from '../pack';
 import { MAX_GI_EMITTERS } from '../fx';
 import { WaterSimsGPU, type SimParams } from './sims/waterSims';
 import { GpuTimer } from './timing';
@@ -39,7 +40,7 @@ export interface WebGPUOpts {
 }
 
 interface Passes {
-  post: PostPassGPU; water: WaterPassGPU; lighting: LightingPassGPU; stacks: StackPassGPU; particles: ParticlePassGPU; fx: FxPassGPU; gi: GiPassGPU;
+  post: PostPassGPU; water: WaterPassGPU; lighting: LightingPassGPU; stacks: StackPassGPU; particles: ParticlePassGPU; fx: FxPassGPU; gi: GiPassGPU; decals: DecalPassGPU;
   debug: DebugPassGPU; pattern: TestPatternPass | null; sims: WaterSimsGPU;
 }
 
@@ -64,6 +65,7 @@ export class WebGPUBackend implements RenderBackend {
   private giPrev: { x: number; y: number; s: number; n: number } | null = null;
   private giFrame = 0;
   private emitData: F32 = new Float32Array(MAX_GI_EMITTERS * 16);
+  private decalData: F32 = new Float32Array(512);
   private inFlight = 0;
   // targets (recreated lazily on size change)
   private gA: GpuTarget | null = null;      // albedo + material
@@ -129,6 +131,7 @@ export class WebGPUBackend implements RenderBackend {
         particles: await ParticlePassGPU.create(g),
         fx: await FxPassGPU.create(g),
         gi: await GiPassGPU.create(g, samplers),
+        decals: await DecalPassGPU.create(g),
         debug: await DebugPassGPU.create(g, samplers, HDR),
         pattern: wopts.testPattern ? await TestPatternPass.create(g, frameUbo.buffer, HDR) : null,
         sims: await (() => { const z = simSizes(); return WaterSimsGPU.create(g, samplers, z.n, z.cell, z.nf); })(),
@@ -240,6 +243,10 @@ export class WebGPUBackend implements RenderBackend {
     const top = seaTop(this.waveA, W.swell ? waveCount : 0, this.rings, ringCount, W.rippleScale);
     P.stacks.write(occRel, { ...simRel, rippleScale: W.rippleScale }, W.foamCol, dev.bool('water.waterline'), f.time, st.data, st.count, top);
     this.stats.stackInstances = st.count;
+    const dk = packDecals(scene.decals, O.x, O.y, this.decalData, cull);
+    this.decalData = dk.data;
+    P.decals.setFrame(this.frameUbo.buffer);
+    P.decals.write(dk.data, dk.count);
     const pk = packParticles(scene.particles, O.x, O.y, f.time, this.partData, cull);
     this.partData = pk.data;
     P.lighting.write(L, occRel, lp.data, lp.count, Math.max(st.top, pk.top) + 1);
@@ -270,7 +277,7 @@ export class WebGPUBackend implements RenderBackend {
           sim: [simRel.x, simRel.y, simRel.size], oilGain: sp.fluid ? 1 : 0, lightCount: lp.count,
           // a fire is far brighter per square metre than a lamp: its disc carries the light of the whole blaze
           ...(() => { const e = packEmitters(scene.fx.emitters, O.x, O.y, 45 * dev.num('light.giFire'), this.emitData); return { emitters: e.data, emitterCount: e.count }; })(),
-          clamp: 12,
+          clamp: 12, reach: dev.num('light.giReach'),
         }, P.fx, tw('gi'));
         this.giPrev = { x: R.x, y: R.y, s: R.s, n: giN };
       } else this.giPrev = null;
@@ -297,6 +304,7 @@ export class WebGPUBackend implements RenderBackend {
       });
       P.water.encode(gp);
       P.stacks.encode(gp, 'gbuf');
+      P.decals.encode(gp);
       P.particles.encode(gp, 'gbuf');
       gp.end();
       // ---- lighting
@@ -377,7 +385,7 @@ export class WebGPUBackend implements RenderBackend {
     const P = this.p;
     for (const u of this.unsub) u();
     P.sims.dispose();
-    P.post.dispose(); P.water.dispose(); P.lighting.dispose(); P.stacks.dispose(); P.particles.dispose(); P.fx.dispose(); P.gi.dispose(); P.debug.dispose(); P.pattern?.dispose();
+    P.post.dispose(); P.water.dispose(); P.lighting.dispose(); P.stacks.dispose(); P.particles.dispose(); P.fx.dispose(); P.gi.dispose(); P.decals.dispose(); P.debug.dispose(); P.pattern?.dispose();
     this.frameUbo.destroy(); this.oceanUbo.destroy();
     for (const t of [this.gA, this.gN, this.gDepth, this.uC, this.uD, this.uDepth, this.occ, this.lit, this.outTex]) t?.texture.destroy();
     this.zeroTex.destroy();

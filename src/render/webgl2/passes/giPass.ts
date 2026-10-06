@@ -65,7 +65,7 @@ const TRACE_FS = /* glsl */ `#version 300 es
 precision highp float;
 ${NOISE_GLSL}
 uniform sampler2D uScene, uJfa, uPrev;
-uniform vec4 uP0;    // N, -, frame, rays
+uniform vec4 uP0;    // N, reach (m, light halves), frame, rays
 uniform vec4 uP1;    // steps, bounce, blend, ray clamp
 uniform vec4 uCur;   // window abs (x, y, span)
 uniform vec4 uPrevW; // previous window abs (x, y, span, valid)
@@ -89,9 +89,11 @@ vec3 traceRay(vec2 p, vec2 dir, float N) {
     if (s.z < 0.5) return vec3(0.0);
     float d = length(s.xy + 0.5 - q);
     if (d < 1.0) {
+      // falls off as over a ground plane, not as in flatland (see the WGSL twin)
+      float tm = t * uCur.z / N / uP0.y, fall = 1.0 / (1.0 + tm * tm);
       vec4 m = texelFetch(uScene, ivec2(s.xy), 0);
-      if (m.a < 1.5) return min(m.rgb, vec3(uP1.w));
-      return m.rgb * prevAt(q - dir * 1.5).rgb * uP1.y;
+      if (m.a < 1.5) return min(m.rgb, vec3(uP1.w)) * fall;
+      return m.rgb * prevAt(q - dir * 1.5).rgb * uP1.y * fall;
     }
     t += max(d - 0.75, 0.75);
   }
@@ -151,7 +153,7 @@ void main() {
 }`;
 
 export interface GiFrameGL {
-  N: number; wallH: number; frame: number; rays: number; steps: number; bounce: number; blend: number; lightGain: number; clamp: number;
+  N: number; wallH: number; frame: number; rays: number; steps: number; bounce: number; blend: number; lightGain: number; clamp: number; reach: number;
   occRel: [number, number, number, number]; cur: [number, number, number]; prev: [number, number, number] | null;
   sim: [number, number, number]; oilGain: number;
   lightTex: WebGLTexture; lightCount: number;
@@ -230,7 +232,7 @@ export class GiPassGL {
     // ---- trace + history
     this.rad[this.cur].bind();
     this.trace.use().tex('uScene', 0, this.scene.tex[0]).tex('uJfa', 1, src).tex('uPrev', 2, this.rad[1 - this.cur].t)
-      .f4('uP0', f.N, 0, f.frame, f.rays).f4('uP1', f.steps, f.bounce, f.blend, f.clamp)
+      .f4('uP0', f.N, f.reach, f.frame, f.rays).f4('uP1', f.steps, f.bounce, f.blend, f.clamp)
       .f4('uCur', f.cur[0], f.cur[1], f.cur[2], 0)
       .f4('uPrevW', f.prev ? f.prev[0] : 0, f.prev ? f.prev[1] : 0, f.prev ? f.prev[2] : 1, f.prev ? 1 : 0);
     drawFullscreen(gl);

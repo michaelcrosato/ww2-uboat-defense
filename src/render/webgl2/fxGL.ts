@@ -106,6 +106,8 @@ void look(vec4 A, vec4 C, vec4 D, float t, out vec4 col, out float add, out floa
     a = 0.92 * (1.0 - smoothstep(0.55, 1.0, t)); size = mix(C.x, C.y, min(1.0, t * 5.0));
   } else if (kind == 9) {
     c = vec3(0.9, 0.95, 1.0) * heat * (1.0 - t) * (1.0 - t) * 0.6; a = 1.0; size = C.y * (1.0 - pow(1.0 - t, 2.5));
+  } else if (kind == 11) {
+    c = vec3(heat); a = smoothstep(0.0, 0.15, t) * (1.0 - smoothstep(0.7, 1.0, t)); add = 0.7; size = C.x;
   } else {
     c = D.rgb * uLight.rgb * 0.6; add = 0.0; a = 0.7 * smoothstep(0.0, 0.1, t) * fadeOut;
   }
@@ -156,6 +158,16 @@ void main() {
     gl_Position = worldToClip(vec3(rel + c * max(size, 0.5), aA.z));
     return;
   }
+  if (kind == 11) {
+    // flame tongue: an upright quad standing on its base (see webgpu/passes/fx.ts)
+    vec4 fc = worldToClip(vec3(rel, aA.z)), ft = worldToClip(vec3(rel, aA.z + aC.y));
+    float fw = max(2.0, aC.x * uCam.z), fh = max(3.0, aC.y * uCam.z * 0.95), fk = c.y * 0.5 + 0.5;
+    fc.x += c.x * fw * 0.5 * 2.0 / uBuf.x;
+    fc.y -= fk * fh * 2.0 / uBuf.y;
+    fc.z = mix(fc.z, ft.z, fk);
+    gl_Position = fc;
+    return;
+  }
   vec4 clip = worldToClip(vec3(rel, aA.z));
   float px = clamp(size * uCam.z, 1.0, uO.z);
   vec2 ax = vec2(1.0, 0.0), half_ = vec2(px * 0.5 + 0.5);
@@ -176,9 +188,14 @@ precision highp float;
 ${NOISE_GLSL}
 ${VN}
 uniform vec4 uQ;
+uniform vec4 uO;
 uniform highp int uOcc;
 in vec2 vUv; flat in vec4 vCol; flat in vec4 vInfo;
 out vec4 o;
+vec3 fireRampF(float k) {
+  vec3 a = vec3(3.4, 2.4, 1.1), b = vec3(2.2, 0.85, 0.18), c = vec3(0.7, 0.14, 0.03);
+  return k < 0.5 ? mix(c, b, k * 2.0) : mix(b, a, (k - 0.5) * 2.0);
+}
 float bayer4(vec2 p) {
   ivec2 q = ivec2(mod(p, 4.0));
   int m[16] = int[16](0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5);
@@ -201,6 +218,20 @@ void main() {
   float r = length(vUv), shape;
   vec3 rgb = vCol.rgb;
   if (kind == 9) { float x = (r - 0.93) / 0.035; shape = exp(-x * x) * 0.3; }
+  else if (kind == 11) {
+    // noise fire (see webgpu/passes/fx.ts)
+    float y = vUv.y * 0.5 + 0.5;
+    float tt = uO.w * 2.2 + vInfo.z * 31.0;
+    vec2 q = vec2(vUv.x * 1.9 + vInfo.z * 7.0, y * 2.4 - tt);
+    q += (vec2(vn(q * 1.3 + vec2(0.0, -tt * 0.4)), vn(q * 1.3 + vec2(5.2, 1.3 - tt * 0.4))) - 0.5) * 1.1;
+    float n = vn(q) * 0.55 + vn(q * 2.1 + 3.1) * 0.3 + vn(q * 4.4 + 7.7) * 0.15;
+    float grad = clamp(1.0 - y, 0.0, 1.0) * (1.0 - vUv.x * vUv.x);
+    float heat = clamp(n * grad * 1.9 - 0.36 + 0.35 * grad * grad, 0.0, 1.0) * vCol.a;
+    if (heat < 0.05) discard;
+    float hq = floor(heat * 6.0 + bayer4(gl_FragCoord.xy) * 0.6) / 6.0;
+    rgb = fireRampF(hq) * 1.15 * vCol.r;
+    shape = smoothstep(0.05, 0.3, heat) / max(vCol.a, 1e-3);
+  }
   else {
     float n = vn(vUv * 2.3 + vec2(vInfo.z * 47.0, vInfo.w * 2.0)) * 0.6 + vn(vUv * 5.1 + vInfo.z * 13.0) * 0.4;
     shape = smoothstep(0.15, 0.6, (1.0 - smoothstep(0.35, 1.0, r)) * (0.35 + 0.9 * n));

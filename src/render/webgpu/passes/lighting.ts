@@ -229,7 +229,11 @@ fn blinn(n: vec3f, L: vec3f, V: vec3f, k: f32) -> f32 {
   }
   // ---- indirect light (2D global illumination): banded with the direct light below
   if (U.p5.x > 0.0) {
-    let gi = giAt(P.xy) * U.p5.x;
+    var gi = giAt(P.xy) * U.p5.x;
+    // in 2D light falls off only as 1/d, so a field of fires sums without bound: roll the total off toward
+    // a ceiling instead of letting a burning apron blow out, and let it count for less under a high sun
+    let sunL = max(U.sunCol.r, max(U.sunCol.g, U.sunCol.b));
+    gi = gi / ((1.0 + max(gi.r, max(gi.g, gi.b)) * 0.7) * (1.0 + sunL * 0.6));
     light += gi;
     // firelight glinting off the waves round a blaze
     if (water) { spec += gi * blinn(n, normalize(vec3f(0.0, 0.0, 1.0) + V), V, 24.0) * 1.6; }

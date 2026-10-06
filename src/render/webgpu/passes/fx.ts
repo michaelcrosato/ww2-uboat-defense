@@ -134,6 +134,9 @@ fn look(p: Pt, t: f32) -> array<vec4f, 2> {
     a = 0.92 * (1.0 - smoothstep(0.55, 1.0, t)); size = mix(p.c.x, p.c.y, min(1.0, t * 5.0));
   } else if (kind == 9) {
     col = vec3f(0.9, 0.95, 1.0) * heat * (1.0 - t) * (1.0 - t) * 0.6; a = 1.0; size = p.c.y * (1.0 - pow(1.0 - t, 2.5));
+  } else if (kind == 11) {
+    // flame tongue: colour comes from the fragment's noise fire; here only the fade in and out
+    col = vec3f(heat); a = smoothstep(0.0, 0.15, t) * (1.0 - smoothstep(0.7, 1.0, t)); add = 0.7; size = p.c.x;
   } else {
     col = p.d.rgb * D.light.rgb * 0.6; add = 0.0; a = 0.7 * smoothstep(0.0, 0.1, t) * fadeOut;
   }
@@ -153,6 +156,19 @@ fn look(p: Pt, t: f32) -> array<vec4f, 2> {
     // shock ring: a flat annulus on the surface (the oblique view squashes it like the sea)
     let R = max(L[1].y, 0.5);
     o.pos = worldToClip(rel + vec3f(c * R, 0.0));
+  } else if (kind == 11) {
+    // flame tongue: an upright quad standing on its base (size0 = width, size1 = height, m); drawn a
+    // little taller than the oblique view would show it, so a blaze reads at game zoom
+    // depth climbs with it as if it stood upright, so the tongue licks up in front of the hull behind it
+    var clip = worldToClip(rel);
+    let top = worldToClip(rel + vec3f(0.0, 0.0, p.c.y));
+    let w = max(2.0, p.c.x * F.cam.z);
+    let h = max(3.0, p.c.y * F.cam.z * 0.95);
+    let k = c.y * 0.5 + 0.5;
+    clip.x += c.x * w * 0.5 * 2.0 / F.buf.x;
+    clip.y += k * h * 2.0 / F.buf.y;
+    clip.z = mix(clip.z, top.z, k);
+    o.pos = clip;
   } else {
     var clip = worldToClip(rel);
     let px = clamp(L[1].y * F.cam.z, 1.0, D.o.z);
@@ -188,6 +204,20 @@ fn bayer4(p: vec2f) -> f32 {
     // annulus band, thinning as it grows
     let x = (r - 0.93) / 0.035;
     shape = exp(-x * x) * 0.3;
+  } else if (kind == 11) {
+    // noise fire: fBm scrolling up, bent by a second noise, shaped hot at the base and the middle, the
+    // heat stepped through the fire ramp (pixel-art palette bands)
+    let y = i.uv.y * 0.5 + 0.5;
+    let tt = D.o.w * 2.2 + i.info.z * 31.0;
+    var q = vec2f(i.uv.x * 1.9 + i.info.z * 7.0, y * 2.4 - tt);
+    q += (vec2f(vn(q * 1.3 + vec2f(0.0, -tt * 0.4)), vn(q * 1.3 + vec2f(5.2, 1.3 - tt * 0.4))) - 0.5) * 1.1;
+    let n = vn(q) * 0.55 + vn(q * 2.1 + 3.1) * 0.3 + vn(q * 4.4 + 7.7) * 0.15;
+    let grad = clamp(1.0 - y, 0.0, 1.0) * (1.0 - i.uv.x * i.uv.x);
+    let heat = clamp(n * grad * 1.9 - 0.36 + 0.35 * grad * grad, 0.0, 1.0) * i.col.a;
+    if (heat < 0.05) { discard; }
+    let hq = floor(heat * 6.0 + bayer4(i.pos.xy) * 0.6) / 6.0;
+    rgb = fireRamp(hq) * 1.15 * i.col.r;
+    shape = smoothstep(0.05, 0.3, heat) / max(i.col.a, 1e-3);
   } else {
     // clumpy soft blob: a disc eroded by noise, hot cores for fire
     let n = vn(i.uv * 2.3 + vec2f(i.info.z * 47.0, i.info.w * 2.0)) * 0.6 + vn(i.uv * 5.1 + i.info.z * 13.0) * 0.4;
@@ -231,7 +261,7 @@ fn bayer4(p: vec2f) -> f32 {
   o.pos = vec4f(2.0, 2.0, 2.0, 1.0);
   let kind = i32(p.c.w + 0.5);
   // embers and sparks are too small and too many: as GI emitters they only add speckle
-  if (p.a.w >= p.b.w || kind == 1 || kind == 2 || kind == 3 || kind == 5 || kind == 7 || kind == 9 || kind == 10) { return o; }
+  if (p.a.w >= p.b.w || kind == 1 || kind == 2 || kind == 3 || kind == 5 || kind == 7 || kind == 9 || kind == 10 || kind == 11) { return o; }
   let t = clamp(p.a.w / max(p.b.w, 1e-3), 0.0, 1.0);
   let L = look(p, t);
   let hot = L[0].rgb * L[0].a * L[1].x;

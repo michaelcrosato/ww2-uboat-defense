@@ -19,6 +19,10 @@ export interface StackInstance {
   hits?: [number, number, number, number];
 }
 
+/** a mark on the ground drawn into the G-buffer: 0 bomb crater, 1 scorch, 2 burnt-out wreck, 3 strafing pocks */
+export interface Decal { x: number; y: number; z: number; r: number; kind: number; seed: number; k: number }
+export const MAX_DECALS = 768;
+
 export class RenderScene {
   /** voxel slice atlas (CPU pixels; backends re-upload it when its `version` changes) */
   atlas = new SliceAtlas(2048);
@@ -31,6 +35,12 @@ export class RenderScene {
   hulls: HullInput[] = [];
   /** one-shot water-sim impulses; kept until a frame actually steps the sims */
   splats: SplatInput[] = [];
+  /** persistent ground marks (craters, scorch) for the mission; the oldest go first past MAX_DECALS */
+  decals: Decal[] = [];
+  addDecal(x: number, y: number, z: number, r: number, kind: number, seed: number, k = 1) {
+    if (this.decals.length >= MAX_DECALS) this.decals.shift();
+    this.decals.push({ x, y, z, r, kind, seed, k });
+  }
 
   /** start gathering a new frame (splats persist until consumed by a sim step) */
   beginFrame() {

@@ -115,11 +115,15 @@ fn traceRay(p: vec2f, dir: vec2f, N: f32) -> vec3f {
     if (s.z < 0.5) { return vec3f(0.0); }
     let d = length(s.xy + 0.5 - q);
     if (d < 1.0) {
+      // light falls off as over a ground plane (with the square of distance), not as in flatland, where
+      // 1/d lets a field of fires sum into one glare; p6.y = distance (m) at which it has halved
+      let tm = t * G.cur.z / N / G.p6.y;
+      let fall = 1.0 / (1.0 + tm * tm);
       let m = textureLoad(sceneTex, vec2i(s.xy), 0);
-      if (m.a < 1.5) { return min(m.rgb, vec3f(G.p6.x)); }
+      if (m.a < 1.5) { return min(m.rgb, vec3f(G.p6.x)) * fall; }
       // a wall reflects (albedo x bounce) what reached its face last frame
       let back = prevAt(q - dir * 1.5);
-      return m.rgb * back.rgb * G.p1.y;
+      return m.rgb * back.rgb * G.p1.y * fall;
     }
     t += max(d - 0.75, 0.75);
   }
@@ -192,6 +196,8 @@ export interface GiFrame {
   emitters: Float32Array<ArrayBuffer>; emitterCount: number;
   /** most light one ray may bring back (small, very bright emitters otherwise speckle the grid) */
   clamp: number;
+  /** distance (m) at which gathered light has fallen to half */
+  reach: number;
 }
 
 export class GiPassGPU {
@@ -327,7 +333,7 @@ export class GiPassGPU {
     u[12] = f.cur[0]; u[13] = f.cur[1]; u[14] = f.cur[2];
     if (f.prev) { u[16] = f.prev[0]; u[17] = f.prev[1]; u[18] = f.prev[2]; u[19] = 1; } else u[19] = 0;
     u[20] = f.sim[0]; u[21] = f.sim[1]; u[22] = f.sim[2]; u[23] = f.oilGain;
-    u[24] = f.clamp;
+    u[24] = f.clamp; u[25] = f.reach;
     this.ubo.write();
     // emitters: the effect particles' light and the omni lights
     const rp = enc.beginRenderPass({ label: 'gi.emit', colorAttachments: [{ view: this.emit!.view, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } }] });

@@ -9,9 +9,9 @@ import { fx } from '../core/math';
 
 /** particle kinds: the same numbers index the per-kind tables in both shader sets */
 export const FX = {
-  FIRE: 0, EMBER: 1, SPARK: 2, SMOKE: 3, FLASH: 4, PLUME: 5, DEBRIS: 6, STEAM: 7, FLAK: 8, RING: 9, DUST: 10,
+  FIRE: 0, EMBER: 1, SPARK: 2, SMOKE: 3, FLASH: 4, PLUME: 5, DEBRIS: 6, STEAM: 7, FLAK: 8, RING: 9, DUST: 10, FLAME: 11,
 } as const;
-export const FX_KINDS = 11;
+export const FX_KINDS = 12;
 
 /**
  * Per-kind motion: buoyancy (m/s² up at birth, fading with age), drag (1/s), gravity (m/s²), curl-noise
@@ -29,6 +29,7 @@ export const FX_MOTION: { buoy: number; drag: number; grav: number; curl: number
   { buoy: 0.3, drag: 3, grav: 0, curl: 1.2, wind: 1, water: 0 },      // FLAK burst
   { buoy: 0, drag: 0, grav: 0, curl: 0, wind: 0, water: 0 },          // RING: one particle drawn as an annulus
   { buoy: 0.6, drag: 2.6, grav: 0, curl: 2.2, wind: 1, water: 0 },    // DUST
+  { buoy: 0, drag: 0, grav: 0, curl: 0, wind: 0, water: 0 },          // FLAME: tongues of fire anchored to a blaze (they keep its drift)
 ];
 
 /** floats per particle: pos.xyz + age · vel.xyz + life · size0, size1, seed, kind · tint.rgb + heat */

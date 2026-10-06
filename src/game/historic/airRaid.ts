@@ -16,6 +16,7 @@ import { torpedoArt } from '../../art/ships';
 import { GROUPS, LAND } from '../../physics/physics';
 import { angleDiff, clamp, fx, quatFromEuler, wrapAngle } from '../../core/math';
 import { FX } from '../../render/fx';
+import { LAND_Z } from './land';
 import { flakBurst, fireEmit, magazineBlast, splashColumn, surfaceExplosion, underwaterBlast } from '../effects';
 import { PK } from '../../render/materials';
 
@@ -302,6 +303,8 @@ export class AirRaid {
     const gx = p.x + c * 120, gy = p.y + sn * 120;
     if (fx.next() < 0.6) w.scene.particles.spawn(PK.TRACER, p.x, p.y, p.z, (gx - p.x) * 3, (gy - p.y) * 3, -p.z * 3, 0.3, 0.4, [1, 0.85, 0.4]);
     if (fx.next() < dt * 12) w.scene.fx.burst(FX.DUST, gx + fx.range(-15, 15), gy + fx.range(-15, 15), 2, { n: 2, speed: 3, up: 1.5, life: 2.5, size: 1.2, size1: 4, col: [0.62, 0.52, 0.4] });
+    // a line of bullet pocks along the run (the quad's long axis follows the heading)
+    if (fx.next() < dt * 2 && this.isLand?.(gx, gy)) w.scene.addDecal(gx, gy, LAND_Z, 14, 3, (p.heading / (Math.PI * 2) + 1) % 1, 0.9);
     this.onStrafe?.(gx, gy, p.heading, dt);
   }
 
@@ -381,7 +384,7 @@ export class AirRaid {
         surfaceExplosion(w, q.x, q.y, Math.max(2, q.z), b.damage > 1000 ? 1.4 : 0.9, { fire: true });
         if (b.magazine) this.magazineExplosion(t);
       } else if (this.isLand?.(b.x, b.y)) {
-        surfaceExplosion(w, b.x, b.y, 2, 0.8, { debris: true, ground: true });
+        surfaceExplosion(w, b.x, b.y, LAND_Z, 0.8, { debris: true, ground: true });
         this.onGround?.(b.x, b.y, b.damage);
         // hangars, parked aircraft and fuel burn on for a long while
         if (w.rng.next() < 0.35 && this.fires.length < 40) this.fires.push({ x: b.x, y: b.y, t: 300 + w.rng.next() * 900, size: 0.6 + w.rng.next() * 0.8 });
