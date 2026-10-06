@@ -69,14 +69,14 @@ fn curl2(p: vec2f) -> vec2f {
 
 /**
  * draw uniforms (float offsets): 0 origin (x, y), maxPx, time · 4 smokeLight (rgb, -) · 8 occRect (x, y rel,
- * w, h) · 12 (occScale texels/m, occRes, intensity, -)
+ * w, h) · 12 (occScale texels/m, occRes, intensity, -) · 16 GI emission (giScale texels/m, giRes, gain, min size m)
  */
 const DRAW_WGSL = /* wgsl */ `
 ${CAMERA_WGSL}
 ${MATH_WGSL}
 ${NOISE_WGSL}
 ${COMMON}
-struct Draw { o: vec4f, light: vec4f, occRect: vec4f, q: vec4f };
+struct Draw { o: vec4f, light: vec4f, occRect: vec4f, q: vec4f, gi: vec4f };
 @group(0) @binding(1) var<uniform> D: Draw;
 @group(0) @binding(2) var<storage, read> ps: array<Pt>;
 struct VOut {
@@ -134,6 +134,9 @@ fn look(p: Pt, t: f32) -> array<vec4f, 2> {
     a = 0.92 * (1.0 - smoothstep(0.55, 1.0, t)); size = mix(p.c.x, p.c.y, min(1.0, t * 5.0));
   } else if (kind == 9) {
     col = vec3f(0.9, 0.95, 1.0) * heat * (1.0 - t) * (1.0 - t) * 0.6; a = 1.0; size = p.c.y * (1.0 - pow(1.0 - t, 2.5));
+  } else if (kind == 11) {
+    // flame tongue: colour comes from the fragment's noise fire; here only the fade in and out
+    col = vec3f(heat); a = smoothstep(0.0, 0.15, t) * (1.0 - smoothstep(0.7, 1.0, t)); add = 0.7; size = p.c.x;
   } else {
     col = p.d.rgb * D.light.rgb * 0.6; add = 0.0; a = 0.7 * smoothstep(0.0, 0.1, t) * fadeOut;
   }
@@ -153,6 +156,19 @@ fn look(p: Pt, t: f32) -> array<vec4f, 2> {
     // shock ring: a flat annulus on the surface (the oblique view squashes it like the sea)
     let R = max(L[1].y, 0.5);
     o.pos = worldToClip(rel + vec3f(c * R, 0.0));
+  } else if (kind == 11) {
+    // flame tongue: an upright quad standing on its base (size0 = width, size1 = height, m); drawn a
+    // little taller than the oblique view would show it, so a blaze reads at game zoom
+    // depth climbs with it as if it stood upright, so the tongue licks up in front of the hull behind it
+    var clip = worldToClip(rel);
+    let top = worldToClip(rel + vec3f(0.0, 0.0, p.c.y));
+    let w = max(2.0, p.c.x * F.cam.z);
+    let h = max(3.0, p.c.y * F.cam.z * 0.95);
+    let k = c.y * 0.5 + 0.5;
+    clip.x += c.x * w * 0.5 * 2.0 / F.buf.x;
+    clip.y += k * h * 2.0 / F.buf.y;
+    clip.z = mix(clip.z, top.z, k);
+    o.pos = clip;
   } else {
     var clip = worldToClip(rel);
     let px = clamp(L[1].y * F.cam.z, 1.0, D.o.z);
@@ -188,6 +204,20 @@ fn bayer4(p: vec2f) -> f32 {
     // annulus band, thinning as it grows
     let x = (r - 0.93) / 0.035;
     shape = exp(-x * x) * 0.3;
+  } else if (kind == 11) {
+    // noise fire: fBm scrolling up, bent by a second noise, shaped hot at the base and the middle, the
+    // heat stepped through the fire ramp (pixel-art palette bands)
+    let y = i.uv.y * 0.5 + 0.5;
+    let tt = D.o.w * 2.2 + i.info.z * 31.0;
+    var q = vec2f(i.uv.x * 1.9 + i.info.z * 7.0, y * 2.4 - tt);
+    q += (vec2f(vn(q * 1.3 + vec2f(0.0, -tt * 0.4)), vn(q * 1.3 + vec2f(5.2, 1.3 - tt * 0.4))) - 0.5) * 1.1;
+    let n = vn(q) * 0.55 + vn(q * 2.1 + 3.1) * 0.3 + vn(q * 4.4 + 7.7) * 0.15;
+    let grad = clamp(1.0 - y, 0.0, 1.0) * (1.0 - i.uv.x * i.uv.x);
+    let heat = clamp(n * grad * 1.9 - 0.36 + 0.35 * grad * grad, 0.0, 1.0) * i.col.a;
+    if (heat < 0.05) { discard; }
+    let hq = floor(heat * 6.0 + bayer4(i.pos.xy) * 0.6) / 6.0;
+    rgb = fireRamp(hq) * 1.15 * i.col.r;
+    shape = smoothstep(0.05, 0.3, heat) / max(i.col.a, 1e-3);
   } else {
     // clumpy soft blob: a disc eroded by noise, hot cores for fire
     let n = vn(i.uv * 2.3 + vec2f(i.info.z * 47.0, i.info.w * 2.0)) * 0.6 + vn(i.uv * 5.1 + i.info.z * 13.0) * 0.4;
@@ -222,12 +252,44 @@ fn bayer4(p: vec2f) -> f32 {
   o.uv = c; o.col = L[0]; o.info = vec4f(L[1].x, f32(kind), p.c.z, t);
   return o;
 }
+// hot particles splat their light into the GI emission grid (same window as the occluder map, coarser):
+// fire while it burns, flashes, glowing debris, a flak burst's core. A particle smaller than
+// a GI texel is drawn at the minimum size with its light thinned to match, so the total stays the same
+@vertex fn vsFxEmit(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
+  var o: VOut;
+  let p = ps[ii];
+  o.pos = vec4f(2.0, 2.0, 2.0, 1.0);
+  let kind = i32(p.c.w + 0.5);
+  // embers and sparks are too small and too many: as GI emitters they only add speckle
+  if (p.a.w >= p.b.w || kind == 1 || kind == 2 || kind == 3 || kind == 5 || kind == 7 || kind == 9 || kind == 10 || kind == 11) { return o; }
+  let t = clamp(p.a.w / max(p.b.w, 1e-3), 0.0, 1.0);
+  let L = look(p, t);
+  let hot = L[0].rgb * L[0].a * L[1].x;
+  if (max(hot.r, max(hot.g, hot.b)) < 0.01) { return o; }
+  let c = corner(vi);
+  let rel = p.a.xy - D.o.xy;
+  let uv = (rel - D.occRect.xy) / D.occRect.zw;
+  let sz = max(L[1].y, D.gi.w);
+  let half = sz * 0.5 * D.gi.x / D.gi.y * 2.0;
+  o.pos = vec4f(uv.x * 2.0 - 1.0 + c.x * half, 1.0 - uv.y * 2.0 - c.y * half, 0.0, 1.0);
+  let thin = (L[1].y * L[1].y) / (sz * sz);
+  o.uv = c; o.col = vec4f(hot * thin * D.gi.z, 1.0); o.info = vec4f(L[1].x, f32(kind), p.c.z, t);
+  return o;
+}
+@fragment fn fsFxEmit(i: VOut) -> @location(0) vec4f {
+  let r = dot(i.uv, i.uv);
+  if (r > 1.0) { discard; }
+  return vec4f(i.col.rgb * (1.0 - r) * 2.0, 0.0);
+}
+
 @fragment fn fsFxOcc(i: VOut) -> @location(0) vec4f {
   let r = dot(i.uv, i.uv);
   if (r > 1.0) { discard; }
   return vec4f(-50.0, 0.0, 0.0, i.col.a * (1.0 - r) * 0.9);
 }
 `;
+
+const ADD: GPUBlendState = { color: { operation: 'add', srcFactor: 'one', dstFactor: 'one' }, alpha: { operation: 'add', srcFactor: 'one', dstFactor: 'one' } };
 
 const PREMULT: GPUBlendState = {
   color: { operation: 'add', srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
@@ -238,6 +300,7 @@ export class FxPassGPU {
   private pSim!: GPUComputePipeline;
   private pDraw!: GPURenderPipeline;
   private pOcc!: GPURenderPipeline;
+  private pEmit!: GPURenderPipeline;
   private simUbo: Ubo; private drawUbo: Ubo;
   readonly buf: GPUBuffer;
   private bgSim!: GPUBindGroup;
@@ -249,7 +312,7 @@ export class FxPassGPU {
   private constructor(private g: GpuContext) {
     const d = g.device;
     this.simUbo = new Ubo(d, 8, 'fx.sim');
-    this.drawUbo = new Ubo(d, 16, 'fx.draw');
+    this.drawUbo = new Ubo(d, 20, 'fx.draw');
     this.buf = d.createBuffer({ label: 'fx particles', size: FxPassGPU.CAP * FX_FLOATS * 4, usage: BU.STORAGE | BU.COPY_DST });
   }
 
@@ -284,6 +347,12 @@ export class FxPassGPU {
         label: 'fx.occ', layout: pl,
         vertex: { module: draw, entryPoint: 'vsFxOcc' },
         fragment: { module: draw, entryPoint: 'fsFxOcc', targets: [{ format: 'rgba16float', blend: OCC_BLEND }] },
+        primitive: { topology: 'triangle-list' },
+      });
+      p.pEmit = d.createRenderPipeline({
+        label: 'fx.emit', layout: pl,
+        vertex: { module: draw, entryPoint: 'vsFxEmit' },
+        fragment: { module: draw, entryPoint: 'fsFxEmit', targets: [{ format: 'rgba16float', blend: ADD }] },
         primitive: { topology: 'triangle-list' },
       });
     });
@@ -327,9 +396,15 @@ export class FxPassGPU {
     this.drawUbo.write();
   }
 
-  encode(pass: GPURenderPassEncoder, which: 'draw' | 'occ') {
+  /** GI emission parameters (texels per metre and size of the GI grid, light gain, minimum splat size m) */
+  setGi(giScale: number, giRes: number, gain: number, minSize: number) {
+    const f = this.drawUbo.f;
+    f[16] = giScale; f[17] = giRes; f[18] = gain; f[19] = minSize;
+  }
+
+  encode(pass: GPURenderPassEncoder, which: 'draw' | 'occ' | 'emit') {
     if (!this.count || !this.bgDraw) return;
-    pass.setPipeline(which === 'draw' ? this.pDraw : this.pOcc);
+    pass.setPipeline(which === 'draw' ? this.pDraw : which === 'occ' ? this.pOcc : this.pEmit);
     pass.setBindGroup(0, this.bgDraw);
     pass.draw(6, this.count);
   }

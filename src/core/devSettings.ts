@@ -87,6 +87,19 @@ export const DEV_DEFS: SettingDef[] = [
   { key: 'light.celestialShadows', group: 'Lighting', label: 'Sun & moon shadows', type: 'bool', def: true },
   { key: 'light.ao', group: 'Lighting', label: 'Contact shadows (AO)', type: 'range', def: 0.8, min: 0, max: 1.5, step: 0.05, fmt: pct,
     help: 'Ambient occlusion from the occluder heightmap: ground, water and decks darken where taller things stand close by.' },
+  { key: 'light.gi', group: 'Lighting', label: 'Global illumination', type: 'range', def: 1, min: 0, max: 3, step: 0.05, fmt: pct,
+    help: 'Fires, explosions and burning oil light their surroundings with soft, occluded indirect light (0 = off)' },
+  { key: 'light.giRes', group: 'Lighting', label: 'GI resolution', type: 'select', def: '256', options: opts(['128', '128²'], ['256', '256²'], ['512', '512²']) },
+  { key: 'light.giRays', group: 'Lighting', label: 'GI rays per texel', type: 'range', def: 8, min: 2, max: 32, step: 1 },
+  { key: 'light.giBounce', group: 'Lighting', label: 'GI bounce', type: 'range', def: 0.5, min: 0, max: 1, step: 0.05, fmt: pct },
+  { key: 'light.giHistory', group: 'Lighting', label: 'GI smoothing', type: 'range', def: 0.9, min: 0, max: 0.97, step: 0.01, fmt: pct },
+  { key: 'light.giWall', group: 'Lighting', label: 'GI wall height', type: 'range', def: 10, min: 2, max: 30, step: 0.5, unit: 'm',
+    help: 'What stands taller blocks indirect light (bridges, towers, hangars); hull decks and houses let it pass' },
+  { key: 'light.giReach', group: 'Lighting', label: 'GI reach', type: 'range', def: 40, min: 10, max: 200, step: 5, unit: 'm',
+    help: 'Distance at which bounced light has fallen to half: light carries as over a ground plane, so a field of fires lights pools rather than one glare' },
+  { key: 'light.giEmit', group: 'Lighting', label: 'GI particle light', type: 'range', def: 0.6, min: 0, max: 3, step: 0.05, fmt: pct },
+  { key: 'light.giFire', group: 'Lighting', label: 'GI firelight', type: 'range', def: 1, min: 0, max: 3, step: 0.05, fmt: pct,
+    help: 'How far burning ships and buildings light their surroundings through the GI grid' },
   { key: 'light.bands', group: 'Lighting', label: 'Light bands (pixel quantize)', type: 'range', def: 7, min: 0, max: 24, step: 1,
     help: '0 = smooth lighting. Low values give a posterized pixel-art look.' },
   { key: 'light.dither', group: 'Lighting', label: 'Band dithering', type: 'range', def: 1, min: 0, max: 1, step: 0.05, fmt: pct },
@@ -166,7 +179,7 @@ export const DEV_DEFS: SettingDef[] = [
 
   // ---------------------------------------------------------------- Debug
   { key: 'debug.view', group: 'Debug', label: 'Buffer view', type: 'select', def: 'final',
-    options: opts(['final', 'Final image'], ['albedo', 'Albedo'], ['normal', 'Normals'], ['height', 'Height'], ['light', 'Light only'], ['occluder', 'Occluder map'], ['wave', 'Wave sim'], ['fluid', 'Fluid velocity'], ['foam', 'Foam/bio/oil']) },
+    options: opts(['final', 'Final image'], ['albedo', 'Albedo'], ['normal', 'Normals'], ['height', 'Height'], ['light', 'Light only'], ['occluder', 'Occluder map'], ['gi', 'Global illumination'], ['giSeeds', 'GI distance field'], ['wave', 'Wave sim'], ['fluid', 'Fluid velocity'], ['foam', 'Foam/bio/oil']) },
   { key: 'debug.colliders', group: 'Debug', label: 'Physics colliders', type: 'bool', def: false },
   { key: 'debug.buoyancy', group: 'Debug', label: 'Buoyancy columns', type: 'bool', def: false },
   { key: 'debug.sensors', group: 'Debug', label: 'Sensor ranges & beams', type: 'bool', def: false },
@@ -180,14 +193,17 @@ export const DEV_PRESETS: Preset[] = [
   { id: 'cinematic', label: 'Cinematic', help: 'Everything on, big sims, soft shadows.', values: {
     'water.simRes': '1024', 'water.fluidRes': '384', 'water.pressureIters': 24, 'water.waveCount': 12, 'water.parallax': true,
     'light.shadowSteps': 40, 'light.shadowRes': '2048', 'light.bloom': 0.9, 'light.beams': 1.2, 'light.maxLights': 64,
+    'light.gi': 1, 'light.giRes': '512', 'light.giRays': 12, 'light.ao': 0.8, 'fx.density': 1,
     'display.grain': 0.2, 'display.particles': 1 } },
   { id: 'balanced', label: 'Balanced', help: 'Defaults.', values: {
     'water.simRes': '768', 'water.fluidRes': '256', 'water.pressureIters': 18, 'water.waveCount': 12, 'water.parallax': true,
     'light.shadowSteps': 28, 'light.shadowRes': '1024', 'light.bloom': 0.6, 'light.beams': 0.8, 'light.maxLights': 48,
+    'light.gi': 1, 'light.giRes': '256', 'light.giRays': 8, 'light.ao': 0.8, 'fx.density': 1,
     'display.grain': 0.15, 'display.particles': 1 } },
   { id: 'performance', label: 'Performance', help: 'Low-end GPUs and laptops: small sims, flat water parallax, fewer particles.', values: {
     'water.simRes': '384', 'water.fluidRes': '128', 'water.pressureIters': 8, 'water.waveCount': 8, 'water.parallax': false,
     'light.shadowSteps': 12, 'light.shadowRes': '512', 'light.bloom': 0, 'light.beams': 0.8, 'light.maxLights': 24,
+    'light.gi': 0, 'light.giRes': '128', 'light.giRays': 4, 'light.ao': 0, 'fx.density': 0.5,
     'display.grain': 0.15, 'display.particles': 0.6 } },
   { id: 'authentic', label: 'Authentic sim', help: 'Real-time, heavy handling, authentic ASDIC and manual torpedoes.', values: {
     'phys.tempo': 1, 'phys.handling': 'authentic', 'game.asdic': 'authentic', 'game.tdc': 'manual', 'game.duds': 0.15, 'game.autoDepth': false } },

@@ -14,6 +14,8 @@ export class VoxelModel {
   readonly mat: Uint8Array;   // material id per voxel
   /** model-space position (m) of the corner of voxel (0,0,0) */
   ox: number; oy: number; oz: number;
+  /** the model continues past its x/y edges (a tile of a larger ground): normals see no wall there */
+  openEdges = false;
   constructor(readonly name: string, readonly nx: number, readonly ny: number, readonly nz: number, readonly res: number, readonly zres: number, ox: number, oy: number, oz: number) {
     this.col = new Uint8Array(nx * ny * nz * 4);
     this.mat = new Uint8Array(nx * ny * nz);
@@ -238,13 +240,17 @@ export class SliceAtlas {
 
 /** smoothed outward normal from the occupancy gradient (5x5x5 weighted) */
 function voxelNormal(m: VoxelModel, i: number, j: number, k: number): [number, number, number] {
+  // a tile's neighbours continue past its edges: look up the nearest voxel inside instead of empty space
+  const filled = m.openEdges
+    ? (x: number, y: number, z: number) => m.filled(Math.min(m.nx - 1, Math.max(0, x)), Math.min(m.ny - 1, Math.max(0, y)), z)
+    : (x: number, y: number, z: number) => m.filled(x, y, z);
   // interior voxels are never seen; skip the expensive kernel
-  if (m.filled(i + 1, j, k) && m.filled(i - 1, j, k) && m.filled(i, j + 1, k) && m.filled(i, j - 1, k) && m.filled(i, j, k + 1) && m.filled(i, j, k - 1)) return [0, 0, 1];
+  if (filled(i + 1, j, k) && filled(i - 1, j, k) && filled(i, j + 1, k) && filled(i, j - 1, k) && filled(i, j, k + 1) && filled(i, j, k - 1)) return [0, 0, 1];
   let gx = 0, gy = 0, gz = 0;
   const R = 2;
   for (let dz = -R; dz <= R; dz++) for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
     if (!dx && !dy && !dz) continue;
-    if (m.filled(i + dx, j + dy, k + dz)) continue;
+    if (filled(i + dx, j + dy, k + dz)) continue;
     // empty neighbour pulls the normal toward it (scaled for anisotropic voxels)
     const wx = dx * m.res, wy = dy * m.res, wz = dz * m.zres;
     const d2 = wx * wx + wy * wy + wz * wz;

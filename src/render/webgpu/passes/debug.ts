@@ -22,11 +22,18 @@ struct Dbg { rect: vec4f, p: vec4f };
   if (mode == 0) { return vec4f(0.5 + t.r * 0.5, 0.5 - t.r * 0.5, 0.5 + t.g * 0.1, 1.0); }
   if (mode == 1) { return vec4f(0.5 + t.xy * 0.08, 0.5, 1.0); }
   if (mode == 2) { return vec4f(t.r, t.g + t.a * 0.5, t.b + t.a, 1.0); }
+  if (mode == 5) {
+    let N = DU.p.y;
+    if (t.z < 0.5) { return vec4f(0.3, 0.0, 0.0, 1.0); }
+    let d = length(t.xy + 0.5 - uv * N);
+    return vec4f(fract(d / 8.0), clamp(d / 64.0, 0.0, 1.0), select(0.0, 1.0, d < 1.0), 1.0);
+  }
+  if (mode == 4) { return vec4f(t.rgb / (vec3f(1.0) + t.rgb) * 1.6 + vec3f(0.0, 0.0, (1.0 - t.a) * 0.12), 1.0); }
   return vec4f(clamp(t.r * 0.05 + 0.2, 0.0, 1.0), t.a * 0.3, clamp(t.r * 0.02, 0.0, 1.0), 1.0);
 }
 `;
 
-export const DEBUG_TEX_MODES: Record<string, number> = { wave: 0, fluid: 1, foam: 2, occluder: 3 };
+export const DEBUG_TEX_MODES: Record<string, number> = { wave: 0, fluid: 1, foam: 2, occluder: 3, gi: 4, giSeeds: 5 };
 
 export class DebugPassGPU {
   private pipeline!: GPURenderPipeline;
@@ -50,7 +57,7 @@ export class DebugPassGPU {
   }
 
   /** draw `tex` (covering `rect`, relative to the render origin) over `target` */
-  encode(enc: GPUCommandEncoder, target: GPUTextureView, frame: GPUBuffer, tex: GPUTextureView, rect: [number, number, number, number], mode: number) {
+  encode(enc: GPUCommandEncoder, target: GPUTextureView, frame: GPUBuffer, tex: GPUTextureView, rect: [number, number, number, number], mode: number, extra = 0) {
     if (!this.key || this.key[0] !== frame || this.key[1] !== tex) {
       this.key = [frame, tex];
       this.bg = this.g.device.createBindGroup({
@@ -59,7 +66,7 @@ export class DebugPassGPU {
           { binding: 2, resource: tex }, { binding: 3, resource: this.s.linear }],
       });
     }
-    this.ubo.f.set(rect, 0); this.ubo.f[4] = mode; this.ubo.write();
+    this.ubo.f.set(rect, 0); this.ubo.f[4] = mode; this.ubo.f[5] = extra; this.ubo.write();
     const rp = enc.beginRenderPass({ label: 'debug', colorAttachments: [{ view: target, loadOp: 'load', storeOp: 'store' }] });
     rp.setPipeline(this.pipeline); rp.setBindGroup(0, this.bg!); rp.draw(3); rp.end();
   }

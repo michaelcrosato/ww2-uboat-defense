@@ -7,7 +7,7 @@
 
 import type { World } from './world';
 import { PK } from '../render/materials';
-import { FX } from '../render/fx';
+import { FX, MAX_GI_EMITTERS } from '../render/fx';
 import { fx } from '../core/math';
 
 const SPRAY_COL: [number, number, number] = [0.92, 0.95, 0.97];
@@ -81,6 +81,8 @@ export function surfaceExplosion(w: World, x: number, y: number, z: number, powe
   F.burst(FX.SMOKE, x, y, z + 2, { n: 4 + p * 10, speed: 1.5, up: 3, spread: 0.45, radius: 2 + p * 2, life: 10 + p * 12, size: 5 + p * 4, size1: 18 + p * 24, col: SMOKE_COL, heat: 0.7 });
   if (opts.debris !== false) F.burst(FX.DEBRIS, x, y, z + 1, { n: 8 + p * 22, speed: 10 + p * 18, up: 1.3, life: 3 + p * 2, size: 0.5, col: [0.55, 0.47, 0.4], heat: 0.8 });
   if (opts.ground) {
+    // a crater and its scorch stay on the ground for the rest of the battle
+    w.scene.addDecal(x, y, z, 5 + p * 4, 0, fx.next(), 1);
     // earth and dust thrown up, a brown skirt rolling out along the ground
     F.burst(FX.DUST, x, y, z, { n: 10 + p * 16, speed: 5 + p * 8, up: 1.6, spread: 0.6, radius: 2 + p * 2, life: 6 + p * 4, size: 3, size1: 12 + p * 10, col: [0.62, 0.5, 0.38] });
     F.burst(FX.DUST, x, y, z, { n: 10 + p * 12, speed: 9 + p * 10, flat: true, vz: 1, life: 4, size: 2, size1: 9, col: [0.66, 0.55, 0.42] });
@@ -133,10 +135,18 @@ export function fireEmit(w: World, x: number, y: number, z: number, power: numbe
   if (dx > V.r + 1500 || dy > V.r + 1500) return;
   const p = Math.min(power, 2);
   if (fx.next() < dt * 9 * p) F.burst(FX.FIRE, x, y, z, { n: 1, speed: 1.5, up: 3, spread: 0.5, radius: 1.5, life: 1.4 + p * 0.6, size: 1.6 + p, size1: 4 + p * 3, col: SMOKE_COL, heat: 0.85, vx, vy });
+  // tongues of flame standing on the blaze, overlapping so the fire never flickers out
+  if (fx.next() < dt * 4.5 * Math.max(0.6, p)) F.burst(FX.FLAME, x, y, z, { n: 1, radius: 1 + p, life: 1 + fx.next() * 0.6, lifeVar: 0.2, size: 2.6 + p * 3, size1: 6 + p * 7, heat: 0.85 + fx.next() * 0.3, vx, vy });
   if (fx.next() < dt * 5 * p) F.burst(FX.EMBER, x, y, z + 1, { n: 2, speed: 3, up: 2, radius: 1.5, life: 2.5, size: 0.35, heat: 1, vx, vy });
   if (fx.next() < dt * 2.6 * p) F.burst(FX.SMOKE, x, y, z + 3, { n: 1, speed: 1, up: 4, spread: 0.3, radius: 2, life: 22 + p * 10, size: 4 + p * 2, size1: 20 + p * 16, col: [0.62, 0.6, 0.58], heat: 0.5, vx: vx * 0.5, vy: vy * 0.5 });
   // heat haze only from fires in view, so the frame's few haze slots go to what can be seen
   if (F.heat.length < 24 && dx < V.r && dy < V.r) F.heat.push({ x, y, z: z + 4, r: 6 + p * 6, k: 0.5 + p * 0.4 });
+  // the fire's light for the GI grid: a flickering pool on the water and the walls round it, occluded by
+  // whatever stands between (no slot in the frame's few dynamic lights needed)
+  if (F.emitters.length < MAX_GI_EMITTERS && dx < V.r + 400 && dy < V.r + 400) {
+    const fl = 0.75 + 0.25 * Math.sin(w.time * 13 + x * 0.37) * Math.sin(w.time * 7.3 + y * 0.21);
+    F.emitters.push({ x, y, z, r: 3 + p * 3.5, cr: 1, cg: 0.46, cb: 0.16, k: (1.1 + p * 1.2) * fl });
+  }
 }
 
 export function muzzleFlash(w: World, x: number, y: number, z: number, dx: number, dy: number, caliber: number) {

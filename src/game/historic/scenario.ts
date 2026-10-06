@@ -77,14 +77,16 @@ export abstract class Scenario {
   private wentOver = new Set<Vessel>();
   /**
    * Walk a moored ship to a new spot on her lines and engines over `seconds` (moving the mooring point
-   * the spring pulls her toward), then call `then`: how a big ship gets clear of a crowded berth.
+   * the spring pulls her toward), then call `then`: how a big ship gets clear of a crowded berth. With `via`,
+   * a ship under way follows a curve through that control point (put it along her heading) and eases out
+   * from her own speed, instead of easing in and out along a straight line from rest.
    */
-  warp(v: Vessel, x: number, y: number, h: number, seconds: number, then: () => void) {
+  warp(v: Vessel, x: number, y: number, h: number, seconds: number, then: () => void, via?: [number, number]) {
     const m0 = v.moored ?? { x: v.pos.x, y: v.pos.y, h: v.heading };
     v.moored = { ...m0 };
-    this.warps.push({ v, x0: m0.x, y0: m0.y, h0: m0.h, x, y, h, t: 0, dur: seconds, then });
+    this.warps.push({ v, x0: m0.x, y0: m0.y, h0: m0.h, x, y, h, t: 0, dur: seconds, then, via });
   }
-  private warps: { v: Vessel; x0: number; y0: number; h0: number; x: number; y: number; h: number; t: number; dur: number; then: () => void }[] = [];
+  private warps: { v: Vessel; x0: number; y0: number; h0: number; x: number; y: number; h: number; t: number; dur: number; then: () => void; via?: [number, number] }[] = [];
   objective(text: string) { const o: Objective = { text, state: 'open' }; this.objectives.push(o); return o; }
 
   /** land test for AI pilotage (a harbour scenario sets it); AI ships then steer clear of the shore */
@@ -102,7 +104,7 @@ export abstract class Scenario {
     const inner = ai.update.bind(ai);
     ai.update = (dt: number) => {
       inner(dt);
-      if (!v.alive || v.moored || (ai as { beaching?: boolean }).beaching) return;
+      if (!v.alive || v.moored) return;
       const look = Math.max(150, v.cls.length * 1.5 + Math.abs(v.hydro.fwdSpeed) * 20), h = v.course ?? v.heading;
       const blocked = (a: number) => { for (const k of [0.35, 0.7, 1]) if (land(v.pos.x + Math.cos(a) * look * k, v.pos.y + Math.sin(a) * look * k)) return true; return false; };
       if (!blocked(h)) {
@@ -141,9 +143,12 @@ export abstract class Scenario {
     this.counterflood(dt);
     for (const wp of this.warps) {
       wp.t = Math.min(wp.dur, wp.t + dt);
-      const k = wp.t / wp.dur, e = k * k * (3 - 2 * k);
+      const k = wp.t / wp.dur, e = wp.via ? k * (2 - k) : k * k * (3 - 2 * k);
       if (!wp.v.alive || !wp.v.moored) { wp.t = wp.dur; continue; }
-      wp.v.moored = { x: wp.x0 + (wp.x - wp.x0) * e, y: wp.y0 + (wp.y - wp.y0) * e, h: wp.h0 + angleDiff(wp.h0, wp.h) * e };
+      if (wp.via) {
+        const [cx, cy] = wp.via, a = (1 - e) * (1 - e), b = 2 * (1 - e) * e, c = e * e;
+        wp.v.moored = { x: a * wp.x0 + b * cx + c * wp.x, y: a * wp.y0 + b * cy + c * wp.y, h: wp.h0 + angleDiff(wp.h0, wp.h) * e };
+      } else wp.v.moored = { x: wp.x0 + (wp.x - wp.x0) * e, y: wp.y0 + (wp.y - wp.y0) * e, h: wp.h0 + angleDiff(wp.h0, wp.h) * e };
       if (wp.t >= wp.dur) wp.then();
     }
     this.warps = this.warps.filter((wp) => wp.t < wp.dur);
@@ -179,23 +184,28 @@ export abstract class Scenario {
 export class RouteAI {
   debug = '';
   i = 0;
-  /** beach: the last leg runs her aground on purpose (the shore pilot stands down for it) */
-  constructor(private v: Vessel, public pts: [number, number][], public kn: number, public arrive?: () => void, private beach = false) {}
-  get beaching() { return this.beach && this.i >= this.pts.length - 1; }
+  constructor(private v: Vessel, public pts: [number, number][], public kn: number, public arrive?: () => void) {}
   update(_dt: number) {
     const v = this.v;
     if (this.i >= this.pts.length) { v.course = v.heading; v.speedCmd = 0; this.debug = 'arrived'; return; }
     const [x, y] = this.pts[this.i], d = Math.hypot(x - v.pos.x, y - v.pos.y);
+    // wheel over for the next leg early, R tan(turn / 2) short of the point, so she comes round onto it
+    // instead of overshooting by her turning circle
+    const nxt = this.pts[this.i + 1];
+    const legTurn = nxt ? Math.abs(angleDiff(Math.atan2(y - v.pos.y, x - v.pos.x), Math.atan2(nxt[1] - y, nxt[0] - x))) : 0;
+    const wheel = v.cls.turnRadius * Math.tan(Math.min(legTurn, 1.3) / 2);
     // reached, or already abeam/astern within a turning circle (a big ship cannot turn onto a close point)
     const behind = (x - v.pos.x) * Math.cos(v.heading) + (y - v.pos.y) * Math.sin(v.heading) < 0;
-    if (d < Math.max(80, v.cls.length * 0.6) || (behind && d < v.cls.turnRadius * 1.2)) {
+    if (d < Math.max(80, v.cls.length * 0.6, wheel) || (behind && d < v.cls.turnRadius * 1.2)) {
       this.i++;
       if (this.i >= this.pts.length) this.arrive?.();
       return;
     }
     v.course = Math.atan2(y - v.pos.y, x - v.pos.x);
     const turn = Math.abs(angleDiff(v.heading, v.course));
-    const kn = this.kn * clamp(1.2 - turn, 0.3, 1) * (this.i === this.pts.length - 1 ? clamp(d / 600, 0.25, 1) : 1);
+    // ease off ahead of a sharp turn onto the next leg, or she carries her way past it and toward the bank
+    const ahead = nxt && d < v.cls.turnRadius * 2.5 ? clamp(1.1 - legTurn / 1.6, 0.4, 1) : 1;
+    const kn = this.kn * clamp(1.2 - turn, 0.3, 1) * ahead * (this.i === this.pts.length - 1 ? clamp(d / 600, 0.25, 1) : 1);
     v.speedCmd = clamp(kn * KNOT / v.maxSpeed, 0, 1);
     this.debug = `route ${this.i + 1}/${this.pts.length}`;
   }

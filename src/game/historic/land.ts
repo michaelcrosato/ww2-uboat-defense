@@ -10,6 +10,8 @@ import { VoxelModel, VM } from '../../art/voxel';
 import { hash2, hexToRgb, noise2 } from '../../core/math';
 
 export type Pt = [number, number];
+/** height of the land tiles' ground surface (top of their single voxel layer), m */
+export const LAND_Z = 1.5;
 
 /** lat/lon (degrees) to local metres about an origin: x east, y south (equirectangular, fine over 10 km) */
 export function geo(lat0: number, lon0: number) {
@@ -171,8 +173,11 @@ export class LandMap {
       for (let j = tj * n; j < Math.min(this.ny, tj * n + n) && !any; j++) for (let i = ti * n; i < Math.min(this.nx, ti * n + n); i++) if (this.cell[j * this.nx + i]) { any = true; break; }
       if (!any) continue;
       const ox = this.x0 + ti * n * res, oy = this.y0 + tj * n * res;
-      const m = new VoxelModel(`${tag}_${ti}_${tj}`, n, n, 2, res, 2.5, 0, 0, -1);
-      for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      // one cell wider than the tile on each axis: neighbours overlap by a cell (identical content), so no
+      // hairline of water shows where two tiles meet on the pixel grid
+      const m = new VoxelModel(`${tag}_${ti}_${tj}`, n + 1, n + 1, 2, res, 2.5, 0, 0, -1);
+      m.openEdges = true;
+      for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) {
         const gi = ti * n + i, gj = tj * n + j;
         if (gi >= this.nx || gj >= this.ny) continue;
         const a = this.cell[gj * this.nx + gi];

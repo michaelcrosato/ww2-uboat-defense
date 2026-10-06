@@ -4,7 +4,7 @@
 // light-band quantization, water glints and sky reflection, fog, debug views.
 
 import { shaderModule, validated, type GpuContext } from '../device';
-import { BU, Ubo, type Samplers } from '../targets';
+import { BU, TU, Ubo, type Samplers } from '../targets';
 import { CAMERA_WGSL, DITHER_WGSL, FULLSCREEN_WGSL, MAT_WGSL, MATH_WGSL } from '../wgsl/common';
 import { LIGHT_FLOATS, MAX_LIGHTS } from '../../lights';
 import type { LightParams } from '../../common/frameUniforms';
@@ -15,7 +15,7 @@ import type { LightParams } from '../../common/frameUniforms';
  * 36 (bands, ditherAmt, beams, spec) · 40 (reflect, fog, lightning, haze)
  * 44 (steps, shadows, celShadows, lightsOn) · 48 (view, lightCount, occTop, -)
  */
-export const LIGHTING_FLOATS = 52;
+export const LIGHTING_FLOATS = 56;
 
 const WGSL = /* wgsl */ `
 ${FULLSCREEN_WGSL}
@@ -32,6 +32,7 @@ struct Lighting {
   p2: vec4f,   // reflect, fog, lightning, haze
   p3: vec4f,   // steps, shadows, celShadows, lightsOn
   p4: vec4f,   // view, lightCount, occTop (highest occluder or smoke, m), ao
+  p5: vec4f,   // GI strength, GI grid size
 };
 @group(0) @binding(1) var<uniform> U: Lighting;
 @group(0) @binding(2) var albedoTex: texture_2d<f32>;
@@ -40,6 +41,7 @@ struct Lighting {
 // 4 vec4 per light: pos (rel) + reach · color + intensity · dir + cos outer (-2 omni) · shadow, beam, cos inner, size
 @group(0) @binding(5) var<storage, read> lights: array<vec4f>;
 @group(0) @binding(6) var lin: sampler;
+@group(0) @binding(7) var giTex: texture_2d<f32>;
 
 fn occAt(p: vec2f) -> vec2f {
   let uv = (p - U.occRect.xy) / U.occRect.zw;
@@ -92,6 +94,22 @@ fn heightAO(p: vec3f, amt: f32) -> f32 {
     occ += clamp((occAt(p.xy + e * 4.0).x - p.z) / 8.0, 0.0, 1.0) * 0.4;
   }
   return 1.0 - clamp(occ * 0.25 * amt, 0.0, 0.85);
+}
+
+// indirect light from the GI grid (same window as the occluder map). Walls hold no light of their own
+// (a = 0 there): a normalized blur borrows it from the open texels beside them, so hulls and buildings
+// catch the glow of the fire next to them
+fn giAt(p: vec2f) -> vec3f {
+  let uv = (p - U.occRect.xy) / U.occRect.zw;
+  if (any(uv < vec2f(0.0)) || any(uv > vec2f(1.0))) { return vec3f(0.0); }
+  // a 3x3 tent two texels wide: the light is soft anyway, and the blur eats what noise the history left
+  let ts = 2.0 / U.p5.y;
+  var s = vec4f(0.0);
+  for (var k = 0; k < 9; k++) {
+    let o = vec2f(f32(k % 3) - 1.0, f32(k / 3) - 1.0);
+    s += textureSampleLevel(giTex, lin, uv + o * ts, 0.0) * (2.0 - 0.5 * dot(o, o));
+  }
+  return s.rgb / max(s.a, 0.5);
 }
 
 fn blinn(n: vec3f, L: vec3f, V: vec3f, k: f32) -> f32 {
@@ -209,6 +227,17 @@ fn blinn(n: vec3f, L: vec3f, V: vec3f, k: f32) -> f32 {
       if (glossy) { spec += c * blinn(n, Ld, V, shininess) * specK * 3.0; }
     }
   }
+  // ---- indirect light (2D global illumination): banded with the direct light below
+  if (U.p5.x > 0.0) {
+    var gi = giAt(P.xy) * U.p5.x;
+    // in 2D light falls off only as 1/d, so a field of fires sums without bound: roll the total off toward
+    // a ceiling instead of letting a burning apron blow out, and let it count for less under a high sun
+    let sunL = max(U.sunCol.r, max(U.sunCol.g, U.sunCol.b));
+    gi = gi / ((1.0 + max(gi.r, max(gi.g, gi.b)) * 0.7) * (1.0 + sunL * 0.6));
+    light += gi;
+    // firelight glinting off the waves round a blaze
+    if (water) { spec += gi * blinn(n, normalize(vec3f(0.0, 0.0, 1.0) + V), V, 24.0) * 1.6; }
+  }
   // ---- pixel-art quantization of the direct light; the flat ambient base stays smooth so dark
   // scenes don't break up into dither speckle where everything sits below the first band
   var lq = light;
@@ -247,12 +276,15 @@ export class LightingPassGPU {
   pipeline!: GPURenderPipeline;
   private ubo: Ubo;
   readonly lightBuf: GPUBuffer;
-  private bg: GPUBindGroup | null = null;
+  private bg: GPUBindGroup[] = [];
   private inputs: LightingInputs | null = null;
+  private gi: [GPUTextureView, GPUTextureView] | null = null;
+  private giZero: GPUTextureView;
 
   private constructor(private g: GpuContext, private s: Samplers) {
     this.ubo = new Ubo(g.device, LIGHTING_FLOATS, 'lighting');
     this.lightBuf = g.device.createBuffer({ label: 'lights', size: MAX_LIGHTS * LIGHT_FLOATS * 4, usage: BU.STORAGE | BU.COPY_DST });
+    this.giZero = g.device.createTexture({ label: 'gi.off', format: 'rgba16float', size: { width: 1, height: 1 }, usage: TU.TEXTURE_BINDING }).createView();
   }
 
   static async create(g: GpuContext, s: Samplers, format: GPUTextureFormat): Promise<LightingPassGPU> {
@@ -273,14 +305,28 @@ export class LightingPassGPU {
     const a = this.inputs;
     if (a && a.frame === t.frame && a.albedo === t.albedo && a.normal === t.normal && a.occ === t.occ) return;
     this.inputs = t;
-    this.bg = this.g.device.createBindGroup({
+    this.rebind();
+  }
+
+  /** the GI pass's two accumulation textures (one bind group per ping-pong side), or null when GI is off */
+  setGi(views: [GPUTextureView, GPUTextureView] | null) {
+    if (views === this.gi) return;
+    this.gi = views;
+    this.rebind();
+  }
+
+  private rebind() {
+    const t = this.inputs;
+    if (!t) return;
+    this.bg = [0, 1].map((i) => this.g.device.createBindGroup({
       label: 'lighting', layout: this.pipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: t.frame } }, { binding: 1, resource: { buffer: this.ubo.buffer } },
         { binding: 2, resource: t.albedo }, { binding: 3, resource: t.normal }, { binding: 4, resource: t.occ },
         { binding: 5, resource: { buffer: this.lightBuf } }, { binding: 6, resource: this.s.linear },
+        { binding: 7, resource: this.gi ? this.gi[i] : this.giZero },
       ],
-    });
+    }));
   }
 
   /** occRel: occluder window relative to the render origin; lights: packLights output; occTop: shadow ray ceiling (m) */
@@ -294,13 +340,15 @@ export class LightingPassGPU {
     f[40] = L.reflect; f[41] = L.fog; f[42] = L.lightning; f[43] = L.haze;
     f[44] = L.steps; f[45] = L.shadows ? 1 : 0; f[46] = L.celShadows ? 1 : 0; f[47] = L.lightsOn ? 1 : 0;
     f[48] = L.view; f[49] = lightCount; f[50] = occTop; f[51] = L.ao;
+    f[52] = this.gi ? L.gi : 0; f[53] = L.giRes;
     this.ubo.write();
     this.g.device.queue.writeBuffer(this.lightBuf, 0, lights, 0, MAX_LIGHTS * LIGHT_FLOATS);
   }
 
-  encode(pass: GPURenderPassEncoder) {
+  /** giSide: which GI accumulation texture holds this frame's light */
+  encode(pass: GPURenderPassEncoder, giSide = 0) {
     pass.setPipeline(this.pipeline);
-    pass.setBindGroup(0, this.bg!);
+    pass.setBindGroup(0, this.bg[giSide]);
     pass.draw(3);
   }
 

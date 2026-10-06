@@ -109,6 +109,7 @@ export class App {
     this.backend.resetSims();
     this.scene.particles.n = 0;
     this.scene.fx.clear();
+    this.scene.decals.length = 0;
     this.scene.splats.length = 0;
     const p = m.world.player;
     if (p) {

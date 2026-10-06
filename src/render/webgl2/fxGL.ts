@@ -66,6 +66,7 @@ uniform vec4 uO;      // origin x, y, maxPx, time
 uniform vec4 uLight;  // smoke light rgb
 uniform vec4 uOccRect;
 uniform vec4 uQ;      // occScale, occRes, intensity
+uniform vec4 uGi;     // GI emission: giScale texels/m, giRes, gain, min size m
 vec3 fireRamp(float k) {
   vec3 a = vec3(3.4, 2.4, 1.1), b = vec3(2.2, 0.85, 0.18), c = vec3(0.7, 0.14, 0.03);
   return k < 0.5 ? mix(c, b, k * 2.0) : mix(b, a, (k - 0.5) * 2.0);
@@ -105,6 +106,8 @@ void look(vec4 A, vec4 C, vec4 D, float t, out vec4 col, out float add, out floa
     a = 0.92 * (1.0 - smoothstep(0.55, 1.0, t)); size = mix(C.x, C.y, min(1.0, t * 5.0));
   } else if (kind == 9) {
     c = vec3(0.9, 0.95, 1.0) * heat * (1.0 - t) * (1.0 - t) * 0.6; a = 1.0; size = C.y * (1.0 - pow(1.0 - t, 2.5));
+  } else if (kind == 11) {
+    c = vec3(heat); a = smoothstep(0.0, 0.15, t) * (1.0 - smoothstep(0.7, 1.0, t)); add = 0.7; size = C.x;
   } else {
     c = D.rgb * uLight.rgb * 0.6; add = 0.0; a = 0.7 * smoothstep(0.0, 0.1, t) * fadeOut;
   }
@@ -140,8 +143,29 @@ void main() {
     gl_Position = vec4(uv * 2.0 - 1.0 + c * s, 0.0, 1.0);
     return;
   }
+  if (uOcc == 2) {
+    // hot particles splat their light into the GI grid (see webgpu/passes/fx.ts vsFxEmit)
+    if (kind == 1 || kind == 2 || kind == 3 || kind == 5 || kind == 7 || kind == 9 || kind == 10) return;
+    vec3 hot = col.rgb * col.a * add;
+    if (max(hot.r, max(hot.g, hot.b)) < 0.01) return;
+    vec2 uv = (rel - uOccRect.xy) / uOccRect.zw;
+    float sz = max(size, uGi.w);
+    gl_Position = vec4(uv * 2.0 - 1.0 + c * (sz * uGi.x / uGi.y), 0.0, 1.0);
+    vCol = vec4(hot * (size * size) / (sz * sz) * uGi.z, 1.0);
+    return;
+  }
   if (kind == 9) {
     gl_Position = worldToClip(vec3(rel + c * max(size, 0.5), aA.z));
+    return;
+  }
+  if (kind == 11) {
+    // flame tongue: an upright quad standing on its base (see webgpu/passes/fx.ts)
+    vec4 fc = worldToClip(vec3(rel, aA.z)), ft = worldToClip(vec3(rel, aA.z + aC.y));
+    float fw = max(2.0, aC.x * uCam.z), fh = max(3.0, aC.y * uCam.z * 0.95), fk = c.y * 0.5 + 0.5;
+    fc.x += c.x * fw * 0.5 * 2.0 / uBuf.x;
+    fc.y -= fk * fh * 2.0 / uBuf.y;
+    fc.z = mix(fc.z, ft.z, fk);
+    gl_Position = fc;
     return;
   }
   vec4 clip = worldToClip(vec3(rel, aA.z));
@@ -164,9 +188,14 @@ precision highp float;
 ${NOISE_GLSL}
 ${VN}
 uniform vec4 uQ;
+uniform vec4 uO;
 uniform highp int uOcc;
 in vec2 vUv; flat in vec4 vCol; flat in vec4 vInfo;
 out vec4 o;
+vec3 fireRampF(float k) {
+  vec3 a = vec3(3.4, 2.4, 1.1), b = vec3(2.2, 0.85, 0.18), c = vec3(0.7, 0.14, 0.03);
+  return k < 0.5 ? mix(c, b, k * 2.0) : mix(b, a, (k - 0.5) * 2.0);
+}
 float bayer4(vec2 p) {
   ivec2 q = ivec2(mod(p, 4.0));
   int m[16] = int[16](0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5);
@@ -179,10 +208,30 @@ void main() {
     o = vec4(-50.0, 0.0, 0.0, vCol.a * (1.0 - r) * 0.9);
     return;
   }
+  if (uOcc == 2) {
+    float r = dot(vUv, vUv);
+    if (r > 1.0) discard;
+    o = vec4(vCol.rgb * (1.0 - r) * 2.0, 0.0);
+    return;
+  }
   int kind = int(vInfo.y + 0.5);
   float r = length(vUv), shape;
   vec3 rgb = vCol.rgb;
   if (kind == 9) { float x = (r - 0.93) / 0.035; shape = exp(-x * x) * 0.3; }
+  else if (kind == 11) {
+    // noise fire (see webgpu/passes/fx.ts)
+    float y = vUv.y * 0.5 + 0.5;
+    float tt = uO.w * 2.2 + vInfo.z * 31.0;
+    vec2 q = vec2(vUv.x * 1.9 + vInfo.z * 7.0, y * 2.4 - tt);
+    q += (vec2(vn(q * 1.3 + vec2(0.0, -tt * 0.4)), vn(q * 1.3 + vec2(5.2, 1.3 - tt * 0.4))) - 0.5) * 1.1;
+    float n = vn(q) * 0.55 + vn(q * 2.1 + 3.1) * 0.3 + vn(q * 4.4 + 7.7) * 0.15;
+    float grad = clamp(1.0 - y, 0.0, 1.0) * (1.0 - vUv.x * vUv.x);
+    float heat = clamp(n * grad * 1.9 - 0.36 + 0.35 * grad * grad, 0.0, 1.0) * vCol.a;
+    if (heat < 0.05) discard;
+    float hq = floor(heat * 6.0 + bayer4(gl_FragCoord.xy) * 0.6) / 6.0;
+    rgb = fireRampF(hq) * 1.15 * vCol.r;
+    shape = smoothstep(0.05, 0.3, heat) / max(vCol.a, 1e-3);
+  }
   else {
     float n = vn(vUv * 2.3 + vec2(vInfo.z * 47.0, vInfo.w * 2.0)) * 0.6 + vn(vUv * 5.1 + vInfo.z * 13.0) * 0.4;
     shape = smoothstep(0.15, 0.6, (1.0 - smoothstep(0.35, 1.0, r)) * (0.35 + 0.9 * n));
@@ -270,6 +319,21 @@ export class FxGL {
   uniforms(ox: number, oy: number, time: number, maxPx: number, light: [number, number, number], occRel: [number, number, number, number], occRes: number, intensity: number) {
     this.draw.use().f4('uO', ox, oy, maxPx, time).f4('uLight', light[0], light[1], light[2], 0)
       .f4('uOccRect', ...occRel).f4('uQ', occRes / occRel[2], occRes, intensity, 0);
+  }
+
+  /** GI emission parameters (texels per metre and size of the GI grid, light gain, minimum splat size m) */
+  setGi(giScale: number, giRes: number, gain: number, minSize: number) {
+    this.draw.use().f4('uGi', giScale, giRes, gain, minSize);
+  }
+
+  /** splat hot particles' light into the GI emission grid (caller binds it, with additive blending) */
+  drawEmit() {
+    if (!this.count) return;
+    const gl = this.gl;
+    this.draw.use().i1('uOcc', 2);
+    gl.bindVertexArray(this.vaos[this.cur * 2 + 1]);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, this.count);
+    gl.bindVertexArray(null);
   }
 
   /** draw into the occluder map (caller binds it and its MAX/ADD blending) */
