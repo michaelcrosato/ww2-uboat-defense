@@ -124,6 +124,11 @@ on any failure or later device loss. The active backend shows in the FPS overlay
   Library of Congress HABS/HAER record points, the markers and stations of M18); map services are still blocked.
   Where the game's ships cannot physically follow history in the corrected harbour, the scenario scripts the move
   (Nevada's swing onto the bank at Hospital Point, like her walk out of F-8) rather than bending the geography.
+- 2026-10 (after M19, user): "free scroll around the map and view what is going on". The free camera (C / L3, which
+  existed with only a middle drag and the right stick) now pans with the arrow keys (`Input.suppress` hands them
+  from the helm to the camera; WASD keeps steering), screen-edge scrolling, a one-finger drag on touch (LOOK / SHIP
+  button), zooms toward the cursor (`Camera.anchor`) and out to `camera.freeMinZoom` (0.1 px/m: all of Pearl
+  Harbor); the HUD names the mode and its keys, marks the view on the plot and points back to the own ship.
 
 ## Known issues (keep this list current)
 - Arctic pack ice is visual only (ragged floes since M12, but no drag or collisions for ships).

@@ -12,6 +12,7 @@ export type Action =
   | 'ability1' | 'ability2' | 'ability3' | 'ability4' | 'ability5' | 'ability6'
   | 'depthUp' | 'depthDown' | 'periscope' | 'surface' | 'periscopeDepth' | 'searchlight'
   | 'target' | 'tactical' | 'map' | 'pause' | 'timeUp' | 'timeDown' | 'camera' | 'zoomIn' | 'zoomOut' | 'interact'
+  | 'panUp' | 'panDown' | 'panLeft' | 'panRight'
   | 'menuUp' | 'menuDown' | 'menuLeft' | 'menuRight' | 'menuAccept' | 'menuBack' | 'menuTabL' | 'menuTabR' | 'abilityMod' | 'tutorialNext';
 
 export const ACTION_LABELS: Record<Action, string> = {
@@ -22,6 +23,7 @@ export const ACTION_LABELS: Record<Action, string> = {
   depthUp: 'Order shallower', depthDown: 'Order deeper', periscope: 'Raise / lower periscope', surface: 'Surface', periscopeDepth: 'Periscope depth',
   searchlight: 'Searchlight', target: 'Cycle target', tactical: 'Tactical plot', map: 'Chart', pause: 'Pause', timeUp: 'Time compression +',
   timeDown: 'Time compression -', camera: 'Camera mode', zoomIn: 'Zoom in', zoomOut: 'Zoom out', interact: 'Collect / interact',
+  panUp: 'Free camera: pan up', panDown: 'Free camera: pan down', panLeft: 'Free camera: pan left', panRight: 'Free camera: pan right',
   menuUp: 'Menu up', menuDown: 'Menu down', menuLeft: 'Menu left', menuRight: 'Menu right', menuAccept: 'Accept', menuBack: 'Back',
   menuTabL: 'Previous tab', menuTabR: 'Next tab', abilityMod: 'Ability set 2 (hold)', tutorialNext: 'Tutorial: skip step',
 };
@@ -61,6 +63,11 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   zoomIn: ['WheelUp', 'PageUp'],
   zoomOut: ['WheelDown', 'PageDown'],
   interact: ['KeyG', 'Pad14'],
+  // the arrows steer like WASD until the free camera takes them over (Input.suppress)
+  panUp: ['ArrowUp'],
+  panDown: ['ArrowDown'],
+  panLeft: ['ArrowLeft'],
+  panRight: ['ArrowRight'],
   menuUp: ['ArrowUp', 'KeyW', 'Pad12'],
   menuDown: ['ArrowDown', 'KeyS', 'Pad13'],
   menuLeft: ['ArrowLeft', 'KeyA', 'Pad14'],
@@ -102,8 +109,12 @@ export class Input {
   padIndex = -1;
   padId = '';
   device: Device = 'kbm';
-  /** middle-drag pan delta (internal px) */
+  /** middle-drag pan delta (internal px; touch drags in free camera add to it too) */
   dragX = 0; dragY = 0;
+  /** the mouse is over the game canvas (edge scrolling only then) */
+  pointerIn = false;
+  /** codes bound to these actions are ignored by every other gameplay action (the free camera's arrows) */
+  suppress: Action[] = [];
   private dragging = false;
   private lastPx = 0; private lastPy = 0;
   private prevPad: boolean[] = [];
@@ -126,7 +137,8 @@ export class Input {
       this.gesture();
     });
     addEventListener('keyup', (e) => this.queueUp.push(e.code));
-    addEventListener('blur', () => { for (const c of this.codes) this.queueUp.push(c); });
+    addEventListener('blur', () => { for (const c of this.codes) this.queueUp.push(c); this.pointerIn = false; });
+    el.addEventListener('pointerleave', (e) => { if (e.pointerType !== 'touch') this.pointerIn = false; });
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     el.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'touch') { this.setDevice('touch'); this.gesture(); return; }
@@ -146,6 +158,7 @@ export class Input {
       if (e.pointerType === 'touch') return;
       const [x, y] = this.toPixel(e.clientX, e.clientY);
       this.mx = x; this.my = y; this.mouseMoved = true;
+      this.pointerIn = e.target === el || el.contains(e.target as Node);
       if (this.dragging) {
         const [ax, ay] = this.toPixel(this.lastPx, this.lastPy);
         this.dragX += x - ax; this.dragY += y - ay;
@@ -229,9 +242,15 @@ export class Input {
     }
   }
 
-  down(a: Action): boolean { for (const c of this.bindings[a]) if (this.codes.has(c)) return true; return false; }
-  pressed(a: Action): boolean { for (const c of this.bindings[a]) if (this.pressedCodes.has(c)) return true; return false; }
-  released(a: Action): boolean { for (const c of this.bindings[a]) if (this.releasedCodes.has(c)) return true; return false; }
+  down(a: Action): boolean { for (const c of this.bindings[a]) if (this.codes.has(c) && !this.blocked(a, c)) return true; return false; }
+  pressed(a: Action): boolean { for (const c of this.bindings[a]) if (this.pressedCodes.has(c) && !this.blocked(a, c)) return true; return false; }
+  released(a: Action): boolean { for (const c of this.bindings[a]) if (this.releasedCodes.has(c) && !this.blocked(a, c)) return true; return false; }
+  /** a code taken over by a suppressing action (menus always keep theirs) */
+  private blocked(a: Action, c: string) {
+    if (!this.suppress.length || this.suppress.includes(a) || a.startsWith('menu')) return false;
+    for (const s of this.suppress) if (this.bindings[s].includes(c)) return true;
+    return false;
+  }
   codeDown(c: string) { return this.codes.has(c); }
   codePressed(c: string) { return this.pressedCodes.has(c); }
   /** press + release an action through its first binding (touch buttons) */
@@ -301,7 +320,8 @@ export class Input {
     const seen = new Map<string, Action[]>();
     for (const a of gameplay) for (const c of this.bindings[a]) seen.set(c, [...(seen.get(c) ?? []), a]);
     const out: string[] = [];
-    const allowed = [['charge', 'periscope'], ['depthUp', 'throttleUp'], ['depthDown', 'throttleDown']];
+    const allowed = [['charge', 'periscope'], ['depthUp', 'throttleUp'], ['depthDown', 'throttleDown'],
+      ['panUp', 'throttleUp'], ['panDown', 'throttleDown'], ['panLeft', 'rudderLeft'], ['panRight', 'rudderRight']];
     for (const [c, acts] of seen) {
       if (acts.length < 2) continue;
       if (acts.length === 2 && allowed.some(([x, y]) => acts.includes(x as Action) && acts.includes(y as Action))) continue;

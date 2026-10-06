@@ -25,6 +25,8 @@ export class Camera {
   trauma = 0;
   /** ship-motion sway in world metres (camera.roll), added like shake */
   bobX = 0; bobY = 0;
+  /** screen pixel that stays on the same world point while the zoom eases (free camera: zoom to the cursor) */
+  anchor: [number, number] | null = null;
 
   setTilt(t: number) { this.tilt = t; this.cosT = Math.cos(t); this.sinT = Math.sin(t); }
   setViewport(W: number, H: number) { this.W = W; this.H = H; this.bw = W + 2; this.bh = H + 2; }
@@ -38,8 +40,15 @@ export class Camera {
   }
 
   update(dt: number, shakeScale = 1) {
+    const z0 = this.zoom;
     this.zoom += (this.targetZoom - this.zoom) * damp(10, dt);
     if (Math.abs(this.zoom - this.targetZoom) < 1e-4) this.zoom = this.targetZoom;
+    if (this.anchor && this.zoom !== z0) {
+      // the world point under the anchor: x + (sx - W/2)/zoom (and y over zoom·cosT); keep it there
+      const k = 1 / z0 - 1 / this.zoom;
+      this.x += (this.anchor[0] - this.W / 2) * k;
+      this.y += (this.anchor[1] - this.H / 2) * k / this.cosT;
+    }
     this.shakeT += dt;
     this.shakeAmt *= Math.exp(-dt * 5);
     const a = Math.max(this.shakeAmt, this.trauma * this.trauma * 9) * shakeScale;

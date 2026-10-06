@@ -40,6 +40,12 @@ export const DEV_DEFS: SettingDef[] = [
   { key: 'camera.shake', group: 'Camera', label: 'Screen shake', type: 'range', def: 1, min: 0, max: 2, step: 0.1, fmt: pct },
   { key: 'camera.roll', group: 'Camera', label: 'Ship motion sickness', type: 'bool', def: false,
     help: 'Camera bobs with your own ship\'s roll and pitch.' },
+  { key: 'camera.panSpeed', group: 'Camera', label: 'Free camera pan speed', type: 'range', def: 420, min: 100, max: 1500, step: 20, unit: 'px/s',
+    help: 'Free camera (C): how fast the arrow keys, screen edges and right stick move the view, in screen pixels per second.' },
+  { key: 'camera.edgeScroll', group: 'Camera', label: 'Free camera edge scrolling', type: 'bool', def: true,
+    help: 'Free camera: the view moves when the mouse rests at the edge of the screen.' },
+  { key: 'camera.freeMinZoom', group: 'Camera', label: 'Free camera zoom out', type: 'range', def: 0.1, min: 0.05, max: 0.5, step: 0.01, unit: 'px/m',
+    help: 'How far the free camera can zoom out to watch the whole battle (the ship-following camera stops at 0.15).' },
 
   // ---------------------------------------------------------------- Water
   { key: 'water.swell', group: 'Water', label: 'Ocean swell (Gerstner)', type: 'bool', def: true },

@@ -57,7 +57,8 @@ export class TouchOverlay {
   private throttleId = -1;
   private sx = 0; private sy = 0;
   private touches = new Map<number, { x: number; y: number; x0: number; y0: number; t0: number }>();
-  private pinch: { d0: number; z0: number } | null = null;
+  private pinch: { d0: number; z0: number; mx: number; my: number } | null = null;
+  private camBtn: Btn;
   private tapOk = true;
   private readonly coarse = typeof matchMedia === 'function' && (matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0);
 
@@ -74,7 +75,9 @@ export class TouchOverlay {
     this.ctxBtn = this.button('ctx hidden', 'target', '', () => { this.ctxAction?.run(); this.ctxAction = null; });
     this.timeBtn = this.button('small', 'time', '1×', () => this.cycleTime());
     const pauseBtn = this.button('small', 'pause', 'MENU', () => this.shell.open('pause'));
-    this.top = h('div', { class: 't-top' }, this.timeBtn.el, pauseBtn.el);
+    // free camera: one finger drags the map instead of aiming; tap again to ride the ship
+    this.camBtn = this.button('small', 'look', 'LOOK', () => { const pc = this.pc; if (pc) pc.freeCam = !pc.freeCam; });
+    this.top = h('div', { class: 't-top' }, this.camBtn.el, this.timeBtn.el, pauseBtn.el);
     this.backdrop = h('div', { class: 't-backdrop hidden' });
     this.backdrop.addEventListener('pointerdown', (e) => { e.preventDefault(); this.closePop(); });
     this.pop = h('div', { class: 't-pop hidden' });
@@ -160,7 +163,7 @@ export class TouchOverlay {
       this.tapOk = this.touches.size === 1;
       if (this.touches.size === 2) {
         const [a, b] = [...this.touches.values()];
-        this.pinch = { d0: Math.max(20, Math.hypot(a.x - b.x, a.y - b.y)), z0: this.shell.app.cam.targetZoom };
+        this.pinch = { d0: Math.max(20, Math.hypot(a.x - b.x, a.y - b.y)), z0: this.shell.app.cam.targetZoom, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
         this.shell.app.input.touchAxes.aiming = false;
       }
     });
@@ -176,10 +179,20 @@ export class TouchOverlay {
       }
       const t = this.touches.get(e.pointerId);
       if (!t) return;
+      const px = t.x, py = t.y;
       t.x = e.clientX; t.y = e.clientY;
       if (this.pinch && this.touches.size >= 2) {
         const [a, b] = [...this.touches.values()], cam = this.shell.app.cam;
         cam.targetZoom = clamp(this.pinch.z0 * Math.hypot(a.x - b.x, a.y - b.y) / this.pinch.d0, cam.minZoom, cam.maxZoom);
+        // in free camera the two fingers also carry the map
+        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        if (this.pc?.freeCam) this.dragBy(this.pinch.mx, this.pinch.my, mx, my);
+        this.pinch.mx = mx; this.pinch.my = my;
+        return;
+      }
+      if (this.pc?.freeCam) {
+        // free camera: the finger drags the map (a short touch is still a tap)
+        if (Math.hypot(t.x - t.x0, t.y - t.y0) > 12) { this.tapOk = false; this.dragBy(px, py, t.x, t.y); }
         return;
       }
       if (Math.hypot(t.x - t.x0, t.y - t.y0) > 12) {
@@ -206,6 +219,13 @@ export class TouchOverlay {
     };
     z.addEventListener('pointerup', up);
     z.addEventListener('pointercancel', up);
+  }
+
+  /** a drag of the map between two client points, in game pixels (PlayerControl.freeLook reads it) */
+  private dragBy(x0: number, y0: number, x1: number, y1: number) {
+    const sc = this.shell.app.screen, inp = this.shell.app.input;
+    const [ax, ay] = sc.clientToPixel(x0, y0), [bx, by] = sc.clientToPixel(x1, y1);
+    inp.dragX += bx - ax; inp.dragY += by - ay;
   }
 
   /** a tap on the sea locks the ship under it; on open water it lets go of the lock and aims there */
@@ -344,6 +364,9 @@ export class TouchOverlay {
       this.toasts.sync(Math.max(L.center, 32) * k + 8, (l + r - tw) / 2, tw, innerHeight < 480 ? 3 : 4);
     }
     this.setText(this.timeBtn.lbl, `${pc.timeScale}×`);
+    this.setIcon(this.camBtn, pc.freeCam ? 'ship' : 'look');
+    this.setText(this.camBtn.lbl, pc.freeCam ? 'SHIP' : 'LOOK');
+    this.camBtn.el.classList.toggle('active', pc.freeCam);
     this.timeBtn.el.classList.toggle('active', pc.timeScale > 1);
     // throttle shows the rung telegraph
     this.notches.forEach((n, i) => n.classList.toggle('active', v.speedCmd === null && THROTTLE[i][0] === v.telegraph));
