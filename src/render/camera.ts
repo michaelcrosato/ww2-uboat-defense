@@ -21,6 +21,8 @@ export class Camera {
   private shakeAmt = 0;
   private shakeT = 0;
   shakeX = 0; shakeY = 0;
+  /** effect trauma 0..1 (render/fx.ts): shake grows with its square, so small blasts stay subtle */
+  trauma = 0;
   /** ship-motion sway in world metres (camera.roll), added like shake */
   bobX = 0; bobY = 0;
 
@@ -40,7 +42,7 @@ export class Camera {
     if (Math.abs(this.zoom - this.targetZoom) < 1e-4) this.zoom = this.targetZoom;
     this.shakeT += dt;
     this.shakeAmt *= Math.exp(-dt * 5);
-    const a = this.shakeAmt * shakeScale;
+    const a = Math.max(this.shakeAmt, this.trauma * this.trauma * 9) * shakeScale;
     this.shakeX = (noise1(this.shakeT * 23, 1) - 0.5) * 2 * a;
     this.shakeY = (noise1(this.shakeT * 23, 7) - 0.5) * 2 * a;
     if (a < 0.05) { this.shakeX = 0; this.shakeY = 0; }

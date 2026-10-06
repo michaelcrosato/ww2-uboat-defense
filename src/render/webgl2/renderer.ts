@@ -14,13 +14,14 @@ import { LIGHT_FLOATS, MAX_LIGHTS, packLights } from '../lights';
 import { packForces, packParticles, packStacks } from '../pack';
 import { SpriteStackRenderer } from './spriteStack';
 import { ParticlesGL } from './particlesGL';
+import { FxGL } from './fxGL';
 import { MAX_WAVES } from '../../water/ocean';
 import { WaveSim } from './water/waveSim';
 import { FluidSim } from './water/fluidSim';
 import { dev } from '../../core/devSettings';
 import { CAMERA_GLSL } from './glsl/common';
 import { postParams } from '../common/post';
-import { lightParams, occluderRect, occluderRes, seaTop, waterParams } from '../common/frameUniforms';
+import { lightParams, occluderRect, occluderRes, seaTop, smokeLight, waterParams } from '../common/frameUniforms';
 
 const DEBUG_FS = /* glsl */ `#version 300 es
 precision highp float;
@@ -50,6 +51,7 @@ export class WebGL2Backend implements RenderBackend {
   lightCount = 0;
   stacks: SpriteStackRenderer;
   particles: ParticlesGL;
+  fx: FxGL;
   wave: WaveSim;
   fluid: FluidSim;
   private debugProg: Program;
@@ -95,6 +97,7 @@ export class WebGL2Backend implements RenderBackend {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, MAX_LIGHTS, 0, gl.RGBA, gl.FLOAT, null);
     this.stacks = new SpriteStackRenderer(gl);
     this.particles = new ParticlesGL(gl);
+    this.fx = new FxGL(gl);
     this.wave = new WaveSim(gl, parseInt(dev.str('water.simRes')), dev.num('water.simCell'));
     this.fluid = new FluidSim(gl);
     this.applySimSizes();
@@ -149,6 +152,10 @@ export class WebGL2Backend implements RenderBackend {
     const occRes = occluderRes();
     this.occ.resize(occRes, occRes);
     this.stacks.uploadAtlas(scene.atlas);
+    // ---- GPU effect particles: new ones uploaded, every slot integrated by transform feedback
+    const fx = scene.fx;
+    if (fx.cap !== FxGL.CAP) { fx.cap = FxGL.CAP; fx.clear(); }
+    this.fx.simulate(fx, f.fxDt, f.time, scene.particles.wind);
 
     // ---- ocean uniforms (origin folded into wave phases on the CPU, in double precision)
     this.waveCount = f.ocean.pack(O.x, O.y, this.waveA, this.waveB);
@@ -210,6 +217,9 @@ export class WebGL2Backend implements RenderBackend {
     this.setCam(po, cam);
     po.i1('uOccluder', 1).f4('uOccRect', ...occRel).f1('uOccScale', occRes / span).f1('uMaxPx', 64);
     this.particles.draw();
+    this.fx.uniforms(O.x, O.y, f.time, 160, [1, 1, 1], occRel, occRes, 1);
+    this.setCam(this.fx.draw, cam);
+    this.fx.drawOcc();
     gl.blendEquation(gl.FUNC_ADD);
     gl.disable(gl.BLEND);
 
@@ -274,13 +284,17 @@ export class WebGL2Backend implements RenderBackend {
       .i1('uLightCount', this.lightCount).f4('uOccRect', ...occRel).f1('uOccTop', this.occTop)
       .f3('uAmbient', ...L.ambient).f3('uSky', ...L.sky).f3('uFogCol', ...L.fogCol)
       .f3('uSunDir', ...L.sunDir).f3('uSunCol', ...L.sunCol).f3('uMoonDir', ...L.moonDir).f3('uMoonCol', ...L.moonCol)
-      .f1('uReach', L.reach).f1('uStrength', L.strength).f1('uAmbientFill', L.ambientFill)
+      .f1('uAo', L.ao).f1('uReach', L.reach).f1('uStrength', L.strength).f1('uAmbientFill', L.ambientFill)
       .f1('uSoft', L.soft).f1('uBands', L.bands).f1('uDitherAmt', L.ditherAmt)
       .f1('uBeams', L.beams).f1('uSpec', L.spec).f1('uReflect', L.reflect)
       .f1('uFog', L.fog).f1('uLightning', L.lightning).f1('uHaze', L.haze)
       .i1('uSteps', L.steps).i1('uShadows', L.shadows ? 1 : 0)
       .i1('uCelShadows', L.celShadows ? 1 : 0).i1('uLightsOn', L.lightsOn ? 1 : 0).i1('uView', L.view);
     this.lighting.draw(gl);
+    // effect particles over the lit image, depth-tested against the G-buffer
+    this.fx.uniforms(O.x, O.y, f.time, 160, smokeLight(L), occRel, occRes, dev.num('fx.intensity'));
+    this.setCam(this.fx.draw, cam);
+    this.fx.drawLit(this.lit.t, this.gbuf.depth, bw, bh);
 
     // debug texture views drawn straight into the lit buffer
     const dv = dev.str('debug.view');
@@ -295,8 +309,8 @@ export class WebGL2Backend implements RenderBackend {
     }
 
     // ---- post
-    const post = postParams(sc, cam, f);
-    this.post.bloom(this.lit.t, post.bloom);
+    const post = postParams(sc, cam, f, scene.fx);
+    this.post.bloom(this.lit.t, post.bloom, post);
     this.post.present({ lit: this.lit.t, ...post });
   }
 }

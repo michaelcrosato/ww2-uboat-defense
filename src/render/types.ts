@@ -34,6 +34,8 @@ export interface FrameParams {
   theater: Theater;
   /** simulated seconds since the last frame (0 = paused: water sims hold) */
   simDt: number;
+  /** seconds the effect particles advance this frame (game time, unclamped; 0 = paused) */
+  fxDt: number;
   time: number;
   flash: number;
   flashCol: [number, number, number];

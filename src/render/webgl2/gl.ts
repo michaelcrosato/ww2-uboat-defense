@@ -30,11 +30,13 @@ function numbered(src: string) {
 export class Program {
   readonly prog: WebGLProgram;
   private locs = new Map<string, WebGLUniformLocation | null>();
-  constructor(readonly gl: GL, readonly name: string, vs: string, fs: string) {
+  /** varyings: transform-feedback outputs (interleaved), for update programs run with the rasterizer off */
+  constructor(readonly gl: GL, readonly name: string, vs: string, fs: string, varyings?: string[]) {
     const v = compile(gl, gl.VERTEX_SHADER, vs, name + '.vs');
     const f = compile(gl, gl.FRAGMENT_SHADER, fs, name + '.fs');
     const p = gl.createProgram()!;
     gl.attachShader(p, v); gl.attachShader(p, f);
+    if (varyings) gl.transformFeedbackVaryings(p, varyings, gl.INTERLEAVED_ATTRIBS);
     gl.linkProgram(p);
     if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
       const log = gl.getProgramInfoLog(p);

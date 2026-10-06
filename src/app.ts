@@ -108,6 +108,7 @@ export class App {
     this.mission = m;
     this.backend.resetSims();
     this.scene.particles.n = 0;
+    this.scene.fx.clear();
     this.scene.splats.length = 0;
     const p = m.world.player;
     if (p) {
@@ -259,6 +260,11 @@ export class App {
       const camDt = this.frozen ? 60 : dt;
       if (pc) pc.updateCamera(camDt);
       else if (m.spectator && !this.fixedCam) this.attractCamera(m, dt);
+      // effect trauma (explosions near the view) rides the camera shake: shake = trauma²
+      const fx = this.scene.fx;
+      fx.camX = this.cam.x; fx.camY = this.cam.y;
+      fx.enabled = dev.bool('fx.particles'); fx.density = dev.num('fx.density');
+      this.cam.trauma = fx.trauma;
       this.cam.update(camDt, dev.num('camera.shake'));
       this.shipSway(m, camDt);
       // render
@@ -269,10 +275,11 @@ export class App {
       ps.wind.x = Math.cos(m.world.ocean.params.windDir) * m.world.ocean.windSpeed * 0.5;
       ps.wind.y = Math.sin(m.world.ocean.params.windDir) * m.world.ocean.windSpeed * 0.5;
       if (!halted) ps.update(dt * tempo, (x, y) => m.world.ocean.height(x, y));
+      if (!halted) this.scene.fx.update(dt * tempo);
       const bio = this.bioLevel(m);
       this.backend.render(this.scene, {
         camera: this.cam, ocean: m.world.ocean, env: m.world.env, theater: m.world.theater,
-        simDt: clamp(simDt, 0, 0.1), time: m.world.time,
+        simDt: clamp(simDt, 0, 0.1), fxDt: halted ? 0 : Math.min(0.5, dt * tempo), time: m.world.time,
         flash: m.world.flash, flashCol: m.world.flashCol, bio, ice: m.world.theater.ice ? 0.6 : 0,
       });
       if (simDt > 0) this.scene.splats.length = 0;
@@ -325,6 +332,7 @@ export class App {
     // particles and explosion flashes spawned during the jump never aged (they fade per rendered frame):
     // every fire, smoke puff and flash of the skipped minutes would be on screen at once
     this.scene.particles.n = 0;
+    this.scene.fx.clear();
     m.world.transient.length = 0;
     m.world.flash = 0;
     // the camera follows smoothly, so after a jump in time put it back on the player at once

@@ -42,6 +42,8 @@ export interface LightParams {
   reach: number; strength: number; ambientFill: number; soft: number; bands: number; ditherAmt: number;
   beams: number; spec: number; reflect: number; fog: number; lightning: number; haze: number;
   steps: number; shadows: boolean; celShadows: boolean; lightsOn: boolean;
+  /** heightmap ambient occlusion strength (contact shadows) */
+  ao: number;
   /** 0 final, 1 albedo, 2 normal, 3 height, 4 light only */
   view: number;
 }
@@ -60,8 +62,15 @@ export function lightParams(f: FrameParams): LightParams {
     haze: 0.35 + env.fogDensity * 2.2,
     steps: dev.num('light.shadowSteps'), shadows: dev.bool('light.shadows'),
     celShadows: dev.bool('light.celestialShadows'), lightsOn: dev.bool('light.enabled'),
+    ao: dev.num('light.ao'),
     view: DEBUG_VIEWS[dev.str('debug.view')] ?? 0,
   };
+}
+
+/** light that falls on effect smoke (forward-shaded after the lighting pass): ambient, sun and moon */
+export function smokeLight(L: LightParams): [number, number, number] {
+  const k = (i: number) => Math.min(2, L.ambient[i] * L.ambientFill + L.sunCol[i] * 0.85 + L.moonCol[i] * 0.8 + L.lightning);
+  return [k(0), k(1), k(2)];
 }
 
 /**
