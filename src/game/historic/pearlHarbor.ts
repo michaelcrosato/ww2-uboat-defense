@@ -133,7 +133,8 @@ export class PearlHarbor extends Scenario {
 
     // ---- the midget submarine in the North Channel
     const ms = VESSELS.ss_kohyoteki, keel = ms.sub!.periscopeDepth;
-    const midget = w.spawn(ms, MIDGET_START[0], MIDGET_START[1], brg(120), { name: 'Midget submarine (I-22)', submerged: keel - ms.draft });
+    // the player's boat points along the channel toward East Loch, the way round Ford Island to Battleship Row
+    const midget = w.spawn(ms, MIDGET_START[0], MIDGET_START[1], brg(side === 'allied' ? 120 : 60), { name: 'Midget submarine (I-22)', submerged: keel - ms.draft });
     midget.sub!.orderedDepth = keel; midget.sub!.periscopeUp = true; midget.sub!.periscope = 1;
     this.midget = midget;
 
@@ -147,7 +148,9 @@ export class PearlHarbor extends Scenario {
       this.oSurvive = this.objective('Survive the raid (09:45)');
     } else {
       midget.isPlayer = true; w.player = midget;
-      midget.setTelegraph(3);
+      // creeping on the motor: slow enough that a boat left alone noses into a bank instead of ramming a
+      // moored cruiser (impacts under 1.2 m/s do no damage)
+      midget.speedCmd = 0.1;
       this.oHit = this.objective('Torpedo a battleship');
       this.oSurvive = this.objective('Survive (09:45)');
     }

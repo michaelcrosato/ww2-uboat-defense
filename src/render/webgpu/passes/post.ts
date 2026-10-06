@@ -100,7 +100,7 @@ fn fetch(b: vec2f) -> vec3f { return textureLoad(lit, vec2<i32>(clamp(floor(b), 
     let r = U.rings[k];
     let dv = bp - r.xy;
     let dist = max(length(dv), 1e-3);
-    let th = 2.5 + r.z * 0.1;
+    let th = 3.0 + r.z * 0.12;
     let x = (dist - r.z) / th;
     off += (dv / dist) * r.w * x * exp(-x * x);
   }

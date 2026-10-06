@@ -126,13 +126,17 @@ export function flakBurst(w: World, x: number, y: number, z: number) {
  * with the frame time: flames, embers, a column of black smoke and a heat-haze source.
  */
 export function fireEmit(w: World, x: number, y: number, z: number, power: number, dt: number, vx = 0, vy = 0) {
-  const F = w.scene.fx;
+  const F = w.scene.fx, V = w.view;
   if (!F.enabled || dt <= 0) return;
+  // far off screen nothing is emitted (a column takes ~30 s to rise, the camera pans slower than that)
+  const dx = Math.abs(x - V.x), dy = Math.abs(y - V.y);
+  if (dx > V.r + 1500 || dy > V.r + 1500) return;
   const p = Math.min(power, 2);
   if (fx.next() < dt * 9 * p) F.burst(FX.FIRE, x, y, z, { n: 1, speed: 1.5, up: 3, spread: 0.5, radius: 1.5, life: 1.4 + p * 0.6, size: 1.6 + p, size1: 4 + p * 3, col: SMOKE_COL, heat: 0.85, vx, vy });
   if (fx.next() < dt * 5 * p) F.burst(FX.EMBER, x, y, z + 1, { n: 2, speed: 3, up: 2, radius: 1.5, life: 2.5, size: 0.35, heat: 1, vx, vy });
   if (fx.next() < dt * 2.6 * p) F.burst(FX.SMOKE, x, y, z + 3, { n: 1, speed: 1, up: 4, spread: 0.3, radius: 2, life: 22 + p * 10, size: 4 + p * 2, size1: 20 + p * 16, col: [0.62, 0.6, 0.58], heat: 0.5, vx: vx * 0.5, vy: vy * 0.5 });
-  if (F.heat.length < 24) F.heat.push({ x, y, z: z + 4, r: 6 + p * 6, k: 0.5 + p * 0.4 });
+  // heat haze only from fires in view, so the frame's few haze slots go to what can be seen
+  if (F.heat.length < 24 && dx < V.r && dy < V.r) F.heat.push({ x, y, z: z + 4, r: 6 + p * 6, k: 0.5 + p * 0.4 });
 }
 
 export function muzzleFlash(w: World, x: number, y: number, z: number, dx: number, dy: number, caliber: number) {

@@ -25,7 +25,8 @@ a passive skill tree per side, loot with affixes and legendary powers, active ab
 | ![Night action: a burning freighter, a searchlight and a star shell](docs/img/night-action.png) | ![Arctic pack ice](docs/img/arctic.png) |
 | ![Every vessel class lined up](docs/img/fleet.png) | ![Escort carrier with Swordfish on deck](docs/img/escort-carrier.png) |
 | ![Battleship Row at 07:50 on 7 December 1941](docs/img/battleship-row.png) | ![Battleship Row at 08:15: Oklahoma capsized, West Virginia and Arizona burning](docs/img/pearl-harbor.png) |
-| ![Kaga under the dive bombers at Midway, 10:22](docs/img/midway.png) | |
+| ![Kaga under the dive bombers at Midway, 10:22](docs/img/midway.png) | ![Hickam Field at 07:56: B-18s burning on the apron](docs/img/hickam.png) |
+| ![The Navy Yard: Pennsylvania in Drydock No. 1, the hammerhead crane and the shops](docs/img/navy-yard.png) | |
 
 ## Running it
 

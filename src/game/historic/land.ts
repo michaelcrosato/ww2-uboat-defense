@@ -146,9 +146,14 @@ export class LandMap {
         j1++;
       }
       for (let b = j; b <= j1; b++) for (let q = i; q <= i1; q++) used[b * nx + q] = 1;
-      // a metre of slack so hulls can lie alongside a quay without grinding on it
-      const hx = (i1 - i + 1) * res / 2 - 1, hy = (j1 - j + 1) * res / 2 - 1;
-      rects.push({ x: this.x0 + (i + i1 + 1) * res / 2, y: this.y0 + (j + j1 + 1) * res / 2, hx: Math.max(0.5, hx), hy: Math.max(0.5, hy) });
+      // a metre of slack so hulls can lie alongside a quay without grinding on it, but only on a side that
+      // faces open water along its whole length: sides against more land stay flush, so the boxes close up
+      // (slack on every side left 2 m seams between neighbours, and the 1.85 m midget slipped into one)
+      const open = (i0: number, j0: number, di: number, dj: number, n: number) => { for (let k = 0; k < n; k++) if (!this.water(i0 + di * k, j0 + dj * k)) return 0; return 1; };
+      const sl = open(i - 1, j, 0, 1, j1 - j + 1), sr = open(i1 + 1, j, 0, 1, j1 - j + 1);
+      const st = open(i, j - 1, 1, 0, i1 - i + 1), sb = open(i, j1 + 1, 1, 0, i1 - i + 1);
+      const ax = this.x0 + i * res + sl, bx = this.x0 + (i1 + 1) * res - sr, ay = this.y0 + j * res + st, by = this.y0 + (j1 + 1) * res - sb;
+      rects.push({ x: (ax + bx) / 2, y: (ay + by) / 2, hx: Math.max(0.5, (bx - ax) / 2), hy: Math.max(0.5, (by - ay) / 2) });
     }
     w.physics.addLandRects(rects);
     return rects.length;

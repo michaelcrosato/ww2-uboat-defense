@@ -39,7 +39,7 @@ export function postParams(sc: Screen, cam: Camera, f: FrameParams, fx?: FxSyste
     for (const r of fx.rings) {
       if (ringCount >= POST_RINGS) break;
       const k = r.t / r.life, R = r.r * (1 - Math.pow(1 - k, 2.5)) * cam.zoom;
-      rings.set([bx(r.x), by(r.y, r.z), R, r.str * (1 - k) * dist * 3], ringCount++ * 4);
+      rings.set([bx(r.x), by(r.y, r.z), R, r.str * (1 - k) * dist * 5], ringCount++ * 4);
     }
   }
   if (fx && haze > 0) {

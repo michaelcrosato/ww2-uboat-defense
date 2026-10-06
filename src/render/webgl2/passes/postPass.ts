@@ -79,7 +79,7 @@ void main() {
     if (float(k) >= uFx.y) break;
     vec4 r = uRings[k];
     vec2 dv = bp - r.xy;
-    float dist = max(length(dv), 1e-3), th = 2.5 + r.z * 0.1, x = (dist - r.z) / th;
+    float dist = max(length(dv), 1e-3), th = 3.0 + r.z * 0.12, x = (dist - r.z) / th;
     off += (dv / dist) * r.w * x * exp(-x * x);
   }
   for (int k = 0; k < ${POST_HEAT}; k++) {
