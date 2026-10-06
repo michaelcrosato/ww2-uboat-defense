@@ -32,7 +32,8 @@ and running, but WebGL2 parity, visuals and performance are no longer verified o
 | M16 | U-boats start submerged (surfaced only where it makes sense: port, diving lesson, pre-radar night) | DONE | [M16](milestones/M16-submerged-start.md) |
 | M17 | The navies at true scale: USN/IJN classes, carrier air strikes, real harbour geography; Pearl Harbor and Midway | DONE | [M17](milestones/M17-pearl-midway.md) |
 | M18 | GPU effects (compute particles, shockwaves, heat haze, light shafts, heightmap AO) and Pearl Harbor ashore in detail (corrected shoreline, roads, Navy Yard, hospital, airfields, tank farms, towns, parked aircraft, AA, traffic, harbour craft) | DONE | [M18](milestones/M18-effects-pearl.md) |
-| M19 | More historic battles on the M17 framework (candidates: Coral Sea, Savo Island, the Denmark Strait / Bismarck, convoy PQ 17, the River Plate); Pearl Harbor prologue with USS Ward (06:37) | TODO | (write the milestone file first) |
+| M19 | 2D global illumination (JFA + ray-marched bounce light, compute on WebGPU), noise-shader flames, ground decals (craters, scorch, strafing); Pearl Harbor re-fitted to survey-grade points (GNIS, HABS/HAER) and re-placed; sortie routes and Nevada's beaching | DONE | [M19](milestones/M19-gi-pearl-survey.md) |
+| M20 | More historic battles on the M17 framework (candidates: Coral Sea, Savo Island, the Denmark Strait / Bismarck, convoy PQ 17, the River Plate); Pearl Harbor prologue with USS Ward (06:37) | TODO | (write the milestone file first) |
 
 Order matters for M1→M6 (renderer). M7 and M8 are independent of the renderer and may be done
 before M1 if preferred; M9 needs nothing else; M10 needs M7 + M9; M11 needs M10; M12/M13 last.
@@ -115,6 +116,14 @@ on any failure or later device loss. The active backend shows in the FPS overlay
   (OSM, Overpass, USGS, NOAA, Esri, Wikipedia); the shoreline was corrected against the surveyed points the
   research could read in search snippets (stations, memorials, markers) and the rest is estimated (listed with
   confidence in the M18 notes).
+- 2026-10 (M19, same request, second pass): light now bounces. A 2D GI grid over the occluder window (jump-flood
+  distance field, ray-marched gather with one bounce per frame, temporal history) on WebGPU compute and WebGL2
+  fragment passes; light in it falls off as over a ground plane (`light.giReach`), because flatland's 1/d summed a
+  field of fires into one glare. Fires burn with noise-shader flame quads; bombs and strafing leave ground decals.
+- 2026-10 (M19): the map is fitted to survey-grade points found in search results (USGS GNIS place and water points,
+  Library of Congress HABS/HAER record points, the markers and stations of M18); map services are still blocked.
+  Where the game's ships cannot physically follow history in the corrected harbour, the scenario scripts the move
+  (Nevada's swing onto the bank at Hospital Point, like her walk out of F-8) rather than bending the geography.
 
 ## Known issues (keep this list current)
 - Arctic pack ice is visual only (ragged floes since M12, but no drag or collisions for ships).
@@ -151,17 +160,21 @@ on any failure or later device loss. The active backend shows in the FPS overlay
   depth, so the first attacks can come right after it (seed 42: an idle escort torpedoed at 123 s); idle escort
   losses over 15 min fell to 0–3 merchants. Tune with playtests (U-boat AI pacing has only had headless testing).
 - No mission starts in port yet, so `arena.uboatStart = surfaced` (a port departure) only serves the U-boat lesson.
-- Historic battles (M17, M18): positions of berths and shores are estimates (±150 m near Ford Island) from search
-  snippets; the network blocked the primary sources (Wikipedia, NHHC, HyperWar, combinedfleet) and every map
-  service (OSM, Overpass, USGS, NOAA, Esri). M18 corrected the worst errors against surveyed points (East Loch's
-  north shore, Waipio and Pearl City peninsulas, the missing land east of the Navy Yard, Southeast Loch, Ford
-  Island's seawalls); re-trace everything against OSM or the 1941 charts when those sites are reachable.
-- Pearl Harbor ashore (M18): estimated layouts — the Navy Yard and Sub Base shop grids, Hickam's three smaller
-  runways (headings unknown), which side of Drydock 1 the new Drydock 2 lay on, the AA positions, the tank
-  farms (±300 m), the craft routes. Houses, streets and trees in the towns are procedural.
-- Pearl Harbor ashore holds ~14,000 scenery placements (culled round the view in 250 m cells); SwiftShader
+- Historic battles: the network blocks every map service (OSM, Overpass, USGS, NOAA, Esri) and the primary history
+  sites. Since M19 Pearl Harbor's shores, docks, hangars and berths are fitted to survey-grade points (USGS GNIS,
+  HABS/HAER records, memorial and pier markers, rail stations; listed in the M19 notes), between them the lines are
+  interpolated. Where later fill moved the shore (Kuahua, the head of Magazine Loch, Ford Island's west side, Waipio)
+  the 1941 line is an estimate a little inside today's. Re-trace against OSM or the 1941 charts if they become reachable.
+- Pearl Harbor ashore: still estimated — the Navy Yard and Sub Base shop grids, Hickam's three smaller runways
+  (headings unknown), the AA positions, the tank farms (±200 m), the craft routes. Houses, streets and trees in the
+  towns are procedural.
+- Pearl Harbor ashore holds ~18,300 scenery placements (culled round the view in 250 m cells); SwiftShader
   needs 1.4–1.6 s of GPU time per frame over the Navy Yard (heightmap AO alone doubles the lighting pass there),
   so headless shots need ~9 s to settle. Real-GPU frame times are unmeasured.
+- 2D GI (M19) costs 108–192 ms per frame on SwiftShader at 256² (~13 % of the frame); real-GPU cost unmeasured. The
+  Performance preset turns it off.
+- Dark smoke puffs use four dithered alpha steps (M18 look); at zoom ≳ 2 the young puffs over a fire read as small
+  black checkerboards.
 - Effect particles (M18) are not simulated by `fastForward` (cosmetic, cleared after a jump) and live only on the
   GPU, so a slow headless frame rate shows fewer of them in flight than a real browser.
 - Historic battles: AI escorts were written for open ocean. Inside Pearl Harbor they are held at a listening

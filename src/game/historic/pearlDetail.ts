@@ -1,6 +1,6 @@
-// Pearl Harbor ashore in detail (M18): the ground painted with roads, the railway, runways, aprons and
-// lawns, then real buildings placed on it from surveyed and estimated positions (docs/milestones/
-// M18-effects-pearl.md lists them with their confidence): the Navy Yard with its dry docks, hammerhead
+// Pearl Harbor ashore in detail (M18, re-fitted to survey points in M19): the ground painted with roads, the
+// railway, runways, aprons and lawns, then real buildings placed on it from surveyed and estimated positions
+// (docs/milestones/M18-effects-pearl.md and M19-gi-pearl-survey.md list them with their confidence): the Navy Yard with its dry docks, hammerhead
 // crane and shops, the Naval Hospital on Hospital Point, the Submarine Base and its escape tower, the
 // tank farms, Ford Island's hangars and quarters, Hickam's hangar line and Hale Makai, Fort Kamehameha,
 // Pearl City, Aiea and its sugar mill. Towns are filled with houses along their streets, trees by
@@ -10,9 +10,10 @@
 import type { World, Scenery } from '../world';
 import type { RenderScene } from '../../render/scene';
 import type { StackModel, VoxelModel } from '../../art/voxel';
-import { geo, inPoly, type LandArea, type LandMap, type Pt } from './land';
+import { geo, inPoly, LAND_Z, type LandArea, type LandMap, type Pt } from './land';
 import { brg } from './scenario';
 import * as A from '../../art/shoreArt';
+import type { CraftKind } from '../../art/shoreArt';
 import { hash2 } from '../../core/math';
 
 /** the scenario's coordinate origin (Pearl Harbor and this file share it) */
@@ -22,7 +23,7 @@ const DEG = Math.PI / 180;
 /** the point d metres from p on compass bearing b */
 export const go = (p: Pt, b: number, d: number): Pt => [p[0] + Math.sin(b * DEG) * d, p[1] - Math.cos(b * DEG) * d];
 /** ground level of the land tiles (top of their single voxel layer) */
-export const GROUND = 1.5;
+export const GROUND = LAND_Z;
 
 const C = {
   asphalt: '#4f4e4a', street: '#5f5d56', dirt: '#86735a', rail: '#55493f', runway: '#55544e', shoulder: '#7b7867',
@@ -33,45 +34,66 @@ const SOFT = new Set([C.lawn, C.parade, C.berm]);
 
 // ------------------------------------------------------------------ the corrected 1941 shoreline
 /**
- * Land outlines. Corrections over M17 from surveyed points: the north shore of East Loch runs past
- * Aiea Bay, Kalauao and Waimalu to the Waiau plant (it lay ~1 km too far north); Pearl City peninsula
- * is wider on its Middle Loch side; Waipio peninsula reaches north to the head of Middle Loch; the land
- * east of the Navy Yard (Makalapa, the tank farms, the main gate) was missing; Ford Island's east seawall
- * stands ~35 m inboard of Battleship Row and its north-west shore by the Utah memorial.
+ * Land outlines, fitted (M19) to survey-grade points: USGS GNIS place points (Hospital Point, Bishop Point,
+ * Waipio Point, McGrew Point, Pearl City Peninsula, Merry Point Landing; the Southeast Loch, Aiea Bay, East
+ * Loch and Ford Island Channel water points), the Library of Congress HABS/HAER record points (Dry Docks 1-3,
+ * the Ford Island seaplane ramps, hangars and administration building, Hickam's Hangar 35), the memorial and
+ * pier markers along Battleship Row, the rail stations along Kamehameha Highway and the NOAA Halawa Landing
+ * station. M18's outline put the main channel, Hospital Point and Hickam's shore 400-600 m too far east,
+ * the dry docks' waterfront 400 m too far north, Ford Island's south shore 180 m too far north and Pearl City
+ * peninsula's tip 500 m too far north. The modern points stand for 1941 except where fill changed the shore
+ * later (Kuahua, the head of Magazine Loch, Ford Island's west side, Waipio): there the 1941 lines are drawn
+ * a little inside today's.
  */
 export const PEARL_LAND: LandArea[] = [
-  // Ford Island
-  { kind: 'base', pts: ll(21.35918, -157.96871, 21.35777, -157.96717, 21.35724, -157.96513, 21.35802, -157.96242, 21.36025, -157.95833, 21.36169, -157.95624, 21.36289, -157.95419, 21.36416, -157.95226, 21.36542, -157.95032, 21.36672, -157.94841, 21.36851, -157.94852, 21.37046, -157.94940, 21.37197, -157.95112, 21.37237, -157.95319, 21.37207, -157.95651, 21.36957, -157.96052, 21.36692, -157.96441, 21.36390, -157.96684, 21.36180, -157.96856, 21.36012, -157.96894) },
-  // Navy Yard and Hospital Point
-  { kind: 'yard', pts: ll(21.3467, -157.9606, 21.3494, -157.9616, 21.3521, -157.9619, 21.3543, -157.9608, 21.3558, -157.9581, 21.3570, -157.9557, 21.3591, -157.9518, 21.3592, -157.9504, 21.3568, -157.9475, 21.3541, -157.9436, 21.3518, -157.9402, 21.3485, -157.9417, 21.3458, -157.9494, 21.3440, -157.9571, 21.3444, -157.9610) },
-  // Submarine Base, Kuahua
-  { kind: 'yard', pts: ll(21.3592, -157.9504, 21.3603, -157.9489, 21.3621, -157.9465, 21.3644, -157.9436, 21.3664, -157.9407, 21.3678, -157.9388, 21.3682, -157.9359, 21.3660, -157.9320, 21.3579, -157.9320, 21.3530, -157.9368, 21.3518, -157.9402, 21.3541, -157.9436, 21.3568, -157.9475) },
-  // Makalapa, the tank farms and the main gate between the yard, the Sub Base and Hickam
-  { kind: 'scrub', pts: ll(21.3660, -157.9300, 21.3660, -157.9320, 21.3579, -157.9320, 21.3530, -157.9368, 21.3518, -157.9402, 21.3485, -157.9417, 21.3408, -157.9349, 21.3238, -157.9349, 21.3184, -157.9330, 21.3184, -157.9300) },
-  // Halawa and Aiea round the north shore of East Loch to the Waiau plant
-  { kind: 'town', pts: ll(21.3660, -157.9320, 21.3678, -157.9388, 21.3705, -157.9373, 21.3742, -157.9345, 21.3765, -157.9385, 21.3790, -157.9425, 21.3810, -157.9460, 21.3830, -157.9505, 21.3852, -157.9560, 21.3868, -157.9592, 21.3870, -157.9610, 21.3990, -157.9610, 21.3990, -157.9300, 21.3660, -157.9300) },
-  // Pearl City peninsula
-  { kind: 'town', pts: ll(21.3777, -157.9658, 21.3790, -157.9634, 21.3817, -157.9619, 21.3867, -157.9607, 21.3990, -157.9612, 21.3990, -157.9772, 21.3940, -157.9772, 21.3890, -157.9775, 21.3840, -157.9762, 21.3805, -157.9735, 21.3786, -157.9690) },
-  // Waipio peninsula (sugar cane) up to the head of Middle Loch; West Loch lies beyond the map's west edge
-  { kind: 'cane', pts: ll(21.3458, -157.9648, 21.3498, -157.9658, 21.3552, -157.9682, 21.3602, -157.9725, 21.3660, -157.9759, 21.3723, -157.9774, 21.3759, -157.9841, 21.3800, -157.9858, 21.3850, -157.9862, 21.3900, -157.9850, 21.3925, -157.9810, 21.3935, -157.9778, 21.3992, -157.9778, 21.3992, -158.0, 21.3624, -158.0, 21.3624, -157.9947, 21.3525, -157.9851, 21.3462, -157.9754, 21.3431, -157.9687) },
-  // Hickam Field and Fort Kamehameha
-  { kind: 'base', pts: ll(21.3467, -157.9606, 21.3444, -157.9610, 21.3390, -157.9619, 21.3319, -157.9634, 21.3256, -157.9650, 21.3206, -157.9666, 21.3188, -157.9629, 21.3184, -157.9542, 21.3197, -157.9446, 21.3238, -157.9349, 21.3408, -157.9349, 21.3485, -157.9417, 21.3458, -157.9494, 21.3440, -157.9571) },
-  // Iroquois Point
-  { kind: 'scrub', pts: ll(21.3202, -157.9699, 21.3256, -157.9693, 21.3328, -157.9685, 21.3381, -157.9682, 21.3404, -157.9711, 21.3381, -157.9783, 21.3346, -157.9880, 21.3256, -157.9909, 21.3179, -157.9889, 21.3179, -157.9793) },
+  // Ford Island: east shore by the Battleship Row markers, the Utah memorial to the north-west, the south
+  // tip at seaplane ramp S360 and the 1933 ramps on the south shore
+  { kind: 'base', pts: ll(21.35545, -157.96600, 21.35580, -157.96450, 21.35602, -157.96310, 21.35700, -157.96150, 21.35850, -157.95960, 21.36025, -157.95833, 21.36169, -157.95624, 21.36289, -157.95419, 21.36416, -157.95226, 21.36542, -157.95032, 21.36672, -157.94841, 21.36851, -157.94852, 21.37046, -157.94940, 21.37197, -157.95112, 21.37237, -157.95319, 21.37207, -157.95651, 21.36957, -157.96052, 21.36692, -157.96441, 21.36390, -157.96684, 21.36180, -157.96856, 21.36012, -157.96894, 21.35918, -157.96871, 21.35760, -157.96780, 21.35620, -157.96700) },
+  // Navy Yard and Hospital Point: the dry docks open north onto a waterfront at ~21.3514, the 1010 Dock runs
+  // north from No. 1's mouth, the Repair Basin east of it, Southeast Loch and Quarry Loch beyond (carved below)
+  { kind: 'yard', pts: ll(21.34874, -157.96756, 21.34950, -157.96600, 21.35040, -157.96420, 21.35120, -157.96270, 21.35145, -157.96150, 21.35140, -157.95950, 21.35150, -157.95860, 21.35420, -157.95720, 21.35450, -157.95500, 21.35520, -157.95300, 21.35650, -157.95150, 21.35900, -157.95150, 21.36000, -157.95000, 21.36250, -157.94800, 21.36500, -157.94500, 21.36640, -157.94200, 21.36830, -157.94000, 21.36900, -157.93850, 21.36600, -157.93500, 21.35000, -157.93700, 21.34800, -157.93950, 21.34600, -157.94400, 21.34500, -157.95000, 21.34450, -157.95600, 21.34420, -157.96200, 21.34450, -157.96770, 21.34650, -157.96790) },
+  // Makalapa, the tank farms and the main gate behind the yard, the Submarine Base and Kuahua
+  { kind: 'scrub', pts: ll(21.3690, -157.9300, 21.3690, -157.9385, 21.3660, -157.9350, 21.3500, -157.9370, 21.3480, -157.9395, 21.3460, -157.9440, 21.3408, -157.9349, 21.3238, -157.9349, 21.3184, -157.9330, 21.3184, -157.9300) },
+  // Halawa and Aiea round the north shore of East Loch to the Waiau plant: Aiea Bay and McGrew Point
+  { kind: 'town', pts: ll(21.3690, -157.9300, 21.3690, -157.9385, 21.3705, -157.9373, 21.3725, -157.9345, 21.3772, -157.9358, 21.3768, -157.9395, 21.37624, -157.94177, 21.3782, -157.9440, 21.3810, -157.9462, 21.3830, -157.9505, 21.3852, -157.9560, 21.3868, -157.9592, 21.3870, -157.9610, 21.3990, -157.9610, 21.3990, -157.9300) },
+  // Pearl City peninsula, its tip by the GNIS point
+  { kind: 'town', pts: ll(21.3712, -157.9702, 21.3735, -157.9675, 21.3762, -157.9655, 21.3790, -157.9634, 21.3817, -157.9619, 21.3867, -157.9607, 21.3990, -157.9612, 21.3990, -157.9772, 21.3940, -157.9772, 21.3890, -157.9775, 21.3840, -157.9765, 21.3790, -157.9752, 21.3745, -157.9730) },
+  // Waipio peninsula (sugar cane) from Waipio Point to the head of Middle Loch; West Loch lies beyond
+  { kind: 'cane', pts: ll(21.34219, -157.97207, 21.3445, -157.9725, 21.3480, -157.9735, 21.3530, -157.9745, 21.3580, -157.9758, 21.3620, -157.9770, 21.3670, -157.9790, 21.3723, -157.9805, 21.3759, -157.9841, 21.3800, -157.9858, 21.3850, -157.9862, 21.3900, -157.9850, 21.3925, -157.9810, 21.3935, -157.9785, 21.3992, -157.9785, 21.3992, -158.0, 21.3624, -158.0, 21.3624, -157.9947, 21.3525, -157.9851, 21.3462, -157.9780, 21.3431, -157.9745) },
+  // Hickam Field and Fort Kamehameha: the channel's east bank through Bishop Point to the yard
+  { kind: 'base', pts: ll(21.34450, -157.96770, 21.34420, -157.96200, 21.34450, -157.95600, 21.34500, -157.95000, 21.34600, -157.94400, 21.3460, -157.9440, 21.3408, -157.9349, 21.3238, -157.9349, 21.3180, -157.9440, 21.3168, -157.9480, 21.3170, -157.9525, 21.3172, -157.9580, 21.3180, -157.9640, 21.3206, -157.9672, 21.3256, -157.9678, 21.33148, -157.96850, 21.3390, -157.9688) },
+  // Iroquois Point: the west bank of the entrance channel, the West Loch entrance to its north
+  { kind: 'scrub', pts: ll(21.3205, -157.9735, 21.3260, -157.9738, 21.3320, -157.9740, 21.3365, -157.9742, 21.3385, -157.9760, 21.3381, -157.9810, 21.3346, -157.9880, 21.3256, -157.9909, 21.3179, -157.9889, 21.3179, -157.9793) },
   // the rest of Oahu round the map: north of the lochs, east toward Honolulu, Ewa to the west
   { kind: 'cane', pts: ll(21.3990, -158.0, 21.42, -158.0, 21.42, -157.90, 21.3990, -157.90) },
   { kind: 'scrub', pts: ll(21.3990, -157.9300, 21.3990, -157.90, 21.318, -157.90, 21.3184, -157.9300) },
   { kind: 'scrub', pts: ll(21.3346, -158.0, 21.3346, -157.9889, 21.3179, -157.9889, 21.3179, -158.0) },
 ];
 
-/** Southeast Loch: the inlet from Merry Point between the Navy Yard and the Submarine Base */
-export const SE_LOCH = ll(21.3596, -157.9512, 21.3612, -157.9478, 21.3565, -157.9440, 21.3525, -157.9410, 21.3505, -157.9430, 21.3548, -157.9470);
+/**
+ * Southeast Loch from the harbour to the tip of the Submarine Base (the GNIS water point lies in it), and
+ * the two arms it forks into: Quarry Loch east along Merry Point (the landing on its south shore) under the
+ * base's piers, Magazine Loch north of the base with Kuahua beyond
+ */
+export const SE_LOCH = ll(21.35650, -157.95150, 21.35900, -157.95150, 21.36000, -157.95000, 21.35880, -157.94720, 21.35460, -157.94720, 21.35500, -157.94950);
+export const QUARRY_LOCH = ll(21.35460, -157.94720, 21.35560, -157.94720, 21.35440, -157.94460, 21.35420, -157.94220, 21.35340, -157.94220, 21.35345, -157.94500);
+export const MAGAZINE_LOCH = ll(21.35720, -157.94720, 21.35880, -157.94720, 21.35830, -157.94400, 21.35780, -157.93860, 21.35680, -157.93860, 21.35700, -157.94400);
 
 // ------------------------------------------------------------------ anchors
-const DOCK_MOUTH = P(21.3551, -157.9594), DOCK_AXIS = 149;
-const DOCK_1010 = P(21.3582, -157.9536);
-/** Drydock No. 2 (1,000 x 147 ft, flooded and new in December 1941) parallel to No. 1 across the approach pier */
-export const DRYDOCK2 = { ...(() => { const c = go(go(DOCK_MOUTH, DOCK_AXIS, 158), DOCK_AXIS + 90, 78); return { x: c[0], y: c[1] }; })(), h: brg(DOCK_AXIS), hl: 152, hw: 22 };
+/**
+ * Dry Dock No. 1 (1919, 1,002 x 138 ft): its centre from the HAER record, the caisson at the north end on the
+ * yard's waterfront, the head to the south. No. 2 (new, complete and dry in December 1941) lies west of it
+ * across the approach pier, No. 3 (497 ft, half built) west again; all from their HAER record points.
+ */
+export const DOCK_MOUTH = P(21.35130, -157.95931), DOCK_AXIS = 180;
+export const DRYDOCK2 = { ...(() => { const c = P(21.34989, -157.96079); return { x: c[0], y: c[1] }; })(), h: brg(180), hl: 153, hw: 21 };
+export const DRYDOCK3 = { ...(() => { const c = P(21.35078, -157.96142); return { x: c[0], y: c[1] }; })(), h: brg(180), hl: 77, hw: 17 };
+/** the 1010 Dock: north from the east side of No. 1's mouth along Sixth Street; its middle and axis */
+export const DOCK_1010 = P(21.35285, -157.95790), DOCK_1010_AXIS = 23;
+/** Hospital Point (GNIS): the yard's south-west tip on the channel; Nevada's beaching spot on the bank just below it */
+export const HOSPITAL_POINT = P(21.34874, -157.96756), NEVADA_BEACH = P(21.34844, -157.96769);
+/** Hickam's Hangar 35 (HABS record point), the south-west end of the hangar line, which runs at 055 */
+const HANGAR35 = P(21.33285, -157.96279), HICKAM_LINE = 55;
 
 export interface ParkedPlane { s: Scenery; wreck: StackModel; alive: boolean; x: number; y: number }
 export interface LandAA { x: number; y: number; z: number; heavy: number; light: number; range: number; ready: string }
@@ -209,106 +231,124 @@ function houses(D: Dresser, lots: Pt[], b: number, sx: number, sy: number, densi
 export function dressPearl(w: World, scene: RenderScene, land: LandMap): PearlDetail {
   const D = new Dresser(w, scene, land), out = D.out;
   const mod = (key: string, build: () => VoxelModel) => D.model(build, key);
+  const blk = (key: string, L: number, Wd: number, st: number, wall: string, roof: string, flat = false) => mod(key, () => A.blockArt(key, L, Wd, st, wall, roof, flat));
+  const portal = mod('portal_crane', () => A.portalCraneArt());
+  const shore = (k: CraftKind, at: Pt, h: number) => out.moored.push({ kind: k, x: at[0], y: at[1], h: brg(h) });
 
-  // ---- Southeast Loch, Drydock No. 2 and the piers built out into the water
+  // ---- Southeast Loch and its arms, Dry Docks 2 and 3, the piers and ramps built out into the water
   land.carvePoly(SE_LOCH);
+  land.carvePoly(QUARRY_LOCH);
+  land.carvePoly(MAGAZINE_LOCH);
   land.carve(DRYDOCK2);
-  const pier = (base: Pt, b: number, len: number, wid: number) => {
+  land.carve(DRYDOCK3);
+  const pier = (base: Pt, b: number, len: number, wid: number, color = C.concrete) => {
     const a = go(base, b + 90, wid / 2), c = go(base, b - 90, wid / 2);
     land.addLand([a, go(a, b, len), go(c, b, len), c], 'yard');
-    land.paintPoly([a, go(a, b, len), go(c, b, len), c], C.concrete);
+    land.paintPoly([a, go(a, b, len), go(c, b, len), c], color);
   };
-  // Submarine Base piers off the north-east bank of the loch; PT boats at S-13 on the middle one
-  const subPiers = [ll(21.3584, -157.9455)[0], ll(21.3568, -157.9441)[0], ll(21.3552, -157.9428)[0]];
-  for (const p of subPiers) pier(go(p, 56, 25), 236, 135, 18);
-  // approach pier between the dry docks, Merry Point landing, Ford Island ferry landing
-  pier(go(DOCK_MOUTH, DOCK_AXIS + 90, 39), DOCK_AXIS + 180, 30, 24);
-  pier(P(21.3593, -157.9512), 340, 45, 12);
-  const fiFerry = P(21.3601, -157.9611);
-  pier(fiFerry, 125, 55, 12);
-  // Pearl City: the Pan Am base pier on Middle Loch, a landing on the East Loch side; Aiea landing
-  pier(P(21.3812, -157.9750), 255, 120, 14);
-  pier(P(21.3797, -157.9645), 105, 70, 10);
-  pier(P(21.3757, -157.9356), 235, 70, 10);
+  // the Submarine Base's piers off the tip of the base into Southeast Loch
+  const subPiers = [P(21.35600, -157.94720), P(21.35680, -157.94720)];
+  for (const p of subPiers) pier(p, 250, 80, 14);
+  // the approach pier between Dry Docks 1 and 2, Merry Point landing, Ford Island ferry slip S372
+  pier(P(21.35140, -157.96005), 0, 40, 30);
+  pier(P(21.35345, -157.94560), 0, 22, 10);
+  const fiFerry = P(21.35775, -157.96050);
+  pier(fiFerry, 150, 45, 12);
+  // the seaplane ramps: S360 off the south tip, the 1933 ramps on the south shore
+  pier(P(21.35560, -157.96600), 200, 30, 18);
+  for (const dx of [-35, 0, 35]) pier(go(P(21.35610, -157.96310), 100, dx), 190, 28, 14);
+  // Pearl City: the Pan Am base pier on Middle Loch, a landing on the East Loch side; Aiea Landing
+  pier(P(21.38120, -157.97570), 255, 120, 14);
+  pier(P(21.37970, -157.96310), 105, 70, 10);
+  pier(P(21.37420, -157.93490), 265, 60, 10);
 
   // ---- roads and the railway (painted first so buildings keep off them)
   const KAM = ll(21.3260, -157.9300, 21.3330, -157.9330, 21.3400, -157.9360, 21.3480, -157.9395, 21.35356, -157.93570, 21.3620, -157.9345, 21.37089, -157.93422, 21.3790, -157.9390, 21.3822, -157.9435, 21.38400, -157.94763, 21.3870, -157.9545, 21.3893, -157.9612, 21.3935, -157.9710, 21.39644, -157.97959, 21.3985, -157.9900, 21.3990, -158.0);
   D.road(KAM, 4.5, C.asphalt);
   land.paintLine(ll(21.3300, -157.9310, 21.3480, -157.9385, 21.3600, -157.9338, 21.3685, -157.9330, 21.37420, -157.93355, 21.3790, -157.9405, 21.3825, -157.9475, 21.3895, -157.9600, 21.3920, -157.9720, 21.3915, -157.9930), 1.6, C.rail);
-  // Navy Yard: Main Gate road in, and the yard's street grid on the 1010 Dock's axes
-  D.road(ll(21.3482, -157.9398, 21.3492, -157.9430, 21.3510, -157.9470), 4, C.asphalt);
-  // (the grid keeps clear of Hospital Point and the officers' quarters south of the shops)
-  const YARD = ll(21.3494, -157.9605, 21.3521, -157.9612, 21.3543, -157.9600, 21.3558, -157.9575, 21.3570, -157.9552, 21.3588, -157.9520, 21.3568, -157.9478, 21.3541, -157.9440, 21.3518, -157.9408, 21.3490, -157.9420, 21.3472, -157.9480, 21.3480, -157.9565);
-  const yardO = go(DOCK_1010, 150, 160);
-  const yardLots = grid(D, YARD, yardO, 150, 140, 105, 4);
-  // Sub Base, Hickam, Ford Island, towns
-  const SUB = PEARL_LAND[2].pts;
-  const subLots = grid(D, SUB, P(21.3590, -157.9430), 146, 110, 90, 3.5);
+  // the Navy Yard: the road in from Kamehameha Highway through the Main (Nimitz) Gate by the Marine
+  // guard barracks, and the yard's streets on Sixth Street's north-south axis
+  D.road(ll(21.3490, -157.9390, 21.3504, -157.9440, 21.3503, -157.9485), 4, C.asphalt);
+  const YARD = ll(21.35100, -157.95850, 21.35380, -157.95720, 21.35410, -157.95500, 21.35480, -157.95300, 21.35420, -157.95050, 21.35300, -157.94850, 21.35150, -157.94750, 21.34900, -157.94800, 21.34700, -157.95000, 21.34620, -157.95500, 21.34650, -157.95800, 21.34800, -157.95880);
+  const yardLots = grid(D, YARD, P(21.3500, -157.9560), 0, 140, 105, 4);
+  // the waterfront road along the dry docks' caissons and the 1010 Dock
+  D.road(ll(21.35100, -157.96250, 21.35105, -157.95880, 21.35370, -157.95745, 21.35400, -157.95500, 21.35470, -157.95300), 4);
+  const SUB = ll(21.35500, -157.94650, 21.35650, -157.94650, 21.35680, -157.94000, 21.35480, -157.94000);
+  const subLots = grid(D, SUB, P(21.3557, -157.9430), 0, 110, 90, 3.5);
+  const KUAHUA = ll(21.35920, -157.94800, 21.36150, -157.94800, 21.36450, -157.94450, 21.36620, -157.94150, 21.36500, -157.93950, 21.35880, -157.93900, 21.35850, -157.94400);
+  const kuaLots = grid(D, KUAHUA, P(21.3615, -157.9435), 40, 120, 90, 3.5);
   const FI = PEARL_LAND[0].pts;
   const fiC: Pt = [FI.reduce((a, p) => a + p[0], 0) / FI.length, FI.reduce((a, p) => a + p[1], 0) / FI.length];
   const ring = FI.map((p) => { const d = Math.hypot(p[0] - fiC[0], p[1] - fiC[1]); return [p[0] + (fiC[0] - p[0]) * 45 / d, p[1] + (fiC[1] - p[1]) * 45 / d] as Pt; });
   D.road([...ring, ring[0]], 3.5, C.street);
 
-  // ---- Ford Island: landing field, apron, hangar line, tower, quarters
+  // ---- Ford Island: the landing field on the 04/22 axis, the hangar line south-west from the tower
+  // (Hangars 37, 79 and 54 by their record points), the apron between, the seaplane hangars and ramps
   const fiRwy = P(21.36489, -157.95976);
-  land.paintRect(fiRwy[0], fiRwy[1], brg(42), 610, 23, C.runway);
-  const tower = P(21.3612, -157.9608);
-  const h37 = go(tower, 215, 80), h79 = P(21.3600, -157.9617), h54 = go(tower, 215, 245);
-  land.paintPoly([go(go(tower, 35, 60), 125, 40), go(go(h54, 215, 60), 125, 40), go(go(h54, 215, 60), 125, 260), go(go(tower, 35, 60), 125, 260)], C.apron);
+  land.paintRect(fiRwy[0], fiRwy[1], brg(45), 610, 23, C.runway);
+  const tower = P(21.3640, -157.9570), h37 = P(21.36294, -157.95850), h79 = P(21.3600, -157.9617), h54 = P(21.3582, -157.9640);
+  land.paintPoly([go(go(tower, 48, 60), 318, 40), go(go(h54, 228, 60), 318, 40), go(go(h54, 228, 60), 318, 230), go(go(tower, 48, 60), 318, 230)], C.apron);
   const hang = mod('h_ford', () => A.hangarArt('h_ford', 70, 60, false, '#7a7c78', '#c9c5b6'));
-  for (const p of [h37, h79, h54]) D.fit(hang, p, brg(125), 37, 36, 305, { big: true });
-  // Hangar 6 (1922) and the seaplane ramps at the south end
-  const h6 = P(21.3583, -157.9644);
-  D.fit(mod('h_sea', () => A.hangarArt('h_sea', 80, 55, false, '#8a8a84', '#c4c0b2')), h6, brg(135), 42, 34, 45, { big: true });
-  for (let i = 0; i < 3; i++) land.paintRect(...go(go(h6, 135, 90), 45, (i - 1) * 45), brg(135), 40, 7, C.concrete);
-  D.put(mod('tower_ford', () => A.towerArt('ford')), tower[0], tower[1], brg(42), 5, 5, { force: true });
-  // PBY Catalinas of the patrol squadrons drawn up on the apron and the ramps
+  for (const p of [h37, h79, h54]) D.fit(hang, p, brg(138), 37, 36, 138, { big: true });
+  D.put(mod('tower_ford', () => A.towerArt('ford')), tower[0], tower[1], brg(48), 5, 5, { force: true });
+  const h6 = P(21.3567, -157.9652);
+  land.paintRect(...go(h6, 200, 45), brg(200), 40, 45, C.apron);
+  D.fit(mod('h_sea', () => A.hangarArt('h_sea', 80, 55, false, '#8a8a84', '#c4c0b2')), h6, brg(20), 42, 34, 20, { big: true });
+  D.fit(blk('fi_admin', 64, 18, 2, '#e4dfd2', '#6a6a64'), P(21.36114, -157.96289), brg(138), 33, 10, 318);
+  // PBY Catalinas of the patrol squadrons: drawn up by the seaplane ramps and on the apron
   const pby = mod('sp_pby', () => A.shorePlaneArt('pby')), pbyW = mod('sp_pby_w', () => A.shorePlaneArt('pby', true));
-  for (let i = 0; i < 14; i++) {
-    const q = go(go(h79, 125, 85 + Math.floor(i / 7) * 36), 35, (i % 7 - 3) * 34);
-    const sc = D.put(pby, q[0], q[1], brg(305), 10, 16, { onPaint: true, building: false });
+  const pbySpots: Pt[] = [];
+  for (let i = 0; i < 7; i++) pbySpots.push(go(go(P(21.35700, -157.96350), 100, (i - 3) * 34), 10, 30));
+  for (let i = 0; i < 7; i++) pbySpots.push(go(go(h79, 318, 110), 48, (i - 3) * 34));
+  for (const q of pbySpots) {
+    const sc = D.put(pby, q[0], q[1], brg(138), 10, 16, { onPaint: true, building: false });
     if (sc) out.planes.push({ s: sc, wreck: pbyW, alive: true, x: q[0], y: q[1] });
   }
-  // administration, barracks and the BOQ between the hangars and the quarters
-  const blk = (key: string, L: number, Wd: number, st: number, wall: string, roof: string, flat = false) => mod(key, () => A.blockArt(key, L, Wd, st, wall, roof, flat));
+  // barracks and the BOQ round the administration building; the fuel tanks by the F-4 gasoline berth
   const fiBlk = blk('fi_bks', 60, 15, 2, '#e2ddcf', '#6a6a64');
-  for (const p of [go(tower, 125 + 180, 120), go(tower, 35, 140), go(go(tower, 35, 140), 305, 60), go(tower, 35, 260)]) D.fit(fiBlk, p, brg(35), 31, 9, 305);
-  // Nob Hill officers' bungalows at the north end, the chiefs' bungalows on the north-east tip
-  const nob = P(21.3705, -157.9580);
+  for (const p of [go(h79, 138, 140), go(h37, 138, 150), go(h54, 138, 130), go(tower, 138, 150)]) D.fit(fiBlk, p, brg(48), 31, 9, 138);
+  for (let i = 0; i < 9; i++) { const q = go(go(P(21.3620, -157.9562), 48, (i % 3 - 1) * 16), 138, (Math.floor(i / 3) - 1) * 16); D.put(mod('tank_11_9_0', () => A.tankArt(11, 9)), q[0], q[1], 0, 6, 6); }
+  // Nob Hill's officers' houses at the north end, the chiefs' bungalows facing Battleship Row
+  const nob = P(21.3705, -157.9585);
   for (let i = 0; i < 19; i++) { const q = go(go(nob, 54, (i % 10 - 4.5) * 34), 324, (i < 10 ? -1 : 1) * 30); D.put(mod('qtrs0', () => A.quartersArt(0)), q[0], q[1], brg(i < 10 ? 234 : 54), 9, 8); }
-  const cpo = P(21.3675, -157.9495);
-  for (let i = 0; i < 12; i++) { const q = go(go(cpo, 324, (i % 6 - 2.5) * 26), 54, (i < 6 ? -1 : 1) * 24); D.put(mod('bung1', () => A.bungalowArt(1)), q[0], q[1], brg(i < 6 ? 324 : 144), 7, 6); }
-  D.fit(mod('tank_30_12_0', () => A.tankArt(30, 12)), P(21.3686, -157.9540), 0, 16, 16, 234);
+  const cpo = P(21.3660, -157.9525);
+  for (let i = 0; i < 12; i++) { const q = go(go(cpo, 54, (i % 6 - 2.5) * 26), 324, (i < 6 ? -1 : 1) * 24); D.put(mod('bung1', () => A.bungalowArt(1)), q[0], q[1], brg(i < 6 ? 144 : 324), 7, 6); }
 
-  // ---- Navy Yard
-  const hh = mod('hammerhead', () => A.hammerheadArt());
-  const hhAt = go(go(DOCK_MOUTH, DOCK_AXIS, 110), DOCK_AXIS - 90, 38);
-  D.put(hh, hhAt[0], hhAt[1], brg(DOCK_AXIS + 90), 12, 8, { force: true, building: false });
-  // dock-side and quay cranes: both dry docks, the 1010 Dock
-  const portal = mod('portal_crane', () => A.portalCraneArt());
-  // east of No. 1, on the approach pier between the docks, west of No. 2; jibs over the nearest dock
-  for (const d of [60, 190]) for (const [off, b] of [[-28, 90], [38, 90], [108, -90]]) { const q = go(go(DOCK_MOUTH, DOCK_AXIS, d), DOCK_AXIS + 90, off); D.put(portal, q[0], q[1], brg(DOCK_AXIS + b), 6, 6, { force: true, building: false }); }
-  for (let i = 0; i < 6; i++) { const q = go(go(DOCK_1010, 60, (i - 2.5) * 70), 150, 14); D.put(portal, q[0], q[1], brg(330), 6, 6, { force: true, building: false }); }
-  // coal docks on the west waterfront: piles and the minesweepers nested alongside
-  const coal = P(21.3492, -157.9608);
-  land.paintRect(coal[0], coal[1], brg(170), 80, 22, C.coal);
-  for (let i = 0; i < 4; i++) { const q = go(go(P(21.3489, -157.9622), 260, i * 11.5), 170, 0); out.moored.push({ kind: 'sweeper', x: q[0], y: q[1], h: brg(350) }); }
-  // the Naval Hospital on Hospital Point, its wards toward the yard, tennis courts behind the lab
-  const hosp = P(21.3462, -157.9594);
-  land.paintRect(...go(hosp, 90, 30), Math.PI / 2, 75, 70, C.lawn);
+  // ---- Navy Yard: the hammerhead at berth B-12 on the Repair Basin, portal cranes on the docks and
+  // along the 1010 Dock
+  D.put(mod('hammerhead', () => A.hammerheadArt()), ...P(21.35425, -157.95600), brg(0), 12, 8, { force: true, building: false });
+  const dockSide = (lon: number, b: number) => { for (const d of [70, 200]) { const q = go(P(21.35130, lon), 180, d); D.put(portal, q[0], q[1], brg(b), 6, 6, { force: true, building: false }); } };
+  dockSide(-157.95900, 270); dockSide(-157.95962, 90); dockSide(-157.96048, 270); dockSide(-157.96112, 90);
+  for (let i = 0; i < 6; i++) { const q = go(go(DOCK_1010, DOCK_1010_AXIS, (i - 2.5) * 52), DOCK_1010_AXIS + 90, 12); D.put(portal, q[0], q[1], brg(DOCK_1010_AXIS + 270), 6, 6, { force: true, building: false }); }
+  // the coal dock at the end of South Avenue below Hospital Point: piles, and the minesweepers nested
+  // in the channel alongside (Bobolink, Vireo, Turkey, Rail outboard)
+  land.paintRect(...P(21.3460, -157.9672), brg(5), 70, 14, C.coal);
+  for (let i = 0; i < 4; i++) shore('sweeper', [P(21.3458, -157.96791)[0] - i * 11.5, P(21.3458, -157.96791)[1]], 5);
+  // the Naval Hospital on Hospital Point, facing the channel; tennis courts behind the laboratory
+  const hosp = P(21.3478, -157.9650);
+  land.paintRect(...hosp, Math.PI / 2, 70, 55, C.lawn);
   D.fit(mod('naval_hospital', () => A.hospitalArt()), hosp, Math.PI / 2, 47, 32, 90, { big: true });
-  land.paintRect(...go(hosp, 90, 75), brg(0), 18, 9, C.tennis);
-  for (let i = 0; i < 4; i++) { const q = go(go(hosp, 0, (i - 1.5) * 40), 90, 100); D.put(mod('qtrs1', () => A.quartersArt(1)), q[0], q[1], Math.PI / 2, 9, 8); }
-  // Marine Barracks round a parade ground by the Main Gate, officers' quarters south of the shops
-  const mb = P(21.3488, -157.9440);
-  land.paintRect(mb[0], mb[1], brg(60), 70, 40, C.parade);
+  land.paintRect(...go(hosp, 90, 70), brg(0), 18, 9, C.tennis);
+  houses(D, grid(D, ll(21.34930, -157.96400, 21.34930, -157.96200, 21.34700, -157.96180, 21.34680, -157.96420), P(21.3481, -157.9630), 0, 70, 60), 0, 70, 60, 0.9, 11, true);
+  // the Marine guard barracks round their parade ground at the Main Gate
+  const mb = P(21.35108, -157.94597);
+  land.paintRect(...go(mb, 270, 60), brg(0), 55, 35, C.parade);
   const mbBlk = blk('marine_bks', 80, 16, 3, '#d8d2c0', '#7b5644');
-  for (const s of [-1, 1]) { const q = go(mb, 150, s * 58); D.put(mbBlk, q[0], q[1], brg(60), 41, 9); }
-  houses(D, grid(D, ll(21.3452, -157.9560, 21.3466, -157.9500, 21.3478, -157.9505, 21.3466, -157.9565), P(21.3466, -157.9530), 150, 90, 60), 150, 90, 60, 0.9, 11, true);
-  // Merry Point: the landing and its fuel tanks
-  for (let i = 0; i < 3; i++) { const q = go(P(21.3578, -157.9512), 150, i * 42); D.put(mod('tank_32_12_0', () => A.tankArt(32, 12)), q[0], q[1], 0, 17, 17); }
-
-  // shops fill the grid round the landmarks: machine, boiler, sheet metal, foundry, storehouses; the power plant
+  for (const sd of [-1, 1]) { const q = go(go(mb, 270, 60), 0, sd * 52); D.put(mbBlk, q[0], q[1], brg(90), 41, 9); }
+  // fuel: Merry Point's tanks by the landing, the lower tank farm by the coaling station, the middle farm
+  const tank = (c: Pt, nx: number, ny: number, d: number, h: number, gap: number, fakeAt = -1) => {
+    for (let i = 0; i < nx * ny; i++) {
+      const q = go(go(c, 90, ((i % nx) - (nx - 1) / 2) * gap), 180, (Math.floor(i / nx) - (ny - 1) / 2) * gap);
+      const fake = i === fakeAt;
+      // an earth berm round each tank (painted once it has found room, so roads stay whole)
+      if (D.put(mod(`tank_${d}_${h}_${fake ? 1 : 0}`, () => A.tankArt(d, h, fake)), q[0], q[1], 0, d / 2 + 1, d / 2 + 1, { big: true })) land.paintDisc(q[0], q[1], d / 2 + 7, C.berm);
+    }
+  };
+  tank(P(21.35210, -157.94600), 3, 1, 32, 12, 42);
+  tank(P(21.34600, -157.95850), 4, 3, 34, 12, 46, 6);
+  tank(P(21.35120, -157.94050), 5, 2, 38, 14, 50, 3);
+  // shops fill the grid round the landmarks: machine, boiler, sheet metal, foundry, storehouses; Power
+  // Plant No. 2 (Building 149) with its stacks
   const shops = [
     mod('shop_mon', () => A.shopArt('shop_mon', 110, 60, 16, '#a9a69a', '#6d6e6a', 'monitor')),
     mod('shop_saw', () => A.shopArt('shop_saw', 90, 70, 12, '#8c5a46', '#6a6a66', 'saw')),
@@ -316,112 +356,112 @@ export function dressPearl(w: World, scene: RenderScene, land: LandMap): PearlDe
     mod('store_flat', () => A.blockArt('store_flat', 100, 40, 3, '#bdb8a8', '#6a6a64', true)),
   ];
   const dims: [number, number][] = [[56, 31], [46, 36], [51, 21], [51, 21]];
+  let power = false;
   for (const [k, p] of yardLots.entries()) {
     const v = Math.floor(hash2(k, 77) * 4);
-    if (k === 7) { D.put(mod('power149', () => A.powerHouseArt('power149', 60, 30, 3)), p[0], p[1], brg(60), 32, 22, { big: true }); out.stacks.push(...[0, 1, 2].map((s) => { const q = go(go(p, 60, -30 + 60 * (s + 0.5) / 3), 150, -18); return { x: q[0], y: q[1], z: GROUND + 38 }; })); continue; }
-    const placed = D.put(shops[v], p[0], p[1], brg(60), dims[v][0], dims[v][1], { big: true }) ? dims[v] : D.put(shops[2], p[0], p[1], brg(60), 51, 21, { big: true }) ? dims[2] : null;
+    if (!power && k >= 5 && D.put(mod('power149', () => A.powerHouseArt('power149', 60, 30, 3)), p[0], p[1], brg(90), 32, 22, { big: true })) {
+      power = true;
+      out.stacks.push(...[0, 1, 2].map((sx) => { const q = go(go(p, 90, -30 + 60 * (sx + 0.5) / 3), 180, -18); return { x: q[0], y: q[1], z: GROUND + 38 }; }));
+      continue;
+    }
+    const placed = D.put(shops[v], p[0], p[1], brg(90), dims[v][0], dims[v][1], { big: true }) ? dims[v] : D.put(shops[2], p[0], p[1], brg(90), 51, 21, { big: true }) ? dims[2] : null;
     if (!placed) continue;
     // trucks and the workmen's cars drawn up along the shop's long side
     for (let x = -placed[0] + 6; x < placed[0] - 4; x += 6) {
       if (hash2(k * 31 + x, 5) > 0.55) continue;
-      const c = go(go(p, 60, x), 150, placed[1] + 5), cv = (k * 3 + x) & 7, kind = cv < 3 ? 'navytruck' : 'sedan';
-      D.put(D.model(() => A.carArt(kind, cv), `car_${kind}${cv}`), c[0], c[1], brg(150), 2.5, 1, { building: false });
+      const c = go(go(p, 90, x), 180, placed[1] + 5), cv = (k * 3 + x) & 7, kind = cv < 3 ? 'navytruck' : 'sedan';
+      D.put(D.model(() => A.carArt(kind, cv), `car_${kind}${cv}`), c[0], c[1], brg(180), 2.5, 1, { building: false });
     }
   }
-  // ---- Submarine Base, the tank farms
-  D.put(blk('lockwood', 70, 16, 3, '#e4dfcf', '#94503e'), ...P(21.35423, -157.94122), brg(146), 36, 9) ?? D.fit(blk('lockwood', 70, 16, 3, '#e4dfcf', '#94503e'), P(21.35423, -157.94122), brg(146), 36, 9, 56);
-  const esc = P(21.3530, -157.9400);
-  D.put(mod('tower_escape', () => A.towerArt('escape')), esc[0], esc[1], 0, 7, 7, { force: true });
-  D.put(mod('church', () => A.townBuildingArt('church')), ...go(esc, 90, 28), brg(146), 11, 6);
-  const tanks = (c: Pt, nx: number, ny: number, fakeAt: number) => {
-    for (let i = 0; i < nx * ny; i++) {
-      const q = go(go(c, 56, ((i % nx) - (nx - 1) / 2) * 62), 146, (Math.floor(i / nx) - (ny - 1) / 2) * 62);
-      const fake = i === fakeAt;
-      // an earth berm round each tank (painted once the tank has found room, so roads stay whole)
-      if (D.put(mod(`tank_38_14_${fake ? 1 : 0}`, () => A.tankArt(38, 14, fake)), q[0], q[1], 0, 20, 20, { big: true })) land.paintDisc(q[0], q[1], 27, C.berm);
-    }
-  };
-  tanks(P(21.3502, -157.9408), 4, 4, 9);   // the lower farm (16 tanks)
-  tanks(P(21.3575, -157.9345), 5, 2, 3);   // the upper farm (10)
-  const subBlk = [blk('sub_bks', 70, 15, 3, '#e4dfcf', '#94503e'), blk('sub_shop', 60, 30, 2, '#bdb8a8', '#6a6a64', true)];
-  for (const [k, p] of subLots.entries()) D.put(subBlk[k % 2], p[0], p[1], brg(56), k % 2 ? 31 : 36, k % 2 ? 16 : 9);
-  for (let i = 0; i < 6; i++) { const q = go(go(subPiers[1], 236, 60 + Math.floor(i / 2) * 26), 146, (i % 2 ? 1 : -1) * 13); out.moored.push({ kind: 'pt', x: q[0], y: q[1], h: brg(236) }); }
-  out.moored.push({ kind: 'lighter', ...(() => { const q = go(go(subPiers[1], 236, 145), 146, 0); return { x: q[0], y: q[1] }; })(), h: brg(236) });
 
-  // ---- Hickam Field
-  const rwy = P(21.3290, -157.9470);
-  land.paintRect(rwy[0], rwy[1], brg(45), 1074, 122, C.shoulder);
-  land.paintRect(rwy[0], rwy[1], brg(45), 1074, 46, C.runway);
-  // the three smaller runways: a triangle south-east of the main one (layout estimated)
-  const T = go(rwy, 135, 450);
-  const V = [go(T, 300, 450), go(T, 60, 450), go(T, 180, 450)];
-  for (let i = 0; i < 3; i++) { const a = V[i], c = V[(i + 1) % 3], L = [1440, 1227, 1411][i]; const m: Pt = [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2]; land.paintRect(m[0], m[1], Math.atan2(c[1] - a[1], c[0] - a[0]), L / 2, 38, C.runway); }
-  const HM = P(21.3320, -157.9500);
-  land.paintRect(...go(HM, 135, 115), brg(45), 600, 75, C.apron);
-  // hangar line, south-west to north-east: Hangar 35 (double), the paired hangars, the air operations
-  // building and Hangars 2 and 4
+  // ---- Submarine Base and Kuahua: Lockwood Hall, the escape training tower, barracks and shops, the PT
+  // boats and their tender barge at the piers, the big storehouses on Kuahua
+  D.fit(blk('lockwood', 70, 16, 3, '#e4dfcf', '#94503e'), P(21.35423, -157.94122), brg(90), 36, 9, 90);
+  D.put(mod('tower_escape', () => A.towerArt('escape')), ...P(21.3560, -157.9408), 0, 7, 7, { force: true });
+  const subBlk = [blk('sub_bks', 70, 15, 3, '#e4dfcf', '#94503e'), blk('sub_shop', 60, 30, 2, '#bdb8a8', '#6a6a64', true)];
+  for (const [k, p] of subLots.entries()) D.put(subBlk[k % 2], p[0], p[1], brg(90), k % 2 ? 31 : 36, k % 2 ? 16 : 9);
+  for (let i = 0; i < 6; i++) { const q = go(go(subPiers[i % 2], 250, 22 + Math.floor(i / 2) * 26), 160, (i % 2 ? 1 : -1) * 11); shore('pt', q, 250); }
+  shore('lighter', go(go(subPiers[0], 250, 60), 160, -19), 250);
+  D.fit(blk('kuahua_store', 120, 45, 6, '#c8c2b0', '#6a6a64', true), P(21.3601, -157.9417), brg(40), 61, 23, 220, { big: true });
+  for (const [k, p] of kuaLots.entries()) D.put(subBlk[(k + 1) % 2], p[0], p[1], brg(40), k % 2 ? 36 : 31, k % 2 ? 9 : 16);
+  // the upper tank farm east of the railway, 17 tanks of 164 ft (one painted to pass for a building)
+  tank(P(21.35720, -157.93220), 6, 3, 50, 14, 62, 10);
+
+  // ---- Hickam Field: the hangar line from Hangar 35 at 055, the apron, the main landing mat and the
+  // three smaller runways, Hale Makai at the head of the parade mall, the water tower at its far end
+  const along = (d: number) => go(HANGAR35, HICKAM_LINE, d);
+  const SE = HICKAM_LINE + 90, NW = HICKAM_LINE - 90;
+  const rwy = P(21.3342, -157.9548);
+  land.paintRect(...rwy, brg(56), 1074, 122, C.shoulder);
+  land.paintRect(...rwy, brg(56), 1074, 23, C.runway);
+  const T = go(rwy, 146, 950);
+  const V = [go(T, 316, 470), go(T, 76, 470), go(T, 196, 470)];
+  for (let i = 0; i < 3; i++) { const a = V[i], c = V[(i + 1) % 3]; const m: Pt = [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2]; land.paintRect(m[0], m[1], Math.atan2(c[1] - a[1], c[0] - a[0]), Math.hypot(c[0] - a[0], c[1] - a[1]) / 2 + 40, 38, C.runway); }
+  land.paintPoly([go(along(-90), SE, 60), go(along(1080), SE, 60), go(along(1080), SE, 250), go(along(-90), SE, 250)], C.apron);
+  // hangar line, south-west to north-east: Hangar 35 (double), the paired hangars 15/17, 11/13, 7/9, 3/5,
+  // the air operations building with its tower, Hangars 2 and 4
   const pair = mod('h_hickam', () => A.hangarArt('h_hickam', 66, 52, true, '#7e807c', '#d6d2c4'));
   for (let i = 0; i < 7; i++) {
-    const q = go(HM, 45, (i - 3) * 165);
-    if (i === 5) { D.put(blk('hickam_ops', 50, 22, 3, '#e2ded0', '#6a6a64', true), q[0], q[1], brg(45), 26, 12, { force: true, big: true }); D.put(mod('tower_ford', () => A.towerArt('ford')), ...go(q, 315, 18), brg(45), 5, 5, { force: true }); continue; }
-    D.put(pair, q[0], q[1], brg(135), 34, 68, { force: true, big: true });
+    const q = along(i * 165);
+    if (i === 5) { D.put(blk('hickam_ops', 50, 22, 3, '#e2ded0', '#6a6a64', true), q[0], q[1], brg(HICKAM_LINE), 26, 12, { force: true, big: true }); D.put(mod('tower_ford', () => A.towerArt('ford')), ...go(q, NW, 18), brg(HICKAM_LINE), 5, 5, { force: true }); continue; }
+    D.put(pair, q[0], q[1], brg(SE), 34, 68, { force: true, big: true });
   }
   // the bombers on the apron, wingtip to wingtip as on the morning of the attack
   const park = (kind: A.ShorePlane, n: number, from: Pt, gap: number) => {
     const m = mod(`sp_${kind}`, () => A.shorePlaneArt(kind)), wk = mod(`sp_${kind}_w`, () => A.shorePlaneArt(kind, true));
     for (let i = 0; i < n; i++) {
-      const q = go(from, 45, i * gap);
-      const s = D.put(m, q[0], q[1], brg(135), 10, 14, { force: true, building: false });
-      if (s) out.planes.push({ s, wreck: wk, alive: true, x: q[0], y: q[1] });
+      const q = go(from, HICKAM_LINE, i * gap);
+      const sc = D.put(m, q[0], q[1], brg(SE), 10, 14, { force: true, building: false });
+      if (sc) out.planes.push({ s: sc, wreck: wk, alive: true, x: q[0], y: q[1] });
     }
   };
-  park('b18', 26, go(go(HM, 225, 520), 135, 95), 30);
-  park('b17', 12, go(go(HM, 225, 100), 135, 150), 35);
-  park('a20', 12, go(go(HM, 45, 340), 135, 150), 22);
-  // Hale Makai: the long spine with its wings, the parade mall and the water tower at its end
-  const hale = P(21.3365, -157.9530);
+  park('b18', 26, go(along(-40), SE, 120), 30);
+  park('b17', 12, go(along(200), SE, 200), 36);
+  park('a20', 12, go(along(800), SE, 150), 22);
+  // Hale Makai: the long spine parallel to the flight line, its wings, the mall and the water tower
+  const hale = P(21.33766, -157.95886), tw = P(21.34257, -157.96219);
   const spine = mod('hale_spine', () => A.haleMakaiArt('spine')), wing = mod('hale_wing', () => A.haleMakaiArt('wing'));
-  for (let i = 0; i < 5; i++) { const q = go(hale, 45, (i - 2) * 42); D.put(spine, q[0], q[1], brg(45), 21, 9, { force: true, big: true }); }
-  for (let i = 0; i < 6; i++) { const q = go(go(hale, 45, (i % 3 - 1) * 84), 135, (i < 3 ? 1 : -1) * 38); D.put(wing, q[0], q[1], brg(45), 8, 29, { force: true, big: true }); }
-  const mallEnd = go(hale, 315, 500);
-  land.paintRect(...go(hale, 315, 270), brg(315), 230, 40, C.parade);
-  D.put(mod('tower_water', () => A.towerArt('water')), mallEnd[0], mallEnd[1], 0, 8, 8, { force: true });
-  // officers' and NCO housing west toward the harbour entrance
-  const hickHouse = ll(21.3440, -157.9600, 21.3425, -157.9560, 21.3360, -157.9575, 21.3290, -157.9600, 21.3255, -157.9620, 21.3265, -157.9645, 21.3330, -157.9628, 21.3400, -157.9612);
-  houses(D, grid(D, hickHouse, P(21.3380, -157.9580), 45, 80, 70), 45, 80, 70, 0.85, 23, true);
-  // ---- Fort Kamehameha: coast batteries on the shore, barracks and quarters behind
-  for (const [la, lo, g] of [[21.3203, -157.9568, 2], [21.3199, -157.9527, 2], [21.3203, -157.9492, 2]] as [number, number, number][]) D.fit(mod(`battery${g}`, () => A.batteryArt(g)), P(la, lo), brg(80), 27, 13, 0);
-  houses(D, grid(D, ll(21.3250, -157.9625, 21.3245, -157.9585, 21.3215, -157.9590, 21.3212, -157.9640), P(21.3232, -157.9610), 80, 70, 60), 80, 70, 60, 0.9, 31, true);
+  for (let i = 0; i < 5; i++) { const q = go(hale, HICKAM_LINE, (i - 2) * 42); D.put(spine, q[0], q[1], brg(HICKAM_LINE), 21, 9, { force: true, big: true }); }
+  for (let i = 0; i < 6; i++) { const q = go(go(hale, HICKAM_LINE, (i % 3 - 1) * 84), SE, (i < 3 ? 1 : -1) * 38); D.put(wing, q[0], q[1], brg(HICKAM_LINE), 8, 29, { force: true, big: true }); }
+  const mall: Pt = [(hale[0] + tw[0]) / 2, (hale[1] + tw[1]) / 2];
+  land.paintRect(...mall, Math.atan2(tw[1] - hale[1], tw[0] - hale[0]), Math.hypot(tw[0] - hale[0], tw[1] - hale[1]) / 2 - 60, 40, C.parade);
+  D.put(mod('tower_water', () => A.towerArt('water')), tw[0], tw[1], 0, 8, 8, { force: true });
+  // officers' and NCO housing west to the channel
+  const hickHouse = ll(21.3436, -157.9672, 21.3436, -157.9642, 21.3405, -157.9628, 21.3360, -157.9650, 21.3310, -157.9668, 21.3268, -157.9672, 21.3268, -157.9680, 21.3330, -157.9684, 21.3400, -157.9686);
+  houses(D, grid(D, hickHouse, P(21.3380, -157.9665), HICKAM_LINE, 80, 70), HICKAM_LINE, 80, 70, 0.85, 23, true);
+  // ---- Fort Kamehameha: Batteries Jackson, Selfridge and Closson on the shore, quarters behind
+  for (const [la, lo, g] of [[21.31833, -157.95611, 2], [21.31806, -157.95250, 2], [21.3175, -157.9490, 2]] as [number, number, number][]) D.fit(mod(`battery${g}`, () => A.batteryArt(g)), P(la, lo), brg(80), 27, 13, 0);
+  houses(D, grid(D, ll(21.3250, -157.9645, 21.3245, -157.9600, 21.3212, -157.9605, 21.3208, -157.9650), P(21.3230, -157.9625), 80, 70, 60), 80, 70, 60, 0.9, 31, true);
 
   // ---- Pearl City, Aiea, Halawa, Waiau: the landmarks first, then the houses round them
-  D.fit(mod('h_panam', () => A.hangarArt('h_panam', 45, 36, false, '#8a8c88', '#d8d4c8')), P(21.3815, -157.9738), brg(75), 24, 20, 75, { big: true });
-  const mill = D.fit(mod('sugar_mill', () => A.sugarMillArt()), P(21.3835, -157.9305), brg(20), 42, 26, 200, { big: true });
+  D.fit(mod('h_panam', () => A.hangarArt('h_panam', 45, 36, false, '#8a8c88', '#d8d4c8')), P(21.3810, -157.9745), brg(75), 24, 20, 75, { big: true });
+  const mill = D.fit(mod('sugar_mill', () => A.sugarMillArt()), P(21.38078, -157.92706), brg(20), 42, 26, 200, { big: true });
   // the chimney stands at model (-20, -22): back along the mill's axis, then to its port side
   if (mill) { const q = go(go([mill.x, mill.y], 20, -20), 290, 22); out.stacks.push({ x: q[0], y: q[1], z: GROUND + 46 }); }
   const waiau = D.fit(mod('power_waiau', () => A.powerHouseArt('power_waiau', 50, 28, 2)), P(21.3888, -157.9608), brg(80), 27, 20, 0, { big: true });
-  if (waiau) for (let s = 0; s < 2; s++) { const q = go(go([waiau.x, waiau.y], 80, -25 + 50 * (s + 0.5) / 2), 170, -17); out.stacks.push({ x: q[0], y: q[1], z: GROUND + 38 }); }
-  const pc = ll(21.3790, -157.9645, 21.3880, -157.9615, 21.3925, -157.9620, 21.3930, -157.9765, 21.3845, -157.9758, 21.3800, -157.9720);
-  houses(D, grid(D, pc, P(21.3850, -157.9690), 350, 75, 110), 350, 75, 110, 0.7, 41);
-  const aiea = ll(21.3770, -157.9330, 21.3800, -157.9390, 21.3880, -157.9420, 21.3930, -157.9350, 21.3880, -157.9300, 21.3790, -157.9300);
+  if (waiau) for (let sx = 0; sx < 2; sx++) { const q = go(go([waiau.x, waiau.y], 80, -25 + 50 * (sx + 0.5) / 2), 170, -17); out.stacks.push({ x: q[0], y: q[1], z: GROUND + 38 }); }
+  const pc = ll(21.3722, -157.9695, 21.3790, -157.9645, 21.3880, -157.9615, 21.3925, -157.9620, 21.3930, -157.9765, 21.3845, -157.9758, 21.3790, -157.9745, 21.3740, -157.9722);
+  houses(D, grid(D, pc, P(21.3820, -157.9690), 350, 75, 110), 350, 75, 110, 0.7, 41);
+  const aiea = ll(21.3778, -157.9330, 21.3800, -157.9390, 21.3880, -157.9420, 21.3930, -157.9350, 21.3880, -157.9300, 21.3790, -157.9300);
   houses(D, grid(D, aiea, P(21.3840, -157.9340), 20, 70, 90), 20, 70, 90, 0.75, 53);
-  houses(D, grid(D, ll(21.3672, -157.9375, 21.3700, -157.9365, 21.3720, -157.9310, 21.3665, -157.9305), P(21.3690, -157.9335), 15, 70, 80), 15, 70, 80, 0.7, 59);
+  houses(D, grid(D, ll(21.3700, -157.9375, 21.3712, -157.9362, 21.3722, -157.9312, 21.3695, -157.9305), P(21.3708, -157.9340), 15, 70, 80), 15, 70, 80, 0.7, 59);
 
   // ---- trees by district, then AA pits
   trees(D);
   aaSites(D, mod);
 
-  // ---- harbour craft routes (water lanes; positions estimated, see the milestone notes)
+  // ---- harbour craft routes (water lanes; estimated)
   out.routes.push(
-    { kind: 'launch', pts: [go(fiFerry, 125, 70), P(21.3585, -157.9590), P(21.3572, -157.9568)], speed: 4, loop: true },
-    { kind: 'launch', pts: [P(21.3602, -157.9515), P(21.3628, -157.9505), P(21.3655, -157.9470)], speed: 4.5, loop: true },
-    { kind: 'launch', pts: [P(21.3787, -157.9632), P(21.3760, -157.9590), P(21.3735, -157.9545)], speed: 4, loop: true },
-    { kind: 'launch', pts: [P(21.3750, -157.9370), P(21.3742, -157.9440), P(21.3725, -157.9495)], speed: 4, loop: true },
+    { kind: 'launch', pts: [go(fiFerry, 150, 60), P(21.3545, -157.9598), P(21.3524, -157.9592)], speed: 4, loop: true },
+    { kind: 'launch', pts: [P(21.3574, -157.9488), P(21.3588, -157.9508), P(21.3606, -157.9535)], speed: 4.5, loop: true },
+    { kind: 'launch', pts: [P(21.3787, -157.9628), P(21.3760, -157.9590), P(21.3735, -157.9545)], speed: 4, loop: true },
+    { kind: 'launch', pts: [P(21.3738, -157.9365), P(21.3720, -157.9420), P(21.3705, -157.9470)], speed: 4, loop: true },
     // rescue boats along Battleship Row once the torpedoes have struck
     { kind: 'whaleboat', pts: [P(21.3612, -157.9545), P(21.3640, -157.9505), P(21.3655, -157.9480)], speed: 2, start: '08:10', loop: true },
     { kind: 'whaleboat', pts: [P(21.3632, -157.9525), P(21.3600, -157.9572)], speed: 2, start: '08:14', loop: true },
     { kind: 'launch', pts: [P(21.3645, -157.9478), P(21.3622, -157.9520)], speed: 3, start: '08:20', loop: true },
     // Hoga (YT-146) leaves the 1010 Dock for the burning battleships; YG-17 plays a hose on them
-    { kind: 'tug', pts: [go(DOCK_1010, 330, 45), P(21.3610, -157.9530), P(21.3628, -157.9492)], speed: 3.5, start: '08:45', hose: true },
+    { kind: 'tug', pts: [go(DOCK_1010, DOCK_1010_AXIS + 270, 45), P(21.3570, -157.9560), P(21.3610, -157.9530), P(21.3628, -157.9492)], speed: 3.5, start: '08:45', hose: true },
     { kind: 'lighter', pts: [P(21.3612, -157.9540), P(21.3632, -157.9505)], speed: 1.5, start: '08:25', hose: true },
   );
   return out;
@@ -462,10 +502,11 @@ function aaSites(D: Dresser, mod: (key: string, build: () => VoxelModel) => Stac
       }
     }
   };
-  for (const [la, lo] of [[21.3555, -157.9560], [21.3530, -157.9520], [21.3505, -157.9480], [21.3478, -157.9540], [21.3520, -157.9590], [21.3570, -157.9535]]) site(la, lo, 0, 2, '08:12');
-  for (const [la, lo] of [[21.3575, -157.9470], [21.3560, -157.9420], [21.3600, -157.9440]]) site(la, lo, 0, 2, '07:58');
-  for (const [la, lo] of [[21.3620, -157.9585], [21.3665, -157.9520], [21.3640, -157.9640], [21.3700, -157.9560]]) site(la, lo, 0, 2, '08:00');
-  for (const [la, lo] of [[21.3428, -157.9455], [21.3436, -157.9445], [21.3420, -157.9440], [21.3430, -157.9432]]) site(la, lo, 1, 0, '08:25');
-  for (const [la, lo] of [[21.3240, -157.9560], [21.3236, -157.9548], [21.3246, -157.9540], [21.3230, -157.9575]]) site(la, lo, 1, 0, '08:12');
-  for (const [la, lo] of [[21.3300, -157.9550], [21.3350, -157.9470], [21.3270, -157.9420]]) site(la, lo, 0, 2, '08:08');
+  for (const [la, lo] of [[21.3505, -157.9560], [21.3490, -157.9520], [21.3480, -157.9480], [21.3470, -157.9600], [21.3498, -157.9625], [21.3535, -157.9545]]) site(la, lo, 0, 2, '08:12');
+  for (const [la, lo] of [[21.3560, -157.9450], [21.3555, -157.9420], [21.3600, -157.9440]]) site(la, lo, 0, 2, '07:58');
+  for (const [la, lo] of [[21.3620, -157.9585], [21.3665, -157.9520], [21.3610, -157.9640], [21.3700, -157.9560]]) site(la, lo, 0, 2, '08:00');
+  // Battery D, 97th Coast Artillery ("Naval AA Shore Battery No. 1") behind Hickam's hangar line
+  for (const [la, lo] of [[21.3402, -157.9592], [21.3409, -157.9580], [21.3396, -157.9576], [21.3404, -157.9566]]) site(la, lo, 1, 0, '08:25');
+  for (const [la, lo] of [[21.3232, -157.9580], [21.3226, -157.9566], [21.3237, -157.9558], [21.3220, -157.9594]]) site(la, lo, 1, 0, '08:12');
+  for (const [la, lo] of [[21.3330, -157.9600], [21.3370, -157.9520], [21.3300, -157.9500]]) site(la, lo, 0, 2, '08:08');
 }

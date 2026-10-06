@@ -1,7 +1,7 @@
 // Pearl Harbor, Sunday 7 December 1941, 07:50-10:02, at true scale on the real harbour.
-// Berths and shorelines: surveyed positions (Arizona Memorial, Pier F-5, Ford Island) and berthing plans,
-// converted from lat/lon; expect +-150 m near Ford Island. Order of battle and timeline: the action
-// reports of the ships and the Japanese strike plan (docs/milestones/M17-pearl-midway.md lists sources).
+// Berths and shorelines: surveyed positions (memorial and pier markers, USGS GNIS points, HABS/HAER records)
+// and berthing plans, converted from lat/lon (docs/milestones/M19-gi-pearl-survey.md). Order of battle and
+// timeline: the action reports of the ships and the Japanese strike plan (M17-pearl-midway.md lists sources).
 // Escort side: USS Monaghan (DD-354), ready-duty destroyer, outboard in the DesDiv 2 nest at X-14.
 // U-boat side: the Type A midget submarine from I-22 in the North Channel.
 
@@ -10,7 +10,7 @@ import type { Vessel } from '../vessel';
 import type { RenderScene } from '../../render/scene';
 import { Scenario, RouteAI, brg } from './scenario';
 import { LandMap, type Carve, type Pt } from './land';
-import { P, PEARL_LAND, dressPearl, type PearlDetail } from './pearlDetail';
+import { DOCK_1010, DOCK_1010_AXIS, DOCK_AXIS, DOCK_MOUTH, GROUND, NEVADA_BEACH, P, PEARL_LAND, dressPearl, type PearlDetail } from './pearlDetail';
 import { HarborCraft, StackSmoke, Traffic } from './harborLife';
 import { quayArt } from '../../art/shoreArt';
 import type { Element } from './airRaid';
@@ -18,25 +18,24 @@ import { Convoy } from '../convoy';
 import { EscortAI } from '../ai/escort';
 import { intercept } from '../ai/uboat';
 import { VESSELS } from '../vesselClasses';
-import { angleDiff, KNOT } from '../../core/math';
+import { angleDiff, clamp, KNOT } from '../../core/math';
 
-const FORD_ISLAND = P(21.3640, -157.9620), HICKAM = P(21.3330, -157.9470);
-const HOSPITAL_POINT = P(21.3474, -157.9628);
-/** the channel south past Ford Island to Hospital Point and out to sea (mid-channel points) */
-const MAIN_CHANNEL: Pt[] = [P(21.3563, -157.9598), P(21.3505, -157.9640), P(21.3400, -157.9655), P(21.3250, -157.9671), P(21.3050, -157.9670)];
-/** from the nest at X-14 down the North Channel, round Ford Island's west tip into the main channel */
-const NORTH_CHANNEL: Pt[] = [P(21.3720, -157.9660), P(21.3650, -157.9704), P(21.3572, -157.9685), P(21.3505, -157.9640), P(21.3400, -157.9655), P(21.3250, -157.9671), P(21.3050, -157.9670)];
+const FORD_ISLAND = P(21.3615, -157.9610), HICKAM = P(21.3360, -157.9560);
+/** the channel south past Ford Island's south tip, west of Hospital Point between Waipio Point and Bishop
+ *  Point, and out through the entrance (mid-channel points) */
+const MAIN_CHANNEL: Pt[] = [P(21.3545, -157.9640), P(21.3500, -157.9700), P(21.3420, -157.9702), P(21.3300, -157.9711), P(21.3180, -157.9704), P(21.3050, -157.9700)];
+/** from the nest at X-14 down the North Channel, round Ford Island's west tip into the main channel. Planned
+ *  over the land raster for the most sea room: Curtiss at X-22 is passed 230 m to the east, then the
+ *  track keeps 200-400 m off Pearl City, Ford Island and Waipio */
+const NORTH_CHANNEL: Pt[] = [P(21.37291, -157.9620), P(21.36423, -157.97136), P(21.35618, -157.97136), P(21.35428, -157.97049), P(21.34641, -157.9704), P(21.3300, -157.9711), P(21.3180, -157.9704), P(21.3050, -157.9700)];
 
 interface Berth { name: string; cls: string; at: Pt; bow: number }
 /** a ship lying `off` metres to one side (positive: starboard) of a berth point */
 const beside = (p: Pt, bow: number, off: number): Pt => { const h = brg(bow); return [p[0] - Math.sin(h) * off, p[1] + Math.cos(h) * off]; };
 const along = (p: Pt, bow: number, d: number): Pt => { const h = brg(bow); return [p[0] + Math.cos(h) * d, p[1] + Math.sin(h) * d]; };
 
-// Drydock No. 1: the dock runs inland from the yard's waterfront at about 150 deg; Pennsylvania aft,
-// Cassin and Downes side by side at the head of the dock
-const DOCK_MOUTH = P(21.3551, -157.9594), DOCK_AXIS = 149;
-// the 1010 Dock waterfront runs at 060 deg; Helena alongside, Oglala outboard of her
-const DOCK_1010 = P(21.3582, -157.9536);
+// Drydock No. 1 (see pearlDetail.ts): Pennsylvania aft by the caisson, Cassin and Downes side by side at the
+// head of the dock; Helena alongside the 1010 Dock, bow to the south, Oglala outboard of her
 const NEST = P(21.3777, -157.9610);
 
 const BERTHS: Berth[] = [
@@ -56,15 +55,16 @@ const BERTHS: Berth[] = [
   { name: 'USS Utah', cls: 'ag_utah', at: P(21.36900, -157.96219), bow: 55 },
   // Tangier (a C3 conversion) drawn with the Curtiss-class tender, the nearest hull in the table
   { name: 'USS Tangier', cls: 'av_curtiss', at: P(21.36779, -157.96402), bow: 55 },
-  { name: 'USS Curtiss', cls: 'av_curtiss', at: P(21.3754, -157.9697), bow: 145 },
+  // Curtiss at X-22 in the North Channel off Pearl City
+  { name: 'USS Curtiss', cls: 'av_curtiss', at: P(21.3738, -157.9642), bow: 150 },
   // Navy Yard
   { name: 'USS Pennsylvania', cls: 'bb_pennsylvania', at: along(DOCK_MOUTH, DOCK_AXIS, 112), bow: DOCK_AXIS },
   { name: 'USS Cassin', cls: 'dd_mahan', at: beside(along(DOCK_MOUTH, DOCK_AXIS, 262), DOCK_AXIS, -5.6), bow: DOCK_AXIS },
   { name: 'USS Downes', cls: 'dd_mahan', at: beside(along(DOCK_MOUTH, DOCK_AXIS, 262), DOCK_AXIS, 5.6), bow: DOCK_AXIS },
-  { name: 'USS Helena', cls: 'cl_brooklyn', at: beside(DOCK_1010, 240, 12), bow: 240 },
-  { name: 'USS Oglala', cls: 'cm_oglala', at: beside(DOCK_1010, 240, 31), bow: 240 },
-  // YFD-2, the floating dry dock off the yard's west waterfront
-  { name: 'USS Shaw', cls: 'dd_mahan', at: P(21.3512, -157.9632), bow: 170 },
+  { name: 'USS Helena', cls: 'cl_brooklyn', at: beside(DOCK_1010, DOCK_1010_AXIS + 180, 12), bow: DOCK_1010_AXIS + 180 },
+  { name: 'USS Oglala', cls: 'cm_oglala', at: beside(DOCK_1010, DOCK_1010_AXIS + 180, 31), bow: DOCK_1010_AXIS + 180 },
+  // YFD-2, the floating dry dock off the yard's waterfront between the dry docks and Hospital Point
+  { name: 'USS Shaw', cls: 'dd_mahan', at: P(21.3519, -157.9650), bow: 65 },
   // DesDiv 2 nest at X-14, starboard to port: Aylwin, Farragut, Dale, Monaghan (outboard)
   { name: 'USS Aylwin', cls: 'dd_farragut', at: beside(NEST, 235, 18.75), bow: 235 },
   { name: 'USS Farragut', cls: 'dd_farragut', at: beside(NEST, 235, 6.25), bow: 235 },
@@ -87,6 +87,7 @@ export class PearlHarbor extends Scenario {
   private oSub; private oUnderway; private oSurvive; private oHit;
   private torpHits = 0;
   private nevadaBeached = false;
+  private nevadaGrounding = false;
 
   constructor(m: Mission, scene: RenderScene) {
     super(m, scene, 7 + 50 / 60);
@@ -100,7 +101,7 @@ export class PearlHarbor extends Scenario {
 
     // ---- the harbour: berths cut out of the land mask first, so no hull starts inside a quay
     const carves: Carve[] = BERTHS.map((b) => { const c = VESSELS[b.cls]; return { x: b.at[0], y: b.at[1], h: brg(b.bow), hl: c.length / 2 + 4, hw: c.beam / 2 + 2.5 }; });
-    carves.push({ ...(() => { const c = along(DOCK_MOUTH, DOCK_AXIS, 158); return { x: c[0], y: c[1] }; })(), h: brg(DOCK_AXIS), hl: 152, hw: 19 });
+    carves.push({ ...(() => { const c = along(DOCK_MOUTH, DOCK_AXIS, 153); return { x: c[0], y: c[1] }; })(), h: brg(DOCK_AXIS), hl: 153, hw: 21 });
     this.land = new LandMap(w.bounds.x0, w.bounds.y0, w.bounds.x1, w.bounds.y1 - 1200, 5, PEARL_LAND.map((a) => ({ ...a })), carves);
     // the shore in detail: Southeast Loch, the second dry dock and the piers, roads and runways, then the
     // buildings, trees, parked aircraft and AA pits (pearlDetail.ts); colliders and ground tiles after
@@ -172,13 +173,17 @@ export class PearlHarbor extends Scenario {
       if (!p.alive || Math.hypot(p.x - x, p.y - y) > reach) continue;
       p.alive = false; p.s.model = p.wreck;
       raid.addFire(p.x, p.y, 400 + w.rng.next() * 900, 0.7);
+      this.scene.addDecal(p.x, p.y, GROUND, 11, 2, (p.x * 0.013 + p.y * 0.007) % 1, 1);
     }
     if (power <= 0) return;
     for (const b of this.detail.buildings) {
       if (b.burning) continue;
       const dx = x - b.x, dy = y - b.y, c = Math.cos(b.h), sn = Math.sin(b.h);
       if (Math.abs(dx * c + dy * sn) > b.hl || Math.abs(-dx * sn + dy * c) > b.hw) continue;
-      if (b.big || w.rng.next() < 0.5) { b.burning = true; raid.addFire(x, y, 900 + w.rng.next() * 1800, b.big ? 1.6 : 1); }
+      if (b.big || w.rng.next() < 0.5) {
+        b.burning = true; raid.addFire(x, y, 900 + w.rng.next() * 1800, b.big ? 1.6 : 1);
+        this.scene.addDecal(x, y, GROUND, Math.min(b.hl, b.hw) * 1.4 + 6, 1, (x * 0.011 + y * 0.017) % 1, 0.9);
+      }
       break;
     }
   }
@@ -200,7 +205,7 @@ export class PearlHarbor extends Scenario {
 
   private timeline() {
     const e = (o: Omit<Element, 'side' | 'at'> & { at: string }) => this.el(o);
-    const fiAims = this.aims(P(21.3600, -157.9617), 500), hickamAims = this.aims(P(21.3320, -157.9500), 900);
+    const fiAims = this.aims(P(21.3605, -157.9610), 520), hickamAims = this.aims(P(21.3355, -157.9565), 900);
     const SE = brg(135), NW = brg(300);
     this.wave([
       // first wave: dive bombers on the airfields, torpedo planes from both sides of Ford Island
@@ -264,7 +269,8 @@ export class PearlHarbor extends Scenario {
       this.say('Nevada is getting under way!', 'info');
       this.warp(n, out[0], out[1], brg(225), 150, () => {
         n.moored = null;
-        n.ai = new RouteAI(n, [beside(along(b, 235, 700), 235, -150), beside(along(b, 235, 1400), 235, -140), ...MAIN_CHANNEL.slice(0, 2), HOSPITAL_POINT], 10, () => this.beachNevada(), true);
+        // past the floating dry dock (Shaw) and down the yard side of the channel toward Hospital Point
+        n.ai = new RouteAI(n, [beside(along(b, 235, 700), 235, -150), beside(along(b, 235, 1400), 235, -140), MAIN_CHANNEL[0], P(21.35107, -157.96726)], 10, () => this.groundNevada());
       });
     });
     for (const [t, name] of [['08:45', 'USS Dale'], ['08:52', 'USS Farragut'], ['08:58', 'USS Aylwin']] as const) {
@@ -292,6 +298,23 @@ export class PearlHarbor extends Scenario {
     this.at('10:02', () => this.finish());
   }
 
+  /**
+   * The last few hundred metres: she swings to port and runs her bow onto the bank below Hospital Point,
+   * lying out into the channel at 140. Scripted like her walk out of F-8: at a few knots, holed and on fire,
+   * a battleship barely answers her rudder, and the game's helmsman would put her on the bank anywhere.
+   */
+  private groundNevada() {
+    const n = this.ship('USS Nevada');
+    if (!n?.alive || this.nevadaBeached || this.nevadaGrounding) return;
+    this.nevadaGrounding = true;
+    n.ai = null;
+    const h = brg(140), half = n.cls.length / 2;
+    const cx = NEVADA_BEACH[0] - Math.cos(h) * half, cy = NEVADA_BEACH[1] - Math.sin(h) * half;
+    const d = Math.hypot(cx - n.pos.x, cy - n.pos.y), sp = Math.max(2, Math.abs(n.hydro.fwdSpeed));
+    const dur = clamp(d / sp * 1.6, 40, 150), lead = Math.min(d * 0.55, sp * dur / 4 + 30);
+    this.warp(n, cx, cy, h, dur, () => this.beachNevada(), [n.pos.x + Math.cos(n.heading) * lead, n.pos.y + Math.sin(n.heading) * lead]);
+  }
+
   private beachNevada() {
     if (this.nevadaBeached) return;
     this.nevadaBeached = true;
@@ -304,9 +327,10 @@ export class PearlHarbor extends Scenario {
 
   protected tick(_dt: number) {
     const w = this.world, p = w.player;
-    // Nevada, badly hit before she reaches the point, is put on the beach where she is
+    // Nevada, badly hit before she reaches the point: once in the channel she makes for the beach at once,
+    // further up the harbour she is put aground where she is
     const n = this.ship('USS Nevada');
-    if (n?.alive && n.ai instanceof RouteAI && n.hpFrac < 0.35) this.beachNevada();
+    if (n?.alive && n.ai instanceof RouteAI && n.hpFrac < 0.35) { if (n.ai.i >= 3) this.groundNevada(); else this.beachNevada(); }
     if (this.mission.side === 'allied') {
       if (this.oUnderway && this.oUnderway.state === 'open' && p && !p.moored) this.oUnderway.state = 'done';
       // leaving through the entrance after the submarine is dead ends the battle early
