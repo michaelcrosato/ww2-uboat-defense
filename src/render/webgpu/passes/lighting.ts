@@ -31,7 +31,7 @@ struct Lighting {
   p1: vec4f,   // bands, ditherAmt, beams, spec
   p2: vec4f,   // reflect, fog, lightning, haze
   p3: vec4f,   // steps, shadows, celShadows, lightsOn
-  p4: vec4f,   // view, lightCount, occTop (highest occluder or smoke, m)
+  p4: vec4f,   // view, lightCount, occTop (highest occluder or smoke, m), ao
 };
 @group(0) @binding(1) var<uniform> U: Lighting;
 @group(0) @binding(2) var albedoTex: texture_2d<f32>;
@@ -79,6 +79,21 @@ fn shadowDir(p: vec3f, L: vec3f, maxD: f32, jitter: f32, steps: i32) -> f32 {
   return shadowTo(p, p + L * (D / hz), jitter, max(4, i32(f32(steps) * D / maxD + 0.5)));
 }
 
+// heightmap ambient occlusion: occluder-map neighbours that stand above this point (hull walls,
+// superstructure, buildings) shade its sky light, so decks under a bridge, gun tubs, street canyons and
+// the water at a hull's foot darken (two rings of 4 taps, 1.5 m and 4 m out, turned 45 degrees apart)
+fn heightAO(p: vec3f, amt: f32) -> f32 {
+  if (amt <= 0.0) { return 1.0; }
+  var occ = 0.0;
+  for (var k = 0; k < 4; k++) {
+    let a = f32(k) * 1.5707963 + 0.3927;
+    let d = vec2f(cos(a), sin(a)); let e = vec2f(-d.y, d.x) * 0.7071 + d * 0.7071;
+    occ += clamp((occAt(p.xy + d * 1.5).x - p.z) / 3.0, 0.0, 1.0) * 0.6;
+    occ += clamp((occAt(p.xy + e * 4.0).x - p.z) / 8.0, 0.0, 1.0) * 0.4;
+  }
+  return 1.0 - clamp(occ * 0.25 * amt, 0.0, 0.85);
+}
+
 fn blinn(n: vec3f, L: vec3f, V: vec3f, k: f32) -> f32 {
   let H = normalize(L + V);
   return pow(max(dot(n, H), 0.0), k);
@@ -108,7 +123,8 @@ fn blinn(n: vec3f, L: vec3f, V: vec3f, k: f32) -> f32 {
   let shininess = select(select(18.0, 40.0, mat == MAT_ICE), 90.0 * zk, water);
   let specK = select(select(select(0.0, 0.4, mat == MAT_ICE), 0.25, mat == MAT_METAL), 1.0, water);
 
-  var light = U.ambient.rgb * ambientFill * (0.62 + 0.38 * n.z);
+  let ao = heightAO(P, U.p4.w);
+  var light = U.ambient.rgb * ambientFill * (0.62 + 0.38 * n.z) * ao;
   light += vec3f(0.75, 0.8, 1.0) * lightning;
   let base = light;
   var spec = vec3f(0.0);
@@ -120,7 +136,7 @@ fn blinn(n: vec3f, L: vec3f, V: vec3f, k: f32) -> f32 {
     let ndl = clamp((dot(n, sunDir) + 0.15) / 1.15, 0.0, 1.0);
     var sh = 1.0;
     if (celShadows && shadows) { sh = shadowDir(P + n * 0.2, sunDir, 70.0, jitter, csteps); }
-    light += sunCol * ndl * sh;
+    light += sunCol * ndl * sh * (0.75 + 0.25 * ao);
     if (glossy) { spec += sunCol * blinn(n, sunDir, V, shininess) * specK * sh * 2.5; }
   }
   let moonCol = U.moonCol.rgb; let moonDir = U.moonDir.xyz;
@@ -277,7 +293,7 @@ export class LightingPassGPU {
     f[36] = L.bands; f[37] = L.ditherAmt; f[38] = L.beams; f[39] = L.spec;
     f[40] = L.reflect; f[41] = L.fog; f[42] = L.lightning; f[43] = L.haze;
     f[44] = L.steps; f[45] = L.shadows ? 1 : 0; f[46] = L.celShadows ? 1 : 0; f[47] = L.lightsOn ? 1 : 0;
-    f[48] = L.view; f[49] = lightCount; f[50] = occTop;
+    f[48] = L.view; f[49] = lightCount; f[50] = occTop; f[51] = L.ao;
     this.ubo.write();
     this.g.device.queue.writeBuffer(this.lightBuf, 0, lights, 0, MAX_LIGHTS * LIGHT_FLOATS);
   }

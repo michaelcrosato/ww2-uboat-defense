@@ -19,6 +19,7 @@ uniform sampler2D uAlbedo, uNormal, uOcc, uLights;
 uniform int uLightCount;
 uniform vec4 uOccRect;
 uniform float uOccTop;   // highest occluder or smoke this frame (m)
+uniform float uAo;       // heightmap ambient occlusion strength
 uniform vec3 uAmbient, uSky, uFogCol;
 uniform vec3 uSunDir, uSunCol, uMoonDir, uMoonCol;
 uniform float uReach, uStrength, uAmbientFill, uSoft, uBands, uDitherAmt, uBeams, uSpec, uReflect, uFog, uLightning, uHaze;
@@ -63,6 +64,21 @@ float shadowDir(vec3 p, vec3 L, float maxD, float jitter, int steps) {
   return shadowTo(p, p + L * (D / hz), jitter, max(4, int(float(steps) * D / maxD + 0.5)));
 }
 
+// heightmap ambient occlusion: occluder-map neighbours that stand above this point (hull walls,
+// superstructure, buildings) shade its sky light, so decks under a bridge, gun tubs, street canyons and
+// the water at a hull's foot darken (two rings of 4 taps, 1.5 m and 4 m out, turned 45 degrees apart)
+float heightAO(vec3 p, float amt) {
+  if (amt <= 0.0) return 1.0;
+  float occ = 0.0;
+  for (int k = 0; k < 4; k++) {
+    float a = float(k) * 1.5707963 + 0.3927;
+    vec2 d = vec2(cos(a), sin(a)), e = vec2(-d.y, d.x) * 0.7071 + d * 0.7071;
+    occ += clamp((occAt(p.xy + d * 1.5).x - p.z) / 3.0, 0.0, 1.0) * 0.6;
+    occ += clamp((occAt(p.xy + e * 4.0).x - p.z) / 8.0, 0.0, 1.0) * 0.4;
+  }
+  return 1.0 - clamp(occ * 0.25 * amt, 0.0, 0.85);
+}
+
 float blinn(vec3 n, vec3 L, vec3 V, float k) {
   vec3 H = normalize(L + V);
   return pow(max(dot(n, H), 0.0), k);
@@ -87,7 +103,8 @@ void main() {
   float shininess = water ? 90.0 * zk : (mat == MAT_ICE ? 40.0 : 18.0);
   float specK = water ? 1.0 : (mat == MAT_METAL ? 0.25 : (mat == MAT_ICE ? 0.4 : 0.0));
 
-  vec3 light = uAmbient * uAmbientFill * (0.62 + 0.38 * n.z);
+  float ao = heightAO(P, uAo);
+  vec3 light = uAmbient * uAmbientFill * (0.62 + 0.38 * n.z) * ao;
   light += vec3(0.75, 0.8, 1.0) * uLightning;
   vec3 base = light;
   vec3 spec = vec3(0.0);
@@ -97,7 +114,7 @@ void main() {
   if (uSunCol.r + uSunCol.g + uSunCol.b > 0.003) {
     float ndl = clamp((dot(n, uSunDir) + 0.15) / 1.15, 0.0, 1.0);
     float sh = uCelShadows == 1 && uShadows == 1 ? shadowDir(P + n * 0.2, uSunDir, 70.0, jitter, csteps) : 1.0;
-    light += uSunCol * ndl * sh;
+    light += uSunCol * ndl * sh * (0.75 + 0.25 * ao);
     if (glossy) spec += uSunCol * blinn(n, uSunDir, V, shininess) * specK * sh * 2.5;
   }
   if (uMoonCol.r + uMoonCol.g + uMoonCol.b > 0.002) {

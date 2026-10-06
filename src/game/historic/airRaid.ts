@@ -15,7 +15,8 @@ import { VoxelModel } from '../../art/voxel';
 import { torpedoArt } from '../../art/ships';
 import { GROUPS, LAND } from '../../physics/physics';
 import { angleDiff, clamp, fx, quatFromEuler, wrapAngle } from '../../core/math';
-import { splashColumn, surfaceExplosion, underwaterBlast } from '../effects';
+import { FX } from '../../render/fx';
+import { flakBurst, fireEmit, magazineBlast, splashColumn, surfaceExplosion, underwaterBlast } from '../effects';
 import { PK } from '../../render/materials';
 
 export type Role = 'torpedo' | 'dive' | 'level' | 'fighter';
@@ -41,8 +42,9 @@ export interface Element {
   release?: number;
   /** interceptors flying combat air patrol over these ships (fighters only) */
   cap?: boolean;
-  /** an airfield or shore target instead of a ship: each plane aims somewhere within r of (x, y) */
-  ground?: { x: number; y: number; r: number };
+  /** an airfield or shore target instead of a ship: each plane aims somewhere within r of (x, y), or within
+   *  r of its own entry in `aims` (hangars, parked rows) when the scenario lists them */
+  ground?: { x: number; y: number; r: number; aims?: { x: number; y: number; r: number }[] };
   /** lost before release, regardless of flak (fighters of the other side we do not fly; VT-8 at Midway) */
   attrition?: number;
 }
@@ -78,6 +80,12 @@ export class AirRaid {
   shotDown: Record<Side, number> = { allied: 0, axis: 0 };
   /** fires ashore (airfields, the Navy Yard): flames and a column of black smoke */
   fires: { x: number; y: number; t: number; size: number }[] = [];
+  /** AA positions ashore (machine-gun and 3-inch pits), manned from `ready` (world seconds) */
+  landAA: { x: number; y: number; z: number; heavy: number; light: number; range: number; ready: number }[] = [];
+  /** a bomb burst ashore, and fighters strafing a ground target (parked aircraft, buildings) */
+  onGround: ((x: number, y: number, power: number) => void) | null = null;
+  onStrafe: ((x: number, y: number, heading: number, dt: number) => void) | null = null;
+  addFire(x: number, y: number, t: number, size: number) { if (this.fires.length < 60) this.fires.push({ x, y, t, size }); }
   private aaFxT = 0;
 
   constructor(private w: World) {
@@ -130,7 +138,11 @@ export class AirRaid {
         willHit: el.hits === undefined ? w.rng.next() < 0.35 : hitIdx.has(i), loaded: load !== null, doomed: doomed.has(i),
         model: art.add(warplaneArt(el.kind, load)), empty: art.add(warplaneArt(el.kind, null)), t: 0, passes: 0, aim: { x: cx, y: cy, z: 0 },
       };
-      if (el.ground) { const a = w.rng.next() * Math.PI * 2, r = Math.sqrt(w.rng.next()) * el.ground.r; p.aim = { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, z: 0 }; }
+      if (el.ground) {
+        const g = el.ground, A = g.aims?.length ? g.aims[(i * 7 + el.n) % g.aims.length] : g;
+        const a = w.rng.next() * Math.PI * 2, r = Math.sqrt(w.rng.next()) * A.r;
+        p.aim = { x: A.x + Math.cos(a) * r, y: A.y + Math.sin(a) * r, z: 0 };
+      }
       this.planes.push(p);
     }
   }
@@ -189,6 +201,7 @@ export class AirRaid {
         // fighters strafe the target ship twice, low and fast
         gx = tp.x; gy = tp.y; wantZ = Math.hypot(tp.x - p.x, tp.y - p.y) < 1200 ? 30 : ALT.cruise;
         if (t && Math.hypot(tp.x - p.x, tp.y - p.y) < 250) this.strafe(p, t, dt);
+        else if (!t && el.ground && Math.hypot(tp.x - p.x, tp.y - p.y) < 320) this.strafeGround(p, dt);
         if (Math.hypot(tp.x - p.x, tp.y - p.y) < 40) { p.passes++; if (p.passes >= 2 || el.cap) p.state = 'out'; }
       }
     } else if (p.state === 'run' && t) {
@@ -283,6 +296,15 @@ export class AirRaid {
     if (fx.next() < 0.5) w.scene.particles.spawn(PK.TRACER, p.x, p.y, p.z, Math.cos(p.heading) * 300, Math.sin(p.heading) * 300, -p.z * 2, 0.3, 0.4, [1, 0.85, 0.4]);
   }
 
+  /** a strafing run on an airfield: tracers into the ground, dust kicked up along the line of fire */
+  private strafeGround(p: Plane, dt: number) {
+    const w = this.w, c = Math.cos(p.heading), sn = Math.sin(p.heading);
+    const gx = p.x + c * 120, gy = p.y + sn * 120;
+    if (fx.next() < 0.6) w.scene.particles.spawn(PK.TRACER, p.x, p.y, p.z, (gx - p.x) * 3, (gy - p.y) * 3, -p.z * 3, 0.3, 0.4, [1, 0.85, 0.4]);
+    if (fx.next() < dt * 12) w.scene.fx.burst(FX.DUST, gx + fx.range(-15, 15), gy + fx.range(-15, 15), 2, { n: 2, speed: 3, up: 1.5, life: 2.5, size: 1.2, size1: 4, col: [0.62, 0.52, 0.4] });
+    this.onStrafe?.(gx, gy, p.heading, dt);
+  }
+
   private down(p: Plane) {
     p.falling = 6; p.hp = 0;
     this.shotDown[p.side]++;
@@ -314,8 +336,31 @@ export class AirRaid {
         const z0 = v.cls.freeboard + 4;
         w.scene.particles.spawn(PK.TRACER, v.pos.x + fx.range(-v.cls.length * 0.3, v.cls.length * 0.3), v.pos.y, z0,
           (best.x - v.pos.x) * 1.4 + fx.range(-30, 30), (best.y - v.pos.y) * 1.4 + fx.range(-30, 30), (best.z - z0) * 1.4, 0.7, 0.35, [1, 0.75, 0.35]);
-        if (aa.heavy > 0 && fx.next() < 0.5) w.scene.particles.spawn(PK.SMOKE, best.x + fx.range(-60, 60), best.y + fx.range(-60, 60), best.z + fx.range(-10, 20), 0, 0, 0.3, fx.range(3, 6), 4, [0.1, 0.1, 0.11]);
+        if (aa.heavy > 0 && fx.next() < 0.5) {
+          const bx = best.x + fx.range(-60, 60), by = best.y + fx.range(-60, 60), bz = best.z + fx.range(-10, 20);
+          w.scene.particles.spawn(PK.SMOKE, bx, by, bz, 0, 0, 0.3, fx.range(3, 6), 4, [0.1, 0.1, 0.11]);
+          flakBurst(w, bx, by, bz);
+        }
         if (fx.next() < 0.15) w.emit('gunFired', { by: v, caliber: aa.heavy > 0 ? 127 : 25, x: v.pos.x, y: v.pos.y });
+      }
+    }
+    // the guns ashore, side 'allied' like the fleet they defend
+    for (const g of this.landAA) {
+      if (w.time < g.ready) continue;
+      let best: Plane | null = null, bd = g.range;
+      for (const p of this.planes) {
+        if (!p.alive || p.falling > 0 || p.side === 'allied') continue;
+        const d = Math.hypot(p.x - g.x, p.y - g.y);
+        if (d < bd) { bd = d; best = p; }
+      }
+      if (!best) continue;
+      const k = 1 - bd / g.range;
+      const exposure = best.role === 'torpedo' && best.state === 'run' ? 1 : best.role === 'level' ? 0.15 : best.state === 'dive' ? 0.7 : 0.5;
+      if (w.rng.next() < (g.heavy * 0.0035 + g.light * 0.005) * k * exposure * dt) { best.hp--; if (best.hp <= 0) this.down(best); }
+      if (showFx) {
+        w.scene.particles.spawn(PK.TRACER, g.x, g.y, g.z, (best.x - g.x) * 1.4 + fx.range(-30, 30), (best.y - g.y) * 1.4 + fx.range(-30, 30), (best.z - g.z) * 1.4, 0.7, 0.35, [1, 0.75, 0.35]);
+        if (g.heavy > 0 && fx.next() < 0.4) flakBurst(w, best.x + fx.range(-60, 60), best.y + fx.range(-60, 60), best.z + fx.range(-10, 20));
+        if (fx.next() < 0.3) w.flashLight({ x: g.x, y: g.y, z: g.z + 1, reach: 18, r: 1, g: 0.8, b: 0.5, intensity: 1.6, shadow: false }, 0.08);
       }
     }
   }
@@ -336,7 +381,8 @@ export class AirRaid {
         surfaceExplosion(w, q.x, q.y, Math.max(2, q.z), b.damage > 1000 ? 1.4 : 0.9, { fire: true });
         if (b.magazine) this.magazineExplosion(t);
       } else if (this.isLand?.(b.x, b.y)) {
-        surfaceExplosion(w, b.x, b.y, 2, 0.8, { debris: true });
+        surfaceExplosion(w, b.x, b.y, 2, 0.8, { debris: true, ground: true });
+        this.onGround?.(b.x, b.y, b.damage);
         // hangars, parked aircraft and fuel burn on for a long while
         if (w.rng.next() < 0.35 && this.fires.length < 40) this.fires.push({ x: b.x, y: b.y, t: 300 + w.rng.next() * 900, size: 0.6 + w.rng.next() * 0.8 });
       } else {
@@ -354,7 +400,7 @@ export class AirRaid {
   magazineExplosion(t: Vessel) {
     const w = this.w;
     const q = t.local(t.cls.length * 0.27, 0, t.cls.freeboard);
-    for (let i = 0; i < 4; i++) surfaceExplosion(w, q.x + fx.range(-15, 15), q.y + fx.range(-8, 8), q.z + i * 6, 3);
+    magazineBlast(w, q.x, q.y, q.z);
     for (let i = 0; i < 120; i++) w.scene.particles.spawn(PK.SMOKE, q.x + fx.range(-20, 20), q.y + fx.range(-20, 20), q.z + fx.range(5, 60), fx.range(-3, 3), fx.range(-3, 3), fx.range(4, 12), fx.range(20, 40), fx.range(8, 16), [0.06, 0.05, 0.05]);
     w.flash = 1;
     t.damage(t.maxHp * 1.2, q.x, q.y, q.z, 'explosion', null);
@@ -388,9 +434,12 @@ export class AirRaid {
   // ------------------------------------------------------------------ drawing
   submit(frameDt: number) {
     const w = this.w, R = w.scene;
+    // the GPU effect layer carries most of the flame and smoke when it runs
+    const cpu = R.fx.enabled ? 0.35 : 1;
     for (const f of this.fires) {
-      if (fx.next() < frameDt * 6 * f.size) R.particles.spawn(PK.FIRE, f.x + fx.range(-6, 6), f.y + fx.range(-6, 6), 2, 0, 0, fx.range(2, 5), fx.range(0.6, 1.2), 3 * f.size, [1, 0.55, 0.2]);
-      if (fx.next() < frameDt * 4 * f.size) R.particles.spawn(PK.SMOKE, f.x + fx.range(-8, 8), f.y + fx.range(-8, 8), 6, fx.range(-1, 1), fx.range(-1, 1), fx.range(3, 6), fx.range(15, 30), 6 * f.size, [0.07, 0.06, 0.06]);
+      if (fx.next() < frameDt * 6 * f.size * cpu) R.particles.spawn(PK.FIRE, f.x + fx.range(-6, 6), f.y + fx.range(-6, 6), 2, 0, 0, fx.range(2, 5), fx.range(0.6, 1.2), 3 * f.size, [1, 0.55, 0.2]);
+      if (fx.next() < frameDt * 4 * f.size * cpu) R.particles.spawn(PK.SMOKE, f.x + fx.range(-8, 8), f.y + fx.range(-8, 8), 6, fx.range(-1, 1), fx.range(-1, 1), fx.range(3, 6), fx.range(15, 30), 6 * f.size, [0.07, 0.06, 0.06]);
+      fireEmit(w, f.x + fx.range(-5, 5), f.y + fx.range(-5, 5), 2, f.size * 1.4, frameDt);
     }
     for (const p of this.planes) {
       R.stacks.push({ model: p.model, x: p.x, y: p.y, z: p.z, q: quatFromEuler(p.bank, p.pitch, p.heading), flags: 1 | 16 });

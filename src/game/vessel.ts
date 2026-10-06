@@ -13,6 +13,7 @@ import type { HullInput } from '../water/simInputs';
 import { StatBlock } from '../meta/stats';
 import { PK } from '../render/materials';
 import { dev } from '../core/devSettings';
+import { fireEmit } from './effects';
 
 /** `phys.buoyancy` → buoyancy columns along × across the hull */
 const BUOYANCY_COLUMNS: Record<string, { columnsX: number; columnsY: number }> = {
@@ -742,10 +743,13 @@ export class Vessel {
     // fires: one light per ship at the power-weighted centre of her fires (a burning battle line would
     // otherwise stack dozens of lights), dimmer by day when they compete with the sun
     let fp = 0, flx = 0, fly = 0, flz = 0;
+    // the GPU effect layer carries most of the flame and smoke when it runs
+    const cpu = R.fx.enabled ? 0.5 : 1;
     for (const fr of this.fires) {
       const wp = this.local(fr.lx, fr.ly, fr.lz);
-      if (fx.next() < fr.power * 0.9) R.particles.spawn(PK.FIRE, wp.x + fx.range(-1.5, 1.5), wp.y + fx.range(-1.5, 1.5), wp.z, v.x, v.y, fx.range(2, 5), fx.range(0.5, 1.0), fx.range(1, 2.2), [1, 0.6, 0.2]);
-      if (fx.next() < fr.power * 0.6) R.particles.spawn(PK.SMOKE, wp.x, wp.y, wp.z + 2, v.x * 0.5, v.y * 0.5, 3, fx.range(6, 12), 3, [0.06, 0.06, 0.07]);
+      if (fx.next() < fr.power * 0.9 * cpu) R.particles.spawn(PK.FIRE, wp.x + fx.range(-1.5, 1.5), wp.y + fx.range(-1.5, 1.5), wp.z, v.x, v.y, fx.range(2, 5), fx.range(0.5, 1.0), fx.range(1, 2.2), [1, 0.6, 0.2]);
+      if (fx.next() < fr.power * 0.6 * cpu) R.particles.spawn(PK.SMOKE, wp.x, wp.y, wp.z + 2, v.x * 0.5, v.y * 0.5, 3, fx.range(6, 12), 3, [0.06, 0.06, 0.07]);
+      fireEmit(w, wp.x, wp.y, wp.z, fr.power, dt, v.x, v.y);
       fp += fr.power; flx += wp.x * fr.power; fly += wp.y * fr.power; flz += wp.z * fr.power;
     }
     if (fp > 0) {

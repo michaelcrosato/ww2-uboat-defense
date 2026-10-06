@@ -6,6 +6,7 @@ import type { Quat } from '../core/math';
 import type { HullInput, SplatInput } from '../water/simInputs';
 import { LightList } from './lights';
 import { ParticleSystem } from './particles';
+import { FxSystem } from './fx';
 
 export interface StackInstance {
   model: StackModel;
@@ -23,6 +24,8 @@ export class RenderScene {
   atlas = new SliceAtlas(2048);
   stacks: StackInstance[] = [];
   particles = new ParticleSystem();
+  /** GPU effect particles, shockwaves, heat haze and camera trauma (render/fx.ts) */
+  fx = new FxSystem();
   lights = new LightList();
   /** moving water-sim sources, rebuilt every frame */
   hulls: HullInput[] = [];
@@ -32,6 +35,7 @@ export class RenderScene {
   /** start gathering a new frame (splats persist until consumed by a sim step) */
   beginFrame() {
     this.stacks.length = 0;
+    this.fx.heat.length = 0;
     this.lights.clear();
     this.hulls.length = 0;
   }

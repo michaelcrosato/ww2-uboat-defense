@@ -7,7 +7,7 @@ import type { Screen } from '../screen';
 import type { RenderScene } from '../scene';
 import type { BackendInfo, BackendStats, FrameParams, RenderBackend } from '../types';
 import { postParams } from '../common/post';
-import { lightParams, occluderRect, occluderRes, seaTop, waterParams } from '../common/frameUniforms';
+import { lightParams, occluderRect, occluderRes, seaTop, smokeLight, waterParams } from '../common/frameUniforms';
 import { LIGHT_FLOATS, MAX_LIGHTS, packLights } from '../lights';
 import { MAX_WAVES } from '../../water/ocean';
 import { dev } from '../../core/devSettings';
@@ -21,6 +21,7 @@ import { WaterPassGPU } from './passes/water';
 import { LightingPassGPU } from './passes/lighting';
 import { StackPassGPU } from './passes/stacks';
 import { ParticlePassGPU } from './passes/particles';
+import { FxPassGPU } from './passes/fx';
 import { DebugPassGPU, DEBUG_TEX_MODES } from './passes/debug';
 import { packForces, packParticles, packStacks, type F32 } from '../pack';
 import { WaterSimsGPU, type SimParams } from './sims/waterSims';
@@ -36,7 +37,7 @@ export interface WebGPUOpts {
 }
 
 interface Passes {
-  post: PostPassGPU; water: WaterPassGPU; lighting: LightingPassGPU; stacks: StackPassGPU; particles: ParticlePassGPU;
+  post: PostPassGPU; water: WaterPassGPU; lighting: LightingPassGPU; stacks: StackPassGPU; particles: ParticlePassGPU; fx: FxPassGPU;
   debug: DebugPassGPU; pattern: TestPatternPass | null; sims: WaterSimsGPU;
 }
 
@@ -81,6 +82,7 @@ export class WebGPUBackend implements RenderBackend {
   private simReset = true;
   /** sim time + one-shot splats from frames skipped for pacing (the App clears scene.splats) */
   private pendingDt = 0;
+  private pendingFxDt = 0;
   private pendingSplats: SplatInput[] = [];
   private unsub: (() => void)[] = [];
   /** per-pass GPU ms via timestamp queries (null without the feature) */
@@ -102,7 +104,7 @@ export class WebGPUBackend implements RenderBackend {
     this.frameUbo = frameUbo; this.oceanUbo = oceanUbo;
     this.zeroTex = g.device.createTexture({ label: 'zero', format: HDR, size: { width: 1, height: 1 }, usage: TU.TEXTURE_BINDING });
     this.zeroView = this.zeroTex.createView();
-    this.timer = g.hasTimestamps ? new GpuTimer(g.device, ['sims', 'occluder', 'under', 'gbuffer', 'lighting', 'present']) : null;
+    this.timer = g.hasTimestamps ? new GpuTimer(g.device, ['sims', 'fx', 'occluder', 'under', 'gbuffer', 'lighting', 'fxdraw', 'present']) : null;
     this.stats.passMs = this.timer?.ms;
   }
 
@@ -119,6 +121,7 @@ export class WebGPUBackend implements RenderBackend {
         lighting: await LightingPassGPU.create(g, samplers, HDR),
         stacks: await StackPassGPU.create(g, samplers),
         particles: await ParticlePassGPU.create(g),
+        fx: await FxPassGPU.create(g),
         debug: await DebugPassGPU.create(g, samplers, HDR),
         pattern: wopts.testPattern ? await TestPatternPass.create(g, frameUbo.buffer, HDR) : null,
         sims: await (() => { const z = simSizes(); return WaterSimsGPU.create(g, samplers, z.n, z.cell, z.nf); })(),
@@ -159,10 +162,14 @@ export class WebGPUBackend implements RenderBackend {
     if (this.inFlight >= MAX_IN_FLIGHT && !this.strictFrames) {
       // skip this frame but keep what the sims would have consumed
       this.pendingDt += f.simDt;
+      this.pendingFxDt += f.fxDt;
       if (f.simDt > 0) this.pendingSplats.push(...scene.splats);
       return;
     }
     const simDt = Math.min(0.1, f.simDt + this.pendingDt);
+    // effect particles keep game time even when slow frames are skipped (substepped in the pass)
+    const fxDt = Math.min(0.5, f.fxDt + this.pendingFxDt);
+    this.pendingFxDt = 0;
     const splats = this.pendingSplats.length ? [...this.pendingSplats, ...scene.splats] : scene.splats;
     this.pendingDt = 0;
     this.pendingSplats = [];
@@ -198,6 +205,11 @@ export class WebGPUBackend implements RenderBackend {
     P.stacks.uploadAtlas(scene.atlas);
     P.stacks.setInputs({ frame: this.frameUbo.buffer, ocean: this.oceanUbo.buffer, wave: S.heightView });
     P.particles.setFrame(this.frameUbo.buffer);
+    // ---- GPU effect particles: upload this frame's new ones, integrate every live slot (compute)
+    const fx = scene.fx;
+    if (fx.cap !== FxPassGPU.CAP) { fx.cap = FxPassGPU.CAP; fx.clear(); }
+    P.fx.setFrame(this.frameUbo.buffer);
+    P.fx.simulate(enc, fx, fxDt, f.time, [scene.particles.wind.x, scene.particles.wind.y]);
 
     // ---- per-frame uniforms (origin folded into wave phases on the CPU, in double precision)
     writeFrame(this.frameUbo.f, cam);
@@ -225,6 +237,7 @@ export class WebGPUBackend implements RenderBackend {
     this.partData = pk.data;
     P.lighting.write(L, occRel, lp.data, lp.count, Math.max(st.top, pk.top) + 1);
     P.particles.write(occRel, occRes, 24, pk.data, pk.count);
+    P.fx.write(O.x, O.y, f.time, 160, smokeLight(L), occRel, occRes, dev.num('fx.intensity'));
     this.stats.particles = pk.count;
 
     if (P.pattern) {
@@ -234,6 +247,7 @@ export class WebGPUBackend implements RenderBackend {
       const op = enc.beginRenderPass({ label: 'occluder', timestampWrites: tw('occluder'), colorAttachments: [{ view: this.occ!.view, loadOp: 'clear', storeOp: 'store', clearValue: { r: -50, g: 0, b: 0, a: 0 } }] });
       P.stacks.encode(op, 'occ');
       P.particles.encode(op, 'occ');
+      P.fx.encode(op, 'occ');
       op.end();
       // ---- underwater: submerged parts of everything (depth = distance below surface)
       const up = enc.beginRenderPass({
@@ -263,6 +277,15 @@ export class WebGPUBackend implements RenderBackend {
       const lpass = enc.beginRenderPass({ label: 'lighting', timestampWrites: tw('lighting'), colorAttachments: [{ view: this.lit!.view, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
       P.lighting.encode(lpass);
       lpass.end();
+      // ---- effect particles over the lit image (fire adds light, smoke covers), behind whatever the
+      // G-buffer depth says stands in front
+      const fp = enc.beginRenderPass({
+        label: 'fx', timestampWrites: tw('fxdraw'),
+        colorAttachments: [{ view: this.lit!.view, loadOp: 'load', storeOp: 'store' }],
+        depthStencilAttachment: { view: this.gDepth!.view, depthReadOnly: true },
+      });
+      P.fx.encode(fp, 'draw');
+      fp.end();
       // debug texture views drawn straight into the lit buffer
       const dv = dev.str('debug.view');
       if (dv in DEBUG_TEX_MODES) {
@@ -273,8 +296,8 @@ export class WebGPUBackend implements RenderBackend {
     }
 
     // ---- post
-    const pp = postParams(sc, cam, f);
-    P.post.bloom(enc, pp.bloom);
+    const pp = postParams(sc, cam, f, scene.fx);
+    P.post.bloom(enc, pp.bloom, pp);
     if (this.g.present === 'canvas') {
       P.post.present(enc, this.g.context!.getCurrentTexture().createView(), pp, tw('present'));
       T?.resolve(enc);
@@ -327,7 +350,7 @@ export class WebGPUBackend implements RenderBackend {
     const P = this.p;
     for (const u of this.unsub) u();
     P.sims.dispose();
-    P.post.dispose(); P.water.dispose(); P.lighting.dispose(); P.stacks.dispose(); P.particles.dispose(); P.debug.dispose(); P.pattern?.dispose();
+    P.post.dispose(); P.water.dispose(); P.lighting.dispose(); P.stacks.dispose(); P.particles.dispose(); P.fx.dispose(); P.debug.dispose(); P.pattern?.dispose();
     this.frameUbo.destroy(); this.oceanUbo.destroy();
     for (const t of [this.gA, this.gN, this.gDepth, this.uC, this.uD, this.uDepth, this.occ, this.lit, this.outTex]) t?.texture.destroy();
     this.zeroTex.destroy();
