@@ -20,7 +20,7 @@ import { WeatherFx } from '../game/weatherFx';
 import { SRC, type BearingLine } from '../game/sensors';
 import { RARITY_BEAM } from '../game/weapons';
 import { BEAUFORT_NAME } from '../water/ocean';
-import type { Tutorial } from '../game/tutorial';
+import type { TutorialView } from '../game/tutorial';
 
 const C = {
   text: '#e8e2cf', dim: '#a49f8c', allied: '#8fc4e8', axis: '#e8c070', danger: '#ff6a4a', good: '#8ad89a', warn: '#ffc040',
@@ -51,7 +51,7 @@ export class Hud {
   /** CPU frame ms + sim steps this frame (debug.perf) */
   perf: { cpuMs: number; steps: number } | null = null;
   /** lesson coach (tutorial missions) and the bottom edge of its panel this frame */
-  tutorial: Tutorial | null = null;
+  tutorial: { view(): TutorialView | null } | null = null;
   private tutBottom = 0;
   /**
    * Touch layout (set by the touch overlay): vessel status under the objectives at the top (the bottom of the
@@ -566,7 +566,7 @@ export class Hud {
     // convoy route
     const conv = m.convoy;
     const [ex, ey] = P(conv.exitX, conv.y);
-    if (inside(ex, ey)) pxFill(g, ex, ey - 3, 1, 7, C.good);
+    if (inside(ex, ey) && !m.scenario) pxFill(g, ex, ey - 3, 1, 7, C.good);
     drawText(g, '3 km', cx, cy + R + 3, C.dim, { align: 'center' });
     const env = w.env;
     const hh = Math.floor(env.hour), mm = Math.floor((env.hour % 1) * 60);
@@ -578,7 +578,9 @@ export class Hud {
     const x = 4, y = 4;
     const S = m.stats;
     const lines: [string, string][] = [];
-    if (m.side === 'allied') {
+    if (m.scenario) {
+      for (const [t, tone] of m.scenario.tally()) lines.push([t, tone === 'good' ? C.good : tone === 'bad' ? C.danger : C.dim]);
+    } else if (m.side === 'allied') {
       lines.push([`Convoy ${m.convoy.alive.length}/${m.merchantsTotal} ships`, C.text]);
       lines.push([`Lost ${fmtInt(S.tonnageLost)} GRT`, S.tonnageLost ? C.danger : C.dim]);
       lines.push([`U-boats sunk ${S.uboatsSunk}`, S.uboatsSunk ? C.good : C.dim]);
@@ -586,7 +588,7 @@ export class Hud {
       lines.push([`Sunk ${fmtInt(S.tonnageSunk)} GRT`, S.tonnageSunk ? C.good : C.text]);
       lines.push([`Ships ${S.shipsSunk.length}  Torpedoes ${S.torpedoHits}/${S.torpedoes}`, C.dim]);
     }
-    lines.push([`Convoy ${Math.round(m.convoy.progress * 100)}%  ${formatTime(m.elapsed)}`, C.dim]);
+    if (!m.scenario) lines.push([`Convoy ${Math.round(m.convoy.progress * 100)}%  ${formatTime(m.elapsed)}`, C.dim]);
     if (S.loot.length) lines.push([`Salvage ${S.loot.length}`, '#ffd84a']);
     const wdt = 132;
     panel(g, x, y, wdt, lines.length * 10 + 6, 0.55);
@@ -621,7 +623,7 @@ export class Hud {
     g.globalAlpha = view.alpha;
     panel(g, x, y, w, h, 0.85);
     drawText(g, view.title.toUpperCase(), x + 5, y + 4, view.done ? C.good : C.warn, { alpha: view.alpha });
-    drawText(g, `TUTORIAL ${view.n}/${view.total}`, x + w - 5, y + 4, C.dim, { align: 'right', alpha: view.alpha });
+    drawText(g, view.tag ?? `TUTORIAL ${view.n}/${view.total}`, x + w - 5, y + 4, C.dim, { align: 'right', alpha: view.alpha });
     body.forEach((line, i) => drawKeys(g, line, x + 5, y + 16 + i * 10, C.text, '#a0ffd0', view.alpha));
     if (view.footer) drawKeys(g, view.footer, x + w - 5 - textWidth(view.footer), y + h - 11, C.dim, C.dim, view.alpha);
     g.globalAlpha = a;

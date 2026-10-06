@@ -25,6 +25,7 @@ export const ARENA_SPEC: Record<string, Spec> = {
   'arena.escortClass': Sel('destroyer', ['destroyer', 'corvette', 'frigate', 'sloop', 'trawler']),
   'arena.uboatClass': Sel('type7', ['type7', 'type9', 'type21']),
   'arena.uboatStart': Sel('auto', ['auto', 'submerged', 'surfaced']),
+  'arena.scenario': Sel('none', ['none', 'pearl_harbor', 'midway']),
   'arena.year': R(1942, 1939, 1945, 1),
   'arena.difficulty': R(1, 0.5, 2, 0.1),
   'arena.seed': R(1941, 1, 99999, 1),
@@ -122,7 +123,7 @@ export function generateContracts(rng: Rng, captain: CaptainState, count = 4): C
 export function generateContract(rng: Rng, captain: CaptainState): Contract {
   const faction = captain.faction, level = captain.level;
   const tier = Math.max(1, Math.min(12, contractTier(level) + rng.int(-1, 1)));
-  const th = rng.pick(THEATERS);
+  const th = rng.pick(THEATERS.filter((t) => !t.scenarioOnly));
   const a = defaultArena();
   a['arena.side'] = faction;
   if (faction === 'escort') a['arena.escortClass'] = captain.vessel.cls;

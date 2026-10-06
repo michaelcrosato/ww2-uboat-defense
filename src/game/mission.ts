@@ -19,6 +19,9 @@ import type { Weather } from './environment';
 import type { MissionResult, Item } from '../meta/types';
 import { coastArt, islandArt, lighthouseArt } from '../art/ships';
 import { dev } from '../core/devSettings';
+import { SliceAtlas } from '../art/voxel';
+import { battlePreset, createScenario } from './historic';
+import type { Scenario } from './historic/scenario';
 
 export interface MissionStats {
   tonnageSunk: number;
@@ -64,11 +67,19 @@ export class Mission {
   readonly spectator: boolean;
   /** a tutorial is still talking: sinking the last U-boat does not end the battle yet */
   holdVictory = false;
+  /** a historical battle (arena.scenario): its own forces, timeline, objectives and ending */
+  scenario: Scenario | null = null;
 
   constructor(scene: RenderScene, arena: ConfigStore, overrides: Record<string, number | string | boolean> = {}, opts: { spectator?: boolean; enemyStats?: StatBlock } = {}) {
     this.spectator = !!opts.spectator;
     const cfg = { ...arena.snapshot(), ...overrides };
+    // a historical battle fixes its place, date and forces
+    const battle = String(cfg['arena.scenario'] ?? 'none');
+    Object.assign(cfg, battlePreset(battle));
     this.cfg = cfg;
+    // a harbour's coastline and two fleets at true scale need a bigger slice atlas than the convoy arena
+    const atlasSize = battle !== 'none' ? 3072 : 2048;
+    if (scene.atlas.size !== atlasSize) scene.atlas = new SliceAtlas(atlasSize);
     const num = (k: string) => Number(cfg[k]);
     const str = (k: string) => String(cfg[k]);
     const w = new World(scene);
@@ -151,7 +162,7 @@ export class Mission {
     const nE = num('arena.escorts');
     const escortClasses = escortPool(w.year);
     let si = 0;
-    if (this.side === 'allied' && !this.spectator) {
+    if (this.side === 'allied' && !this.spectator && battle === 'none') {
       const cls = VESSELS[str('arena.escortClass')] ?? VESSELS.destroyer;
       const st = stations[si++];
       const p = this.stationPos(st);
@@ -192,7 +203,7 @@ export class Mission {
       }
       return u;
     };
-    if (this.side === 'axis' && !this.spectator) {
+    if (this.side === 'axis' && !this.spectator && battle === 'none') {
       const u = spawnU(0, true);
       u.isPlayer = true;
       w.player = u;
@@ -228,6 +239,8 @@ export class Mission {
       w.islands.push({ x, y, r, model: scene.atlas.add(islandArt(i + 1, r)) });
       w.physics.addLand(x, y, { r: r * 0.8 });
     }
+
+    if (battle !== 'none') this.scenario = createScenario(battle, this, scene);
 
     // contract mutators make the opposing side's warships tougher / sharper
     if (opts.enemyStats) for (const v of w.vessels) if (v.side !== this.side && (v.kind === 'escort' || v.kind === 'uboat')) v.stats = opts.enemyStats;
@@ -305,6 +318,11 @@ export class Mission {
     const w = this.world;
     this.elapsed += dt;
     if (this.startNote && this.elapsed > 1) { w.emit('message', { text: this.startNote, side: 'axis', kind: 'crew' }); this.startNote = null; }
+    if (this.scenario) {
+      this.scenario.update(dt);
+      if (w.env.darkness > 0.5) this.stats.darkTime += dt;
+      return;
+    }
     this.convoy.update(dt);
     this.airCover(dt);
     this.convoyRepair(dt);

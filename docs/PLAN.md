@@ -30,6 +30,8 @@ and running, but WebGL2 parity, visuals and performance are no longer verified o
 | M14 | Playtest fixes: capsizing U-boats, bearing-line clutter, tutorial for both sides | DONE | [M14](milestones/M14-playtest-fixes.md) |
 | M15 | Mobile: fullscreen game mode, portrait 9:16, touch layout and assists, swipeable toasts, night outline | DONE | [M15](milestones/M15-mobile.md) |
 | M16 | U-boats start submerged (surfaced only where it makes sense: port, diving lesson, pre-radar night) | DONE | [M16](milestones/M16-submerged-start.md) |
+| M17 | The navies at true scale: USN/IJN classes, carrier air strikes, real harbour geography; Pearl Harbor and Midway | DONE | [M17](milestones/M17-pearl-midway.md) |
+| M18 | More historic battles on the M17 framework (candidates: Coral Sea, Savo Island, the Denmark Strait / Bismarck, convoy PQ 17, the River Plate); Pearl Harbor prologue with USS Ward (06:37) | TODO | (write the milestone file first) |
 
 Order matters for M1→M6 (renderer). M7 and M8 are independent of the renderer and may be done
 before M1 if preferred; M9 needs nothing else; M10 needs M7 + M9; M11 needs M10; M12/M13 last.
@@ -97,6 +99,13 @@ on any failure or later device loss. The active backend shows in the FPS overlay
   needed; rollback if anything goes badly wrong. Merged and closed is enough: the head branch stays (sessions
   cannot delete branches, GitHub answers 403).
 
+- 2026-10 (M17, user): "create to scale all of the ships in the navy … start by recreating Midway and Pearl
+  Harbor, to scale, historically accurate" — a departure from the convoy-only plan. Historic battles are
+  scenarios on top of the arena (`arena.scenario`), with the side mapping kept mechanical (`allied` = surface
+  force, `axis` = submarine force) so the escort/U-boat player code serves both navies. Battles replay history
+  where the player does not intervene: element hits are assigned to aircraft up front and cancelled if that
+  plane is shot down; capsizes are scripted at their historical times once enough water is in the hull.
+
 ## Known issues (keep this list current)
 - Arctic pack ice is visual only (ragged floes since M12, but no drag or collisions for ships).
 - U-boat kills by AI escorts are still rare (none in the M14 fast-forwards); fine historically, revisit after playtests.
@@ -132,3 +141,13 @@ on any failure or later device loss. The active backend shows in the FPS overlay
   depth, so the first attacks can come right after it (seed 42: an idle escort torpedoed at 123 s); idle escort
   losses over 15 min fell to 0–3 merchants. Tune with playtests (U-boat AI pacing has only had headless testing).
 - No mission starts in port yet, so `arena.uboatStart = surfaced` (a port departure) only serves the U-boat lesson.
+- Historic battles (M17): positions of berths and shores are estimates (±150 m near Ford Island) from search
+  snippets; the network blocked the primary sources (Wikipedia, NHHC, HyperWar, combinedfleet). Re-trace
+  them against OSM or the 1941 berthing chart when those sites are reachable.
+- Historic battles: AI escorts were written for open ocean. Inside Pearl Harbor they are held at a listening
+  point and a shore pilot keeps them off the banks; a player midget that lies still near a bank can still
+  draw a hunting destroyer aground. The capital ships at Midway use their own formation-keeping AI.
+- The Midway screen destroyers sometimes bump each other while two of them hunt the same contact.
+- Historic battles run at real time (2–2.5 h of game time); time compression (up to 16×) makes them
+  playable, but headless runs only covered them with fast-forwards. Performance with ~25 big ships and land
+  tiles on a real GPU is unmeasured; the 3072² atlas is ~38 MB per texture (two textures).

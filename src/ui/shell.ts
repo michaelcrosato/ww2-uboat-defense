@@ -19,11 +19,12 @@ import { missionEndScreen } from './screens/missionEnd';
 import { factionScreen, portScreen } from './screens/port';
 import { afterActionScreen } from './screens/afterAction';
 import { tutorialScreen } from './screens/tutorial';
+import { battlesScreen } from './screens/battles';
 import { TUTORIAL_ARENA, tutorialStats, type TutorialSide } from '../game/tutorial';
 import { Career } from '../game/career';
 import type { Contract } from '../meta/index.ts';
 
-export type MenuId = 'title' | 'arena' | 'dev' | 'settings' | 'controls' | 'credits' | 'pause' | 'end' | 'port' | 'faction' | 'tutorial';
+export type MenuId = 'title' | 'arena' | 'dev' | 'settings' | 'controls' | 'credits' | 'pause' | 'end' | 'port' | 'faction' | 'tutorial' | 'battles';
 
 /** attract-mode looks, picked at random each time the backdrop restarts */
 const ATTRACT: Record<string, number | string | boolean>[] = [
@@ -96,6 +97,7 @@ export class Shell {
       case 'controls': this.ui.push(controlsScreen(this)); return;
       case 'credits': this.ui.push(creditsScreen(this)); return;
       case 'tutorial': this.ui.push(tutorialScreen(this)); return;
+      case 'battles': this.ui.push(battlesScreen(this)); return;
       case 'pause': if (this.playing) this.ui.push(pauseScreen(this)); return;
       case 'end': if (this.app.mission) this.ui.push(missionEndScreen(this, this.app.mission)); return;
       case 'faction': this.ui.push(factionScreen(this, () => this.open('port'))); return;
@@ -126,6 +128,8 @@ export class Shell {
     this.app.startMission(TUTORIAL_ARENA[side], { tutorial: side, stats: tutorialStats(), onEnd: (m) => this.onMissionEnd(m) });
     this.app.paused = false;
   }
+  /** a historical battle (src/game/historic): its own forces and timeline; earns no experience */
+  launchBattle(id: string, side: 'escort' | 'uboat') { this.launch({ 'arena.scenario': id, 'arena.side': side }, 'test'); }
   /** fly a contract with the active captain (stats, abilities, mutators, loot drops) */
   launchContract(k: Contract) {
     this.mode = 'career';

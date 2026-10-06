@@ -8,7 +8,7 @@ import type { Theater } from './theaters';
 import { Bus } from '../core/events';
 import type { StackModel } from '../art/voxel';
 import type { VesselClass, Side } from './vesselClasses';
-import { Vessel } from './vessel';
+import { Vessel, type SpawnOpts } from './vessel';
 import type { Light } from '../render/lights';
 import type { RenderScene } from '../render/scene';
 import { dev } from '../core/devSettings';
@@ -77,6 +77,13 @@ export class World {
   shoreLights: Light[] = [];
   /** rotating lighthouse beam origin */
   lighthouse: { x: number; y: number; z: number } | null = null;
+  /** shallow water (historical harbors): sunk ships settle on the bottom here (m) and their wrecks stay */
+  seabed: number | null = null;
+  /**
+   * Extra simulation systems (historical battles: air raids, scripted timelines): stepped after the
+   * projectiles each fixed step, drawn after the vessels each frame.
+   */
+  systems: { update(dt: number): void; submit(frameDt: number): void }[] = [];
   /** short-lived lights (muzzle flashes, explosions) that outlive the physics step that made them */
   transient: { l: Light; t: number; dur: number; i0: number }[] = [];
   flashLight(l: Light, dur: number) { this.transient.push({ l, t: 0, dur, i0: l.intensity }); }
@@ -107,7 +114,7 @@ export class World {
     return a;
   }
 
-  spawn(cls: VesselClass, x: number, y: number, heading: number, opts: { name?: string; submerged?: number; fragment?: [number, number] } = {}): Vessel {
+  spawn(cls: VesselClass, x: number, y: number, heading: number, opts: SpawnOpts = {}): Vessel {
     const v = new Vessel(this, cls, x, y, heading, opts);
     this.vessels.push(v);
     return v;
@@ -137,6 +144,7 @@ export class World {
     this.projectiles?.preStep(dt);
     this.physics.step();
     this.projectiles?.postStep(dt);
+    for (const s of this.systems) s.update(dt);
     this.sensors?.update(dt);
     // ramming and collisions
     for (const im of this.physics.impacts) {
@@ -177,7 +185,7 @@ export class World {
     for (let i = this.vessels.length - 1; i >= 0; i--) {
       const v = this.vessels[i];
       // only once under water (a wreck still showing a bow must not vanish), with a hard cap
-      if (!v.alive && this.time > v.removeAt && (v.hydro.submergedAll || this.time > v.removeAt + 120)) {
+      if (!v.alive && this.seabed === null && this.time > v.removeAt && (v.hydro.submergedAll || this.time > v.removeAt + 120)) {
         this.physics.remove(v.body);
         this.vessels.splice(i, 1);
       }
@@ -206,6 +214,7 @@ export class World {
       R.lights.add({ x: L.x, y: L.y, z: L.z, reach: 60, r: 1, g: 0.9, b: 0.7, intensity: 1.5 * night, priority: 3 });
     }
     this.projectiles?.submit(frameDt);
+    for (const s of this.systems) s.submit(frameDt);
     for (let i = this.transient.length - 1; i >= 0; i--) {
       const tl = this.transient[i];
       tl.t += frameDt;

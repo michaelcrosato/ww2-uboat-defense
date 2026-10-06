@@ -27,6 +27,8 @@ export interface Theater {
   coastLights?: boolean;
   /** era flavour for contracts */
   convoyPrefix: string;
+  /** a historical battle's own setting (a harbour): never drawn for a contract's open-sea convoy */
+  scenarioOnly?: boolean;
 }
 
 export const THEATERS: Theater[] = [
@@ -77,6 +79,22 @@ export const THEATERS: Theater[] = [
     foam: '#f1f6fa', foamShade: '#9fbcd6', murk: '#082c52', clarity: 24, bio: 0.7,
     skyDay: '#93bde0', skyDusk: '#c98e70', skyNight: '#060c1d', fog: '#a5b8c8',
     swellHeight: 2.0, swellDirDeg: 30, swellLength: 200, seaState: 4, latitude: 8, layerDepth: 80,
+  },
+  {
+    id: 'pacific', name: 'Central Pacific', region: 'Midway, the Kido Butai', convoyPrefix: 'PS',
+    blurb: 'Deep blue ocean under towering cumulus. Carrier war: the fleets never see each other, only their aircraft do.',
+    ramp: ['#031a3a', '#062552', '#0a326a', '#104281', '#175396', '#2167aa', '#2f7fbd', '#4698cc'],
+    foam: '#f4f8fb', foamShade: '#a6c2da', murk: '#0a2c56', clarity: 30, bio: 0.3,
+    skyDay: '#8fbde6', skyDusk: '#c99474', skyNight: '#050b1c', fog: '#a2bad0',
+    swellHeight: 1.4, swellDirDeg: 60, swellLength: 160, seaState: 3, latitude: 31, layerDepth: 90,
+  },
+  {
+    id: 'pearl_harbor', name: 'Pearl Harbor', region: 'Oahu, Territory of Hawaii', convoyPrefix: 'PH', scenarioOnly: true,
+    blurb: 'A shallow, muddy anchorage ringed by cane fields and the Navy Yard. Twelve metres of water under the battleships.',
+    ramp: ['#16261f', '#1c3027', '#233a2f', '#2b4537', '#355141', '#405d4b', '#4f6c58', '#647f69'],
+    foam: '#e6ebe2', foamShade: '#a8b5a2', murk: '#1e2e24', clarity: 4, bio: 0.05,
+    skyDay: '#9cc2e2', skyDusk: '#c99474', skyNight: '#070d1c', fog: '#a6b8c4',
+    swellHeight: 0.05, swellDirDeg: 180, swellLength: 40, seaState: 1, latitude: 21, layerDepth: 0, coastLights: false,
   },
 ];
 

@@ -185,7 +185,7 @@ export class Projectiles {
     const p = v.local((opts.stern ? -1 : 1) * L * 0.47, 0, -v.cls.draft * 0.55);
     const kind = opts.kind ?? (spec.wake ? (this.w.year < 1942 || this.w.rng.next() < 0.5 ? 'steam' : 'electric') : 'electric');
     const spd = spec.speedKn * KNOT * v.stats.mul('torpedo_speed_pct') * (kind === 'steam' ? 1.1 : kind === 'acoustic' ? 0.62 : 1);
-    const dudChance = Math.max(0, dev.num('game.duds') - v.stats.get('torpedo_dud_reduction') / 100);
+    const dudChance = Math.max(0, (v.cls.torpedoes?.dud ?? dev.num('game.duds')) - v.stats.get('torpedo_dud_reduction') / 100);
     this.torpedoes.push({
       id: torpedoIds++, x: p.x, y: p.y, z: Math.min(p.z, -2), heading: h, course, speed: spd, from: v,
       left: spec.range * v.stats.mul('torpedo_range_pct'), run: 0, kind,

@@ -18,6 +18,7 @@ export function titleScreen(shell: Shell): UiScreen {
       h('div', { class: 'menu-list' },
         fresh ? tutorial : null,
         button('Arena', () => shell.open('arena'), 'btn big', { 'data-autofocus': !fresh || undefined, 'data-help': 'Customise a convoy battle and play it as the escort or the U-boat.' }),
+        button('Historic Battles', () => shell.open('battles'), 'btn big', { 'data-help': 'Pearl Harbor and Midway, every ship at true scale, as they happened.' }),
         button('Port', () => shell.open('port'), 'btn big', { 'data-help': 'The captain\'s career: contracts, loot, the shipyard and the skill tree.' }),
         fresh ? null : tutorial,
         button('Settings', () => shell.open('settings'), 'btn', { 'data-help': 'Display, audio and controller options.' }),
@@ -37,7 +38,7 @@ export function creditsScreen(shell: Shell): UiScreen {
       h('p', null, 'A prototype of top-down naval combat in the Battle of the Atlantic.'),
       h('p', null, 'Ships, water, light, sound and music are generated procedurally in code: voxel hulls sliced into sprite stacks, a Gerstner ocean with GPU wave and fluid simulations, deferred pixel lighting and a Web Audio synthesiser.'),
       h('p', null, 'Physics by the Rapier engine (Dimforge, Apache-2.0). 5×7 pixel font adapted from the my-3d2dge project.'),
-      h('p', { class: 'dim' }, 'Ship and boat names are fictional. No political symbols are depicted.'),
+      h('p', { class: 'dim' }, 'Convoy ship and boat names are fictional; the historic battles use the real ships\' names. No political symbols are depicted.'),
       h('div', { class: 'btn-row' }, button('Back', () => shell.ui.back(), 'btn', { 'data-autofocus': true }))));
   return { id: 'credits', el };
 }

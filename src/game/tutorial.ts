@@ -83,7 +83,7 @@ interface Step {
   skip?: (c: Ctx) => boolean;
 }
 
-export interface TutorialView { title: string; body: string; n: number; total: number; done: boolean; alpha: number; footer: string }
+export interface TutorialView { title: string; body: string; n: number; total: number; done: boolean; alpha: number; footer: string; tag?: string }
 
 export class Tutorial {
   private readonly steps: Step[];

@@ -24,6 +24,8 @@ export const GROUPS = {
 
 /** collider owner tag for static land */
 export const LAND = 'land';
+/** the harbour bottom: wrecks settle on it, no grounding damage */
+export const SEABED = 'seabed';
 
 export interface ContactImpact { a: number; b: number; force: number; x: number; y: number; z: number }
 
@@ -66,6 +68,25 @@ export class Physics {
       : RAPIER.ColliderDesc.cuboid(shape.hx, shape.hy, 40);
     const c = this.world.createCollider(desc.setCollisionGroups(GROUPS.land).setFriction(0.6).setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS), body);
     this.owners.set(c.handle, LAND);
+    return body;
+  }
+
+  /** many static land boxes on one fixed body (a rasterised coastline, src/game/historic/land.ts) */
+  addLandRects(rects: { x: number; y: number; hx: number; hy: number }[]) {
+    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+    for (const r of rects) {
+      const c = this.world.createCollider(RAPIER.ColliderDesc.cuboid(r.hx, r.hy, 22).setTranslation(r.x, r.y, -18)
+        .setCollisionGroups(GROUPS.land).setFriction(0.6).setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS), body);
+      this.owners.set(c.handle, LAND);
+    }
+    return body;
+  }
+
+  /** a flat harbour bottom d metres down: hulls rest on it without grounding damage */
+  addSeabed(d: number, x0: number, y0: number, x1: number, y1: number) {
+    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation((x0 + x1) / 2, (y0 + y1) / 2, -d - 2));
+    const c = this.world.createCollider(RAPIER.ColliderDesc.cuboid((x1 - x0) / 2, (y1 - y0) / 2, 2).setCollisionGroups(GROUPS.land).setFriction(0.9), body);
+    this.owners.set(c.handle, SEABED);
     return body;
   }
 
